@@ -1,5 +1,27 @@
 {
   "version": 1,
-  "updatedAt": "",
-  "records": {}
+  "updatedAt": "2026-06-17T15:09:19.892Z",
+  "records": {
+    "XPBL2625WE": {
+      "vvd": "XPBL2625WE",
+      "lane": "CGX",
+      "vesselName": "EXPRESS BERLIN",
+      "updatedAt": "2026-06-17T15:09:19.892Z",
+      "allocation": {
+        "wbTeus": null,
+        "ebTeus": null,
+        "tonPerTeu": 14,
+        "wbMt": null,
+        "ebMt": null,
+        "wbRf": null,
+        "ebRf": null
+      },
+      "selectedWbPodKeys": [
+        "MYPKG::2026-07-13 21:00:00"
+      ],
+      "selectedWbPodPorts": [
+        "MYPKG"
+      ]
+    }
+  }
 }
