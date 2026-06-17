@@ -500,6 +500,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
   <script>
     const cargoLabels = ["LILIAN", "SUL", "T/S", "SOC", "RF", "MT", "Weight", "TTL"];
     const SCHEDULE_URL = "https://raw.githubusercontent.com/BOBWZW2/data-base/main/schedule_latest.xlsx";
@@ -569,9 +570,11 @@
     const state = {
       activeSheet: "WB",
       tableData: { WB: null, EB: null },
+      entries: { WB: {}, EB: {} },
       scheduleRows: null,
       vesselMapping: null,
-      currentLookup: null
+      currentLookup: null,
+      lookupSignature: ""
     };
 
     const $ = (id) => document.getElementById(id);
@@ -820,7 +823,25 @@
       return calls.map((call) => [call.port, formatMmDd(call.etb), formatMmDd(call.etd)]);
     }
 
+    function lookupSignature(lookup) {
+      return [
+        lookup.inputVvd,
+        lookup.lane,
+        lookup.currentWVvd,
+        lookup.currentEVvd,
+        lookup.nextWVvd,
+        lookup.nextEVvd,
+        lookup.wbCalls.map((call) => `${call.vvd}:${call.port}:${call.etd}`).join("|"),
+        lookup.ebRouteCalls.map((call) => `${call.vvd}:${call.port}:${call.etd}`).join("|")
+      ].join("::");
+    }
+
     function applyLookup(lookup) {
+      const signature = lookupSignature(lookup);
+      if (state.lookupSignature && state.lookupSignature !== signature) {
+        state.entries = { WB: {}, EB: {} };
+      }
+      state.lookupSignature = signature;
       state.currentLookup = lookup;
       $("serviceLane").value = lookup.lane;
       $("vesselName").value = lookup.vesselName;
@@ -981,6 +1002,43 @@
     function parseCellNumber(text) {
       const value = Number(String(text || "").replace(/,/g, "").trim());
       return Number.isFinite(value) ? value : 0;
+    }
+
+    function entryKey(block, row, pod, side) {
+      return `${block}|${row}|${pod}|${side}`;
+    }
+
+    function saveCellEntry(cell, sheetName) {
+      if (!cell?.dataset) return;
+      const { block, row, pod, side } = cell.dataset;
+      if (block === undefined || row === undefined || pod === undefined || !side) return;
+      const key = entryKey(block, row, pod, side);
+      const value = normalizeText(cell.textContent);
+      if (!state.entries[sheetName]) state.entries[sheetName] = {};
+      if (value) state.entries[sheetName][key] = value;
+      else delete state.entries[sheetName][key];
+    }
+
+    function saveEntriesFromCurrentTable() {
+      const table = activeTable();
+      if (!table) return;
+      const sheetName = table.dataset.sheet || state.activeSheet;
+      table.querySelectorAll(".editable[data-block][data-row][data-pod][data-side]").forEach((cell) => {
+        saveCellEntry(cell, sheetName);
+      });
+    }
+
+    function applyEntriesToTable(table, sheetName) {
+      const entries = state.entries[sheetName] || {};
+      Object.entries(entries).forEach(([key, value]) => {
+        const [block, row, pod, side] = key.split("|");
+        const cell = table.querySelector(
+          `[data-block="${block}"][data-row="${row}"][data-pod="${pod}"][data-side="${side}"]`
+        );
+        if (cell && cell.classList.contains("editable")) {
+          cell.textContent = value;
+        }
+      });
     }
 
     function buildTable(model) {
@@ -1357,6 +1415,7 @@
     }
 
     function render() {
+      saveEntriesFromCurrentTable();
       const input = readInputs();
       $("summaryLine").textContent = `${input.vesselName} / ${input.vvd} · ${input.serviceLane}`;
       state.tableData.WB = makeTableModel(input, "WB");
@@ -1364,6 +1423,7 @@
       const model = state.tableData[state.activeSheet];
       const table = buildTable(model);
       $("sheetWrap").replaceChildren(table);
+      applyEntriesToTable(table, state.activeSheet);
       recalcTable(table);
       $("status").textContent = `${state.activeSheet} ${model.sheet.pods.length} POD · ${model.sheet.pols.length} POL`;
     }
@@ -1429,25 +1489,335 @@
       }
     }
 
-    function exportXls() {
-      const table = activeTable();
-      if (!table) return;
-      if (!window.XLSX) {
+    function excelCol(col) {
+      let name = "";
+      while (col > 0) {
+        const mod = (col - 1) % 26;
+        name = String.fromCharCode(65 + mod) + name;
+        col = Math.floor((col - mod) / 26);
+      }
+      return name;
+    }
+
+    function excelCell(col, row) {
+      return `${excelCol(col)}${row}`;
+    }
+
+    function sumFormula(terms) {
+      const clean = terms.filter(Boolean);
+      return clean.length ? clean.join("+") : "0";
+    }
+
+    function safeMerge(ws, r1, c1, r2, c2) {
+      if (r1 === r2 && c1 === c2) return;
+      ws.mergeCells(r1, c1, r2, c2);
+    }
+
+    function setCell(ws, row, col, value, style = {}) {
+      const cell = ws.getCell(row, col);
+      cell.value = value;
+      applyExcelStyle(cell, style);
+      return cell;
+    }
+
+    function setFormulaCell(ws, row, col, formula, style = {}) {
+      const cell = ws.getCell(row, col);
+      cell.value = { formula, result: 0 };
+      applyExcelStyle(cell, style);
+      return cell;
+    }
+
+    function applyExcelStyle(cell, style = {}) {
+      cell.alignment = style.alignment || { horizontal: "center", vertical: "middle" };
+      cell.font = style.font || { name: "Arial", size: 9, bold: !!style.bold };
+      if (style.fill) {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: style.fill } };
+      }
+      if (style.numFmt) cell.numFmt = style.numFmt;
+      cell.border = style.border || {
+        top: { style: "thin", color: { argb: "FF1F2937" } },
+        left: { style: "thin", color: { argb: "FF1F2937" } },
+        bottom: { style: "thin", color: { argb: "FF1F2937" } },
+        right: { style: "thin", color: { argb: "FF1F2937" } }
+      };
+    }
+
+    function entryValue(sheetName, block, row, pod, side) {
+      return state.entries[sheetName]?.[entryKey(block, row, pod, side)] || "";
+    }
+
+    function entryNumberValue(sheetName, block, row, pod, side) {
+      const value = parseCellNumber(entryValue(sheetName, block, row, pod, side));
+      return value || null;
+    }
+
+    function buildExcelSheet(workbook, input, sheetName) {
+      const model = makeTableModel(input, sheetName);
+      const ws = workbook.addWorksheet(sheetName, {
+        views: [{ showGridLines: false, state: "frozen", ySplit: 5 }]
+      });
+
+      const n = model.sheet.pods.length;
+      const podLeftCols = Array.from({ length: n }, (_, i) => 4 + i * 2);
+      const podRightCols = podLeftCols.map((col) => col + 1);
+      const podEnd = 3 + n * 2;
+      const summaryStart = podEnd + 1;
+      const summary = {
+        total20: summaryStart,
+        total40: summaryStart + 1,
+        ttl: summaryStart + 2,
+        robAll: summaryStart + 3,
+        robLd: summaryStart + 4,
+        utilAll: summaryStart + 5,
+        utilLd: summaryStart + 6,
+        avlTeu: summaryStart + 7,
+        avlWeight: summaryStart + 8,
+        rf: summaryStart + 9,
+        last: summaryStart + 9
+      };
+      const maxRow = 5 + model.blocks.length * 8;
+      const headerFill = "FF92C8F6";
+      const yellowFill = "FFFFFF00";
+      const whiteFill = "FFFFFFFF";
+      const computedFill = "FFFAFAFA";
+      const countFmt = '0;-0;;@';
+      const weightFmt = '0.0;-0.0;;@';
+      const percentFmt = '0%;-0%;;@';
+      const baseStyle = { fill: whiteFill };
+      const headerStyle = { fill: headerFill, bold: true };
+      const yellowStyle = { fill: yellowFill, bold: true };
+      const computedStyle = { fill: computedFill, bold: true };
+
+      ws.columns = Array.from({ length: summary.last }, (_, index) => {
+        if (index === 0) return { width: 8 };
+        if (index === 1) return { width: 9 };
+        if (index === 2) return { width: 11 };
+        if (index >= summaryStart - 1) return { width: 9.5 };
+        return { width: 7.5 };
+      });
+      for (let row = 1; row <= maxRow; row += 1) {
+        ws.getRow(row).height = row <= 5 ? 20 : 18;
+      }
+
+      const totalCols = summary.last;
+      const reportSpan = 5;
+      const titleSpan = Math.min(7, Math.max(1, totalCols - reportSpan - 1));
+      const selectionSpan = Math.max(1, totalCols - titleSpan - reportSpan);
+      safeMerge(ws, 1, 1, 1, titleSpan);
+      safeMerge(ws, 1, titleSpan + 1, 1, titleSpan + selectionSpan);
+      safeMerge(ws, 1, totalCols - reportSpan + 1, 1, totalCols);
+      setCell(ws, 1, 1, "Vessel Space Utilization Report -", headerStyle);
+      setCell(ws, 1, titleSpan + 1, `Selection: ${input.selection}`, headerStyle);
+      setCell(ws, 1, totalCols - reportSpan + 1, `Report Generated: ${input.reportDate}`, headerStyle);
+
+      safeMerge(ws, 2, 1, 2, 3);
+      if (n > 0) safeMerge(ws, 2, 4, 2, podEnd);
+      setCell(ws, 2, 1, `Service Lane : ${input.serviceLane}`, headerStyle);
+      setCell(ws, 2, 4, `${input.vesselName} / ${input.vvd}`, headerStyle);
+      setCell(ws, 2, summary.total20, `${model.sheet.allocationLabel} :`, headerStyle);
+      setCell(ws, 2, summary.total40, model.sheet.allocation.teus || "", yellowStyle);
+      setCell(ws, 2, summary.ttl, "TEUS,", headerStyle);
+      setCell(ws, 2, summary.robAll, model.sheet.allocation.mt || "", yellowStyle);
+      setCell(ws, 2, summary.robLd, "MT,", headerStyle);
+      setCell(ws, 2, summary.utilAll, model.sheet.allocation.rf || "", yellowStyle);
+      safeMerge(ws, 2, summary.utilLd, 2, summary.rf);
+      setCell(ws, 2, summary.utilLd, "RF PLUGS", headerStyle);
+
+      safeMerge(ws, 3, 1, 5, 1);
+      safeMerge(ws, 3, 2, 3, 3);
+      safeMerge(ws, 4, 2, 4, 3);
+      safeMerge(ws, 5, 2, 5, 3);
+      setCell(ws, 3, 2, "POD", headerStyle);
+      setCell(ws, 4, 2, "ETA", headerStyle);
+      setCell(ws, 5, 2, "POL", headerStyle);
+      model.sheet.pods.forEach((pod, index) => {
+        const left = podLeftCols[index];
+        safeMerge(ws, 3, left, 3, left + 1);
+        safeMerge(ws, 4, left, 4, left + 1);
+        setCell(ws, 3, left, pod.port, headerStyle);
+        setCell(ws, 4, left, pod.eta, String(pod.eta).toUpperCase() === "SKIP" ? yellowStyle : headerStyle);
+        setCell(ws, 5, left, "20'", headerStyle);
+        setCell(ws, 5, left + 1, "40'", headerStyle);
+      });
+      safeMerge(ws, 3, summary.total20, 3, summary.total40);
+      safeMerge(ws, 3, summary.ttl, 4, summary.ttl);
+      safeMerge(ws, 3, summary.robAll, 3, summary.robLd);
+      safeMerge(ws, 3, summary.utilAll, 3, summary.utilLd);
+      safeMerge(ws, 3, summary.avlTeu, 3, summary.avlWeight);
+      safeMerge(ws, 3, summary.rf, 4, summary.rf);
+      setCell(ws, 3, summary.total20, "TOTAL", headerStyle);
+      setCell(ws, 5, summary.total20, "20'", headerStyle);
+      setCell(ws, 5, summary.total40, "40'", headerStyle);
+      setCell(ws, 3, summary.ttl, "TTL", headerStyle);
+      setCell(ws, 5, summary.ttl, "TEUS", headerStyle);
+      setCell(ws, 3, summary.robAll, "ROB (TEUS)", headerStyle);
+      setCell(ws, 5, summary.robAll, "(All)", headerStyle);
+      setCell(ws, 5, summary.robLd, "(LD)", headerStyle);
+      setCell(ws, 3, summary.utilAll, "UTILISATION", headerStyle);
+      setCell(ws, 5, summary.utilAll, "(All)", headerStyle);
+      setCell(ws, 5, summary.utilLd, "(LD)", headerStyle);
+      setCell(ws, 3, summary.avlTeu, "AVL", headerStyle);
+      setCell(ws, 5, summary.avlTeu, "TEUs", headerStyle);
+      setCell(ws, 5, summary.avlWeight, "Weight", headerStyle);
+      setCell(ws, 3, summary.rf, "RF Plug", headerStyle);
+
+      const totalBlockIndex = model.blocks.length - 1;
+      const blockStarts = model.blocks.map((_, index) => 6 + index * 8);
+      const totalStart = blockStarts[totalBlockIndex];
+      const allocTeuCell = excelCell(summary.total40, 2);
+      const allocWeightCell = excelCell(summary.robAll, 2);
+      const allocRfCell = excelCell(summary.utilAll, 2);
+
+      model.blocks.forEach((block, blockIndex) => {
+        const start = blockStarts[blockIndex];
+        safeMerge(ws, start, 1, start + 4, 2);
+        safeMerge(ws, start + 7, 1, start + 7, 2);
+        setCell(ws, start, 1, block.port, { ...baseStyle, bold: true });
+        setCell(ws, start + 5, 1, "ETB", baseStyle);
+        setCell(ws, start + 5, 2, block.etb || "", baseStyle);
+        setCell(ws, start + 6, 1, "ETD", baseStyle);
+        setCell(ws, start + 6, 2, block.etd || "", baseStyle);
+        cargoLabels.forEach((label, offset) => {
+          const row = start + offset;
+          setCell(ws, row, 3, label, { ...baseStyle, bold: true, alignment: { horizontal: "left", vertical: "middle" } });
+          model.sheet.pods.forEach((_pod, podIndex) => {
+            const left = podLeftCols[podIndex];
+            const right = left + 1;
+            if (offset === 6) {
+              safeMerge(ws, row, left, row, right);
+              if (blockIndex === totalBlockIndex) {
+                setFormulaCell(
+                  ws,
+                  row,
+                  left,
+                  sumFormula(blockStarts.slice(0, totalBlockIndex).map((blockStart) => excelCell(left, blockStart + 6))),
+                  { ...computedStyle, numFmt: weightFmt }
+                );
+              } else {
+                setCell(ws, row, left, entryNumberValue(sheetName, blockIndex, offset, podIndex, "weight"), { ...baseStyle, numFmt: weightFmt });
+              }
+              return;
+            }
+            if (blockIndex === totalBlockIndex) {
+              setFormulaCell(
+                ws,
+                row,
+                left,
+                sumFormula(blockStarts.slice(0, totalBlockIndex).map((blockStart) => excelCell(left, blockStart + offset))),
+                { ...computedStyle, numFmt: countFmt }
+              );
+              setFormulaCell(
+                ws,
+                row,
+                right,
+                sumFormula(blockStarts.slice(0, totalBlockIndex).map((blockStart) => excelCell(right, blockStart + offset))),
+                { ...computedStyle, numFmt: countFmt }
+              );
+            } else if (offset === 7) {
+              setFormulaCell(ws, row, left, `SUM(${excelCell(left, start)}:${excelCell(left, start + 5)})`, { ...computedStyle, numFmt: countFmt });
+              setFormulaCell(ws, row, right, `SUM(${excelCell(right, start)}:${excelCell(right, start + 5)})`, { ...computedStyle, numFmt: countFmt });
+            } else {
+              setCell(ws, row, left, entryNumberValue(sheetName, blockIndex, offset, podIndex, "left"), { ...baseStyle, numFmt: countFmt });
+              setCell(ws, row, right, entryNumberValue(sheetName, blockIndex, offset, podIndex, "right"), { ...baseStyle, numFmt: countFmt });
+            }
+          });
+
+          if (offset === 6) {
+            safeMerge(ws, row, summary.total20, row, summary.total40);
+            setFormulaCell(ws, row, summary.total20, sumFormula(podLeftCols.map((col) => excelCell(col, row))), { ...computedStyle, numFmt: weightFmt });
+            setCell(ws, row, summary.ttl, "", computedStyle);
+          } else if (offset === 7) {
+            setFormulaCell(ws, row, summary.total20, `SUM(${excelCell(summary.total20, start)}:${excelCell(summary.total20, start + 5)})`, { ...computedStyle, numFmt: countFmt });
+            setFormulaCell(ws, row, summary.total40, `SUM(${excelCell(summary.total40, start)}:${excelCell(summary.total40, start + 5)})`, { ...computedStyle, numFmt: countFmt });
+            setFormulaCell(ws, row, summary.ttl, `${excelCell(summary.total20, row)}+${excelCell(summary.total40, row)}*2`, { ...computedStyle, numFmt: countFmt });
+          } else {
+            setFormulaCell(ws, row, summary.total20, sumFormula(podLeftCols.map((col) => excelCell(col, row))), { ...computedStyle, numFmt: countFmt });
+            setFormulaCell(ws, row, summary.total40, sumFormula(podRightCols.map((col) => excelCell(col, row))), { ...computedStyle, numFmt: countFmt });
+            setFormulaCell(ws, row, summary.ttl, `${excelCell(summary.total20, row)}+${excelCell(summary.total40, row)}*2`, { ...computedStyle, numFmt: countFmt });
+          }
+        });
+      });
+
+      const podIndexByName = new Map();
+      model.sheet.pods.forEach((pod, index) => {
+        if (!podIndexByName.has(pod.port)) podIndexByName.set(pod.port, index);
+      });
+      blockStarts.slice(0, totalBlockIndex).forEach((start, blockIndex) => {
+        const loadAll = `SUM(${excelCell(summary.ttl, start)}:${excelCell(summary.ttl, start + 5)})`;
+        const loadLd = `SUM(${excelCell(summary.ttl, start)}:${excelCell(summary.ttl, start + 4)})`;
+        const loadWeight = excelCell(summary.total20, start + 6);
+        const loadRf = `${excelCell(summary.total20, start + 4)}+${excelCell(summary.total40, start + 4)}`;
+        let dischargeTeu = "0";
+        let dischargeMt = "0";
+        let dischargeWeight = "0";
+        let dischargeRf = "0";
+        if (blockIndex > 0) {
+          const podIndex = podIndexByName.get(model.blocks[blockIndex].port);
+          if (podIndex !== undefined) {
+            const left = podLeftCols[podIndex];
+            const right = podRightCols[podIndex];
+            dischargeTeu = sumFormula(Array.from({ length: 6 }, (_, offset) => `${excelCell(left, totalStart + offset)}+${excelCell(right, totalStart + offset)}*2`));
+            dischargeMt = `${excelCell(left, totalStart + 5)}+${excelCell(right, totalStart + 5)}*2`;
+            dischargeWeight = excelCell(left, totalStart + 6);
+            dischargeRf = `${excelCell(left, totalStart + 4)}+${excelCell(right, totalStart + 4)}`;
+          }
+        }
+
+        const prevStart = blockStarts[blockIndex - 1];
+        const robAllFormula = blockIndex === 0 ? loadAll : `${excelCell(summary.robAll, prevStart)}+${loadAll}-(${dischargeTeu})`;
+        const robLdFormula = blockIndex === 0 ? loadLd : `${excelCell(summary.robLd, prevStart)}+${loadLd}-((${dischargeTeu})-(${dischargeMt}))`;
+        const weightFormula = blockIndex === 0 ? loadWeight : `${excelCell(summary.robAll, prevStart + 6)}+${loadWeight}-(${dischargeWeight})`;
+        const rfFormula = blockIndex === 0 ? `${allocRfCell}-(${loadRf})` : `${excelCell(summary.rf, prevStart + 4)}-(${loadRf})+(${dischargeRf})`;
+
+        setFormulaCell(ws, start, summary.robAll, robAllFormula, { ...computedStyle, numFmt: countFmt });
+        setFormulaCell(ws, start, summary.robLd, robLdFormula, { ...computedStyle, numFmt: countFmt });
+        setFormulaCell(ws, start, summary.utilAll, `IF(${allocTeuCell}>0,${excelCell(summary.robAll, start)}/${allocTeuCell},0)`, { ...computedStyle, numFmt: percentFmt });
+        setFormulaCell(ws, start, summary.utilLd, `IF(${allocTeuCell}>0,${excelCell(summary.robLd, start)}/${allocTeuCell},0)`, { ...computedStyle, numFmt: percentFmt });
+        setFormulaCell(ws, start + 6, summary.robAll, weightFormula, { ...computedStyle, numFmt: weightFmt });
+        setFormulaCell(ws, start + 6, summary.robLd, `${excelCell(summary.robAll, start + 6)}-(${excelCell(summary.robAll, start)}-${excelCell(summary.robLd, start)})*2`, { ...computedStyle, numFmt: weightFmt });
+        setFormulaCell(ws, start + 6, summary.utilAll, `IF(${allocWeightCell}>0,${excelCell(summary.robAll, start + 6)}/${allocWeightCell},0)`, { ...computedStyle, numFmt: percentFmt });
+        setFormulaCell(ws, start + 6, summary.utilLd, `IF(${allocWeightCell}>0,${excelCell(summary.robLd, start + 6)}/${allocWeightCell},0)`, { ...computedStyle, numFmt: percentFmt });
+        setFormulaCell(ws, start + 7, summary.avlTeu, `${allocTeuCell}-${excelCell(summary.robAll, start)}`, { ...computedStyle, numFmt: countFmt });
+        setFormulaCell(ws, start + 6, summary.avlWeight, `${allocWeightCell}-${excelCell(summary.robAll, start + 6)}`, { ...computedStyle, numFmt: weightFmt });
+        setFormulaCell(ws, start + 4, summary.rf, rfFormula, { ...computedStyle, numFmt: countFmt });
+      });
+
+      for (let row = 1; row <= maxRow; row += 1) {
+        for (let col = 1; col <= summary.last; col += 1) {
+          const cell = ws.getCell(row, col);
+          if (!cell.style || Object.keys(cell.style).length === 0) applyExcelStyle(cell, row <= 5 ? headerStyle : baseStyle);
+        }
+      }
+      return ws;
+    }
+
+    async function exportXls() {
+      saveEntriesFromCurrentTable();
+      if (!window.ExcelJS) {
         $("status").textContent = "Excel export library is not loaded";
         return;
       }
       const input = readInputs();
-      const workbook = XLSX.utils.book_new();
-      const worksheet = XLSX.utils.table_to_sheet(table, { raw: true });
-      const colCount = table.querySelectorAll("col").length || 20;
-      worksheet["!cols"] = Array.from({ length: colCount }, (_, index) => {
-        if (index < 3) return { wch: index === 2 ? 11 : 8 };
-        return { wch: 9 };
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = "Space Control Generator";
+      workbook.created = new Date();
+      workbook.calcProperties = workbook.calcProperties || {};
+      workbook.calcProperties.fullCalcOnLoad = true;
+      workbook.calcProperties.forceFullCalc = true;
+      buildExcelSheet(workbook, input, "WB");
+      buildExcelSheet(workbook, input, "EB");
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       });
-      XLSX.utils.book_append_sheet(workbook, worksheet, state.activeSheet);
-      const filename = `${input.vesselName} ${input.vvd} ${state.activeSheet}.xlsx`.replace(/[\\/:*?"<>|]+/g, "-");
-      XLSX.writeFile(workbook, filename, { bookType: "xlsx" });
-      $("status").textContent = "Exported .xlsx";
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `${input.vesselName} ${input.vvd} Space Control.xlsx`.replace(/[\\/:*?"<>|]+/g, "-");
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(link.href);
+      $("status").textContent = "Exported workbook";
     }
 
     function rerenderIfScheduleReady() {
@@ -1475,6 +1845,7 @@
 
     $("sheetWrap").addEventListener("input", (event) => {
       if (event.target.matches(".editable")) {
+        saveCellEntry(event.target, activeTable()?.dataset.sheet || state.activeSheet);
         recalcTable(activeTable());
       }
     });
