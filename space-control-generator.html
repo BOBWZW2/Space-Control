@@ -191,7 +191,7 @@
     }
 
     .tabs {
-      display: inline-flex;
+      display: none;
       align-items: center;
       border: 1px solid var(--line);
       border-radius: 6px;
@@ -229,9 +229,150 @@
     }
 
     .sheet-wrap {
-      min-width: max-content;
+      min-width: 100%;
       background: #ffffff;
       border: 1px solid var(--line);
+    }
+
+    .schedule-view {
+      min-width: 880px;
+      padding: 16px;
+      background: #ffffff;
+    }
+
+    .schedule-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: start;
+      margin-bottom: 14px;
+    }
+
+    .schedule-title {
+      margin: 0 0 5px;
+      font-size: 18px;
+      line-height: 1.2;
+      font-weight: 700;
+    }
+
+    .schedule-meta {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .allocation-strip {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(76px, 1fr));
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .metric-box {
+      border: 1px solid var(--line);
+      background: #f8fafc;
+      border-radius: 6px;
+      padding: 8px 9px;
+      min-height: 52px;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.2;
+      font-weight: 700;
+      margin-bottom: 4px;
+      white-space: nowrap;
+    }
+
+    .metric-value {
+      font-size: 16px;
+      line-height: 1.2;
+      font-weight: 700;
+      color: var(--text);
+      white-space: nowrap;
+    }
+
+    table.schedule-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 12px;
+      background: #ffffff;
+    }
+
+    .schedule-table th,
+    .schedule-table td {
+      border: 1px solid var(--line);
+      padding: 9px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .schedule-table th {
+      background: #e8f3fb;
+      color: #111827;
+      font-weight: 700;
+    }
+
+    .schedule-table .meta-col {
+      width: 96px;
+      white-space: nowrap;
+    }
+
+    .route-cell {
+      min-height: 88px;
+    }
+
+    .route-label {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .port-chain {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .port-call {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 5px;
+      border: 1px solid #b9c6d6;
+      border-radius: 6px;
+      background: #ffffff;
+      padding: 5px 7px;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+
+    .port-call strong {
+      font-size: 12px;
+    }
+
+    .port-call span {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .port-call.skip {
+      background: var(--yellow);
+      border-color: #d6c400;
+      color: var(--danger);
+      font-weight: 700;
+    }
+
+    .empty-route {
+      color: var(--muted);
+      font-size: 12px;
     }
 
     table.space-table {
@@ -426,27 +567,31 @@
           </div>
           <div class="field">
             <label for="wbTeus">WB TEU</label>
-            <input id="wbTeus" type="number" min="0" step="1" value="0">
+            <input id="wbTeus" type="number" min="0" step="1" value="">
           </div>
           <div class="field">
             <label for="ebTeus">EB TEU</label>
-            <input id="ebTeus" type="number" min="0" step="1" value="0">
+            <input id="ebTeus" type="number" min="0" step="1" value="">
+          </div>
+          <div class="field wide">
+            <label for="tonPerTeu">Ton/Teu</label>
+            <input id="tonPerTeu" type="number" min="0" step="0.01" value="14">
           </div>
           <div class="field">
-            <label for="wbMt">WB BSA Weight</label>
-            <input id="wbMt" type="number" min="0" step="0.1" value="0">
+            <label for="wbMt">WB BSA Weight (MT)</label>
+            <input id="wbMt" type="number" min="0" step="1" value="">
           </div>
           <div class="field">
-            <label for="ebMt">EB BSA Weight</label>
-            <input id="ebMt" type="number" min="0" step="0.1" value="0">
+            <label for="ebMt">EB BSA Weight (MT)</label>
+            <input id="ebMt" type="number" min="0" step="1" value="">
           </div>
           <div class="field">
             <label for="wbRf">WB RF Plug</label>
-            <input id="wbRf" type="number" min="0" step="1" value="0">
+            <input id="wbRf" type="number" min="0" step="1" value="">
           </div>
           <div class="field">
             <label for="ebRf">EB RF Plug</label>
-            <input id="ebRf" type="number" min="0" step="1" value="0">
+            <input id="ebRf" type="number" min="0" step="1" value="">
           </div>
         </div>
         <div class="subtle" id="scheduleNote" style="margin-top:10px">
@@ -479,7 +624,7 @@
       <div class="topbar">
         <div class="brand">
           <h1>控舱表生成器</h1>
-          <div class="subtle" id="summaryLine">WB / EB table preview</div>
+          <div class="subtle" id="summaryLine">Schedule preview</div>
         </div>
         <div class="toolbar">
           <div class="tabs" role="tablist" aria-label="Direction">
@@ -515,6 +660,7 @@
       serviceLane: "CGX/0005",
       reportDate: "15-Jun-2026",
       selection: "Source Bayplan, Actual Booking & CBF",
+      tonPerTeu: 14,
       wbTeus: 0,
       wbMt: 0,
       wbRf: 0,
@@ -923,7 +1069,7 @@
         const lookup = await lookupSchedule(vvd);
         applyLookup(lookup);
         render();
-        $("status").textContent = `${state.activeSheet} 已生成 · ${lookup.lane}`;
+        $("status").textContent = `Schedule loaded · ${lookup.lane}`;
       } catch (error) {
         console.error(error);
         $("status").textContent = "船期读取失败";
@@ -952,6 +1098,7 @@
       $("serviceLane").value = sample.serviceLane;
       $("reportDate").value = sample.reportDate;
       $("selection").value = sample.selection;
+      $("tonPerTeu").value = sample.tonPerTeu;
       $("wbTeus").value = sample.wbTeus;
       $("wbMt").value = sample.wbMt;
       $("wbRf").value = sample.wbRf;
@@ -969,16 +1116,100 @@
       return Number.isFinite(value) ? value : 0;
     }
 
+    function integerValue(id) {
+      return Math.round(numberValue(id));
+    }
+
+    function inputNumberOrNull(id) {
+      const text = $(id).value.trim();
+      if (!text) return null;
+      const value = Number(text);
+      return Number.isFinite(value) ? value : null;
+    }
+
+    function formatInputNumber(value, decimals = 0) {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return "";
+      if (decimals <= 0) return String(Math.round(numeric));
+      return numeric.toFixed(decimals).replace(/\.?0+$/, "");
+    }
+
+    function setNumberInput(id, value, decimals = 0) {
+      const text = formatInputNumber(value, decimals);
+      if (text !== "") $(id).value = text;
+    }
+
+    function tonPerTeuValue() {
+      const value = inputNumberOrNull("tonPerTeu");
+      if (value === null) {
+        setNumberInput("tonPerTeu", 14, 0);
+        return 14;
+      }
+      return value;
+    }
+
+    function syncBsaWeightsFromTeu() {
+      const ratio = tonPerTeuValue();
+      [
+        ["wbTeus", "wbMt"],
+        ["ebTeus", "ebMt"]
+      ].forEach(([teuId, weightId]) => {
+        const teus = inputNumberOrNull(teuId);
+        if (teus === null) {
+          $(weightId).value = "";
+          return;
+        }
+        setNumberInput(weightId, teus * ratio, 0);
+      });
+    }
+
+    function syncPairedInput(sourceId, targetId) {
+      const sourceValue = inputNumberOrNull(sourceId);
+      if (sourceValue === null) return;
+      const targetValue = inputNumberOrNull(targetId);
+      if (targetValue === null || targetValue === 0) {
+        setNumberInput(targetId, sourceValue, 0);
+      }
+    }
+
+    function handleTeuInput(sourceId, targetId) {
+      syncPairedInput(sourceId, targetId);
+      syncBsaWeightsFromTeu();
+      rerenderIfScheduleReady();
+    }
+
+    function handleRfInput(sourceId, targetId) {
+      syncPairedInput(sourceId, targetId);
+      rerenderIfScheduleReady();
+    }
+
+    function handleWeightInput(weightId, teuId) {
+      const weight = inputNumberOrNull(weightId);
+      const teus = inputNumberOrNull(teuId);
+      if (weight !== null && teus !== null && teus > 0) {
+        setNumberInput("tonPerTeu", weight / teus, 4);
+        syncBsaWeightsFromTeu();
+      } else if (weight !== null) {
+        setNumberInput(weightId, weight, 0);
+      }
+      rerenderIfScheduleReady();
+    }
+
+    function handleTonPerTeuInput() {
+      syncBsaWeightsFromTeu();
+      rerenderIfScheduleReady();
+    }
+
     function readInputs() {
       const wbAlloc = {
-        teus: numberValue("wbTeus"),
-        mt: numberValue("wbMt"),
-        rf: numberValue("wbRf")
+        teus: integerValue("wbTeus"),
+        mt: integerValue("wbMt"),
+        rf: integerValue("wbRf")
       };
       const ebAlloc = {
-        teus: numberValue("ebTeus"),
-        mt: numberValue("ebMt"),
-        rf: numberValue("ebRf")
+        teus: integerValue("ebTeus"),
+        mt: integerValue("ebMt"),
+        rf: integerValue("ebRf")
       };
       return {
         vesselName: $("vesselName").value.trim() || "VESSEL",
@@ -986,6 +1217,7 @@
         serviceLane: $("serviceLane").value.trim() || "",
         reportDate: $("reportDate").value.trim() || "",
         selection: $("selection").value.trim() || "",
+        tonPerTeu: tonPerTeuValue(),
         WB: {
           allocationLabel: "WB ALLOCATION",
           allocation: wbAlloc,
@@ -1133,7 +1365,7 @@
       addCell(infoRow, `${model.sheet.allocationLabel} :`, { colspan: 1, tag: "th" });
       addCell(infoRow, cellText(model.sheet.allocation.teus), { colspan: 1, tag: "th", className: "alloc-input", dataset: { alloc: "teus" } });
       addCell(infoRow, "TEUS", { colspan: 1, tag: "th" });
-      addCell(infoRow, cellText(model.sheet.allocation.mt, 1), { colspan: 1, tag: "th", className: "alloc-input", dataset: { alloc: "mt" } });
+      addCell(infoRow, cellText(model.sheet.allocation.mt), { colspan: 1, tag: "th", className: "alloc-input", dataset: { alloc: "mt" } });
       addCell(infoRow, "MT", { colspan: 1, tag: "th" });
       addCell(infoRow, cellText(model.sheet.allocation.rf), { colspan: 1, tag: "th", className: "alloc-input", dataset: { alloc: "rf" } });
       addCell(infoRow, "RF PLUGS", { colspan: 4, tag: "th" });
@@ -1467,18 +1699,103 @@
       }
     }
 
+    function appendText(parent, tag, text, className = "") {
+      const element = document.createElement(tag);
+      element.textContent = text ?? "";
+      if (className) element.className = className;
+      parent.appendChild(element);
+      return element;
+    }
+
+    function previewNumber(value, decimals = 0) {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return "-";
+      return formatInputNumber(numeric, decimals) || "0";
+    }
+
+    function addMetricBox(parent, label, value, decimals = 0) {
+      const box = appendText(parent, "div", "", "metric-box");
+      appendText(box, "div", label, "metric-label");
+      appendText(box, "div", previewNumber(value, decimals), "metric-value");
+    }
+
+    function routeLabelFor(direction) {
+      const lookup = state.currentLookup;
+      if (!lookup) return direction;
+      if (direction === "WB") return lookup.currentWVvd || "WB";
+      return [lookup.currentEVvd, lookup.nextWVvd, lookup.nextEVvd].filter(Boolean).join(" + ") || "EB";
+    }
+
+    function addRouteCell(row, direction, calls) {
+      const cell = appendText(row, "td", "", "route-cell");
+      const label = appendText(cell, "div", "", "route-label");
+      appendText(label, "span", direction);
+      appendText(label, "span", `${routeLabelFor(direction)} · ${calls.length} ports`);
+      const chain = appendText(cell, "div", "", "port-chain");
+      if (!calls.length) {
+        appendText(chain, "span", "No schedule found", "empty-route");
+        return;
+      }
+      calls.forEach((call) => {
+        const item = appendText(chain, "span", "", `port-call ${String(call.eta).toUpperCase() === "SKIP" ? "skip" : ""}`);
+        appendText(item, "strong", call.port);
+        appendText(item, "span", call.eta || "");
+      });
+    }
+
+    function buildSchedulePreview(input) {
+      const wrap = document.createElement("div");
+      wrap.className = "schedule-view";
+      const head = appendText(wrap, "div", "", "schedule-head");
+      const titleBlock = appendText(head, "div", "");
+      appendText(titleBlock, "div", `${input.vesselName} / ${input.vvd}`, "schedule-title");
+      appendText(
+        titleBlock,
+        "div",
+        `Lane ${input.serviceLane || "-"} · Report ${input.reportDate || "-"} · Source Bayplan, Actual Booking & CBF`,
+        "schedule-meta"
+      );
+      appendText(head, "div", `Ton/Teu ${previewNumber(input.tonPerTeu, 2)}`, "status");
+
+      const metrics = appendText(wrap, "div", "", "allocation-strip");
+      addMetricBox(metrics, "WB TEU", input.WB.allocation.teus);
+      addMetricBox(metrics, "EB TEU", input.EB.allocation.teus);
+      addMetricBox(metrics, "WB MT", input.WB.allocation.mt);
+      addMetricBox(metrics, "EB MT", input.EB.allocation.mt);
+      addMetricBox(metrics, "WB RF", input.WB.allocation.rf);
+      addMetricBox(metrics, "EB RF", input.EB.allocation.rf);
+      addMetricBox(metrics, "Ton/Teu", input.tonPerTeu, 2);
+
+      const table = document.createElement("table");
+      table.className = "schedule-table";
+      const thead = table.createTHead();
+      const header = thead.insertRow();
+      ["VVD", "Lane", "Vessel", "WB Port Sequence", "EB Port Sequence"].forEach((text, index) => {
+        const th = document.createElement("th");
+        th.textContent = text;
+        if (index < 3) th.className = "meta-col";
+        header.appendChild(th);
+      });
+
+      const body = table.createTBody();
+      const row = body.insertRow();
+      appendText(row, "td", input.vvd);
+      appendText(row, "td", input.serviceLane || "-");
+      appendText(row, "td", input.vesselName || "-");
+      addRouteCell(row, "WB", input.WB.pods);
+      addRouteCell(row, "EB", input.EB.pods);
+      wrap.appendChild(table);
+      return wrap;
+    }
+
     function render() {
       saveEntriesFromCurrentTable();
       const input = readInputs();
-      $("summaryLine").textContent = `${input.vesselName} / ${input.vvd} · ${input.serviceLane}`;
       state.tableData.WB = makeTableModel(input, "WB");
       state.tableData.EB = makeTableModel(input, "EB");
-      const model = state.tableData[state.activeSheet];
-      const table = buildTable(model);
-      $("sheetWrap").replaceChildren(table);
-      applyEntriesToTable(table, state.activeSheet);
-      recalcTable(table);
-      $("status").textContent = `${state.activeSheet} ${model.sheet.pods.length} POD · ${model.sheet.pols.length} POL`;
+      $("summaryLine").textContent = `Schedule preview · ${input.vesselName} / ${input.vvd} · ${input.serviceLane || "-"}`;
+      $("sheetWrap").replaceChildren(buildSchedulePreview(input));
+      $("status").textContent = `WB ${input.WB.pods.length} ports · EB ${input.EB.pods.length} ports`;
     }
 
     function parseBulkInput() {
@@ -1511,6 +1828,11 @@
       if (sections.wbPol.length) $("wbPols").value = sections.wbPol.join("\n");
       if (sections.ebPod.length) $("ebPods").value = sections.ebPod.join("\n");
       if (sections.ebPol.length) $("ebPols").value = sections.ebPol.join("\n");
+      syncPairedInput("wbTeus", "ebTeus");
+      syncPairedInput("ebTeus", "wbTeus");
+      syncPairedInput("wbRf", "ebRf");
+      syncPairedInput("ebRf", "wbRf");
+      syncBsaWeightsFromTeu();
       render();
     }
 
@@ -1868,7 +2190,7 @@
       };
       const maxRow = 5 + model.blocks.length * 8;
       const moveSummaryStart = maxRow + 1;
-      const finalRow = maxRow + 8;
+      const finalRow = maxRow + 7;
       const headerFill = "FF99CCFF";
       const yellowFill = "FFFFFF00";
       const whiteFill = "FFFFFFFF";
@@ -1917,7 +2239,7 @@
       setCell(ws, 2, summary.total20, `${model.sheet.allocationLabel} :`, headerStyle);
       setCell(ws, 2, summary.total20 + 2, Number(model.sheet.allocation.teus) || 0, { ...yellowStyle, numFmt: countFmt });
       setCell(ws, 2, summary.total20 + 3, "TEUS", headerStyle);
-      setCell(ws, 2, summary.total20 + 5, Number(model.sheet.allocation.mt) || 0, { ...yellowStyle, numFmt: weightFmt });
+      setCell(ws, 2, summary.total20 + 5, Number(model.sheet.allocation.mt) || 0, { ...yellowStyle, numFmt: countFmt });
       setCell(ws, 2, summary.total20 + 6, "MT", headerStyle);
       setCell(ws, 2, summary.total20 + 7, Number(model.sheet.allocation.rf) || 0, { ...yellowStyle, numFmt: countFmt });
       setCell(ws, 2, summary.total20 + 8, " RF PLUGS ", headerStyle);
@@ -2292,9 +2614,13 @@
       }
     });
 
-    ["wbTeus", "wbMt", "wbRf", "ebTeus", "ebMt", "ebRf"].forEach((id) => {
-      $(id).addEventListener("input", rerenderIfScheduleReady);
-    });
+    $("wbTeus").addEventListener("input", () => handleTeuInput("wbTeus", "ebTeus"));
+    $("ebTeus").addEventListener("input", () => handleTeuInput("ebTeus", "wbTeus"));
+    $("wbMt").addEventListener("input", () => handleWeightInput("wbMt", "wbTeus"));
+    $("ebMt").addEventListener("input", () => handleWeightInput("ebMt", "ebTeus"));
+    $("wbRf").addEventListener("input", () => handleRfInput("wbRf", "ebRf"));
+    $("ebRf").addEventListener("input", () => handleRfInput("ebRf", "wbRf"));
+    $("tonPerTeu").addEventListener("input", handleTonPerTeuInput);
     $("vvd").addEventListener("change", generateFromSchedule);
 
     generateFromSchedule();
