@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-06-17T15:09:19.892Z",
+  "updatedAt": "2026-06-17T15:16:53.463Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -22,6 +22,23 @@
       "selectedWbPodPorts": [
         "MYPKG"
       ]
+    },
+    "NHZY2624WE": {
+      "vvd": "NHZY2624WE",
+      "lane": "CGS",
+      "vesselName": "NHZY",
+      "updatedAt": "2026-06-17T15:16:53.463Z",
+      "allocation": {
+        "wbTeus": 300,
+        "ebTeus": 300,
+        "tonPerTeu": 14,
+        "wbMt": 4200,
+        "ebMt": 4200,
+        "wbRf": 30,
+        "ebRf": 30
+      },
+      "selectedWbPodKeys": [],
+      "selectedWbPodPorts": []
     }
   }
 }
