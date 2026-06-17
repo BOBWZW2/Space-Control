@@ -123,6 +123,29 @@
       background: var(--accent-strong);
     }
 
+    button.export-button {
+      min-height: 42px;
+      font-size: 15px;
+    }
+
+    button.sync-save {
+      border-color: var(--accent);
+      color: var(--accent-strong);
+      font-weight: 700;
+    }
+
+    .sync-settings {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 8px;
+      align-items: end;
+      margin-top: 10px;
+    }
+
+    .sync-settings .field {
+      margin: 0;
+    }
+
     .section {
       border-top: 1px solid var(--line);
       padding-top: 15px;
@@ -677,11 +700,20 @@
       <div class="section">
         <h2>操作</h2>
         <div class="action-grid">
-          <button id="generate" type="button" class="primary">刷新船期</button>
-          <button id="exportXls" type="button">导出 Excel</button>
+          <button id="exportXls" type="button" class="primary wide-action export-button">导出 Excel</button>
+          <button id="saveSync" type="button" class="wide-action sync-save">保存并同步</button>
+          <button id="generate" type="button">刷新船期</button>
           <button id="copyTable" type="button">复制预览</button>
           <button id="printPage" type="button">打印</button>
           <span class="status wide-action" id="status">Ready</span>
+        </div>
+        <div class="sync-settings">
+          <div class="field">
+            <label for="githubToken">GitHub Token</label>
+            <input id="githubToken" type="password" autocomplete="off" placeholder="首次同步时填写">
+          </div>
+          <button id="saveToken" type="button">保存</button>
+          <button id="clearToken" type="button">清除</button>
         </div>
       </div>
 
@@ -732,6 +764,12 @@
     const SCHEDULE_URL = "https://raw.githubusercontent.com/BOBWZW2/data-base/main/schedule_latest.xlsx";
     const LOCAL_MAPPING_URL = "data/vessel_mapping_latest.csv";
     const REMOTE_MAPPING_URL = "https://raw.githubusercontent.com/BOBWZW2/data-base/main/vessel_mapping_latest.csv";
+    const CACHE_FILE_PATH = "data/space-control-cache.json";
+    const REMOTE_CACHE_URL = "https://raw.githubusercontent.com/BOBWZW2/Space-Control/main/data/space-control-cache.json";
+    const GITHUB_CACHE_API_URL = "https://api.github.com/repos/BOBWZW2/Space-Control/contents/data/space-control-cache.json";
+    const GITHUB_CACHE_BRANCH = "main";
+    const LOCAL_DRAFTS_KEY = "spaceControl.cacheDrafts";
+    const GITHUB_TOKEN_KEY = "spaceControl.githubToken";
     const PORT_ALIASES = { CNNSA: "CNNAS" };
 
     const sample = {
@@ -794,7 +832,10 @@
       scheduleRowsPromise: null,
       vesselMapping: null,
       currentLookup: null,
-      lookupSignature: ""
+      lookupSignature: "",
+      sharedCache: null,
+      sharedCachePromise: null,
+      applyingCache: false
     };
 
     const syncSource = {
@@ -803,6 +844,338 @@
     };
 
     const $ = (id) => document.getElementById(id);
+
+    function emptySharedCache() {
+      return { version: 1, updatedAt: "", records: {} };
+    }
+
+    function normalizeSharedCache(cache) {
+      const normalized = emptySharedCache();
+      normalized.version = Number(cache?.version) || 1;
+      normalized.updatedAt = normalizeText(cache?.updatedAt);
+      Object.entries(cache?.records || {}).forEach(([key, record]) => {
+        const vvd = cleanVvd(record?.vvd || key);
+        if (!vvd) return;
+        normalized.records[vvd] = { ...record, vvd };
+      });
+      return normalized;
+    }
+
+    function parseJsonSafe(text, fallback) {
+      try {
+        return JSON.parse(text);
+      } catch {
+        return fallback;
+      }
+    }
+
+    function loadStorageJson(key, fallback) {
+      try {
+        const text = window.localStorage?.getItem(key);
+        if (!text) return fallback;
+        return JSON.parse(text);
+      } catch {
+        return fallback;
+      }
+    }
+
+    function saveStorageJson(key, value) {
+      try {
+        window.localStorage?.setItem(key, JSON.stringify(value));
+      } catch {
+        // Local storage may be disabled; GitHub sync still works with a token.
+      }
+    }
+
+    function cacheReadUrls() {
+      const stamp = Date.now();
+      return [
+        `${CACHE_FILE_PATH}?ts=${stamp}`,
+        `${REMOTE_CACHE_URL}?ts=${stamp}`
+      ];
+    }
+
+    async function loadSharedCache(force = false) {
+      if (!force && state.sharedCache) return state.sharedCache;
+      if (!force && state.sharedCachePromise) return state.sharedCachePromise;
+      state.sharedCachePromise = (async () => {
+        for (const url of cacheReadUrls()) {
+          try {
+            const response = await fetch(url, { cache: "no-store" });
+            if (response.status === 404) continue;
+            if (!response.ok) continue;
+            const text = await response.text();
+            state.sharedCache = normalizeSharedCache(parseJsonSafe(text, emptySharedCache()));
+            return state.sharedCache;
+          } catch {
+            // Try the next cache source.
+          }
+        }
+        state.sharedCache = emptySharedCache();
+        return state.sharedCache;
+      })();
+      try {
+        return await state.sharedCachePromise;
+      } finally {
+        state.sharedCachePromise = null;
+      }
+    }
+
+    function getLocalDrafts() {
+      const drafts = loadStorageJson(LOCAL_DRAFTS_KEY, {});
+      return drafts && typeof drafts === "object" ? drafts : {};
+    }
+
+    function saveLocalDraftRecord(record) {
+      if (!record?.vvd) return;
+      const drafts = getLocalDrafts();
+      drafts[record.vvd] = record;
+      saveStorageJson(LOCAL_DRAFTS_KEY, drafts);
+    }
+
+    function clearLocalDraft(vvd) {
+      const key = cleanVvd(vvd);
+      if (!key) return;
+      const drafts = getLocalDrafts();
+      if (!drafts[key]) return;
+      delete drafts[key];
+      saveStorageJson(LOCAL_DRAFTS_KEY, drafts);
+    }
+
+    function recordTime(record) {
+      const timestamp = Date.parse(record?.updatedAt || "");
+      return Number.isFinite(timestamp) ? timestamp : 0;
+    }
+
+    function getSelectedWbPodKeys() {
+      return [...$("wbPodOptions").querySelectorAll("input[type='checkbox']:checked")]
+        .map((input) => input.value);
+    }
+
+    function buildCacheRecord() {
+      const vvd = cleanVvd($("vvd").value);
+      const selectedWbPodKeys = getSelectedWbPodKeys();
+      return {
+        vvd,
+        lane: state.currentLookup?.lane || normalizeLane($("serviceLane").value),
+        vesselName: $("vesselName").value.trim(),
+        updatedAt: new Date().toISOString(),
+        allocation: {
+          wbTeus: inputNumberOrNull("wbTeus"),
+          ebTeus: inputNumberOrNull("ebTeus"),
+          tonPerTeu: inputNumberOrNull("tonPerTeu"),
+          wbMt: inputNumberOrNull("wbMt"),
+          ebMt: inputNumberOrNull("ebMt"),
+          wbRf: inputNumberOrNull("wbRf"),
+          ebRf: inputNumberOrNull("ebRf")
+        },
+        selectedWbPodKeys,
+        selectedWbPodPorts: selectedWbPodKeys.map((key) => key.split("::")[0]).filter(Boolean)
+      };
+    }
+
+    function saveLocalDraftForCurrentVvd() {
+      if (state.applyingCache || !state.currentLookup) return;
+      const record = buildCacheRecord();
+      if (!record.vvd) return;
+      saveLocalDraftRecord(record);
+    }
+
+    function setOptionalNumberInput(id, value, decimals = 0) {
+      if (value === null || value === undefined || value === "") {
+        $(id).value = "";
+        return;
+      }
+      setNumberInput(id, value, decimals);
+    }
+
+    function applyCacheRecord(record) {
+      if (!record) return;
+      state.applyingCache = true;
+      try {
+        const allocation = record.allocation || {};
+        setOptionalNumberInput("wbTeus", allocation.wbTeus, 0);
+        setOptionalNumberInput("ebTeus", allocation.ebTeus, 0);
+        setOptionalNumberInput("tonPerTeu", allocation.tonPerTeu, 4);
+        setOptionalNumberInput("wbMt", allocation.wbMt, 0);
+        setOptionalNumberInput("ebMt", allocation.ebMt, 0);
+        setOptionalNumberInput("wbRf", allocation.wbRf, 0);
+        setOptionalNumberInput("ebRf", allocation.ebRf, 0);
+
+        if (Array.isArray(record.selectedWbPodKeys)) {
+          const selectedKeys = new Set(record.selectedWbPodKeys);
+          const selectedPorts = new Set(record.selectedWbPodPorts || []);
+          const inputs = [...$("wbPodOptions").querySelectorAll("input[type='checkbox']")];
+          const hasExactMatch = inputs.some((input) => selectedKeys.has(input.value));
+          inputs.forEach((input) => {
+            const port = input.value.split("::")[0];
+            input.checked = hasExactMatch ? selectedKeys.has(input.value) : selectedPorts.has(port);
+          });
+        }
+        updateScheduleTextareasFromLookup();
+      } finally {
+        state.applyingCache = false;
+      }
+    }
+
+    async function applySavedRecordForVvd(vvd) {
+      const key = cleanVvd(vvd);
+      if (!key) return "";
+      let sharedRecord = null;
+      try {
+        const shared = await loadSharedCache();
+        sharedRecord = shared.records[key] || null;
+      } catch (error) {
+        console.warn(error);
+      }
+      const localRecord = getLocalDrafts()[key] || null;
+      const useLocal = localRecord && recordTime(localRecord) > recordTime(sharedRecord);
+      const record = useLocal ? localRecord : sharedRecord;
+      if (!record) return "";
+      applyCacheRecord(record);
+      return useLocal ? "已载入本机未同步草稿" : "已载入已同步数据";
+    }
+
+    function getGithubToken() {
+      try {
+        return window.localStorage?.getItem(GITHUB_TOKEN_KEY) || "";
+      } catch {
+        return "";
+      }
+    }
+
+    function setGithubToken(token) {
+      try {
+        if (token) window.localStorage?.setItem(GITHUB_TOKEN_KEY, token);
+        else window.localStorage?.removeItem(GITHUB_TOKEN_KEY);
+      } catch {
+        // Ignore local storage failures; the user can paste the token again.
+      }
+      updateTokenUi();
+    }
+
+    function updateTokenUi() {
+      const input = $("githubToken");
+      if (!input) return;
+      input.value = "";
+      input.placeholder = getGithubToken() ? "已保存到本机浏览器" : "首次同步时填写";
+    }
+
+    function saveGithubTokenFromInput() {
+      const token = $("githubToken").value.trim();
+      if (!token) {
+        $("status").textContent = "请先填写 GitHub Token";
+        return "";
+      }
+      setGithubToken(token);
+      $("status").textContent = "GitHub Token 已保存到本机浏览器";
+      return token;
+    }
+
+    function githubHeaders(token) {
+      return {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "X-GitHub-Api-Version": "2022-11-28"
+      };
+    }
+
+    function encodeBase64Utf8(text) {
+      const bytes = new TextEncoder().encode(text);
+      let binary = "";
+      bytes.forEach((byte) => {
+        binary += String.fromCharCode(byte);
+      });
+      return btoa(binary);
+    }
+
+    function decodeBase64Utf8(text) {
+      const binary = atob(String(text || "").replace(/\s/g, ""));
+      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+      return new TextDecoder().decode(bytes);
+    }
+
+    async function githubErrorMessage(response) {
+      try {
+        const payload = await response.json();
+        return payload.message || `${response.status} ${response.statusText}`;
+      } catch {
+        return `${response.status} ${response.statusText}`;
+      }
+    }
+
+    async function readGithubCacheFile(token) {
+      const response = await fetch(`${GITHUB_CACHE_API_URL}?ref=${encodeURIComponent(GITHUB_CACHE_BRANCH)}`, {
+        headers: githubHeaders(token),
+        cache: "no-store"
+      });
+      if (response.status === 404) return { cache: emptySharedCache(), sha: "" };
+      if (!response.ok) throw new Error(await githubErrorMessage(response));
+      const payload = await response.json();
+      const content = payload.content ? decodeBase64Utf8(payload.content) : "{}";
+      return {
+        cache: normalizeSharedCache(parseJsonSafe(content, emptySharedCache())),
+        sha: payload.sha || ""
+      };
+    }
+
+    async function pushRecordToGithub(record, token) {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const current = await readGithubCacheFile(token);
+        const cache = normalizeSharedCache(current.cache);
+        cache.records[record.vvd] = record;
+        cache.updatedAt = record.updatedAt;
+        const body = {
+          message: `Save space control cache ${record.vvd}`,
+          content: encodeBase64Utf8(`${JSON.stringify(cache, null, 2)}\n`),
+          branch: GITHUB_CACHE_BRANCH
+        };
+        if (current.sha) body.sha = current.sha;
+        const response = await fetch(GITHUB_CACHE_API_URL, {
+          method: "PUT",
+          headers: githubHeaders(token),
+          body: JSON.stringify(body)
+        });
+        if (response.status === 409 && attempt === 0) continue;
+        if (!response.ok) throw new Error(await githubErrorMessage(response));
+        state.sharedCache = cache;
+        return response.json();
+      }
+      throw new Error("GitHub cache conflict");
+    }
+
+    async function saveAndSyncCurrentVvd() {
+      if (!state.currentLookup) {
+        await generateFromSchedule();
+        if (!state.currentLookup) return;
+      }
+      const record = buildCacheRecord();
+      if (!record.vvd) {
+        $("status").textContent = "请先输入 VVD";
+        return;
+      }
+      saveLocalDraftRecord(record);
+      const typedToken = $("githubToken").value.trim();
+      if (typedToken) setGithubToken(typedToken);
+      const token = getGithubToken();
+      if (!token) {
+        $("status").textContent = "已保存本机草稿；同步 GitHub 需要先填写 Token";
+        return;
+      }
+      $("saveSync").disabled = true;
+      $("status").textContent = "正在同步到 GitHub...";
+      try {
+        await pushRecordToGithub(record, token);
+        clearLocalDraft(record.vvd);
+        await loadSharedCache(true);
+        $("status").textContent = `已保存并同步 ${record.vvd}`;
+      } catch (error) {
+        console.error(error);
+        $("status").textContent = `同步失败：${error.message || error}`;
+      } finally {
+        $("saveSync").disabled = false;
+      }
+    }
 
     function rowsToText(rows) {
       return rows.map((row) => row.join(" ")).join("\n");
@@ -1240,6 +1613,7 @@
         checkbox.addEventListener("change", () => {
           updateScheduleTextareasFromLookup();
           render();
+          saveLocalDraftForCurrentVvd();
         });
         const text = document.createElement("span");
         text.textContent = `${call.port} ${formatMmDd(call.etd)}`;
@@ -1291,9 +1665,11 @@
       try {
         const lookup = await lookupSchedule(vvd, lane);
         applyLookup(lookup);
-        setCompactScheduleSummary(lookup);
+        const cacheMessage = await applySavedRecordForVvd(lookup.inputVvd);
         render();
-        $("status").textContent = `船期已刷新 · ${lookup.lane}`;
+        $("status").textContent = cacheMessage
+          ? `船期已刷新 · ${lookup.lane} · ${cacheMessage}`
+          : `船期已刷新 · ${lookup.lane}`;
       } catch (error) {
         console.error(error);
         $("status").textContent = "船期读取失败";
@@ -2816,6 +3192,7 @@
     function rerenderIfScheduleReady() {
       if (!state.currentLookup) return;
       render();
+      saveLocalDraftForCurrentVvd();
     }
 
     async function handleVvdInput() {
@@ -2838,6 +3215,7 @@
     }
 
     document.querySelector(".topbar .toolbar")?.remove();
+    updateTokenUi();
 
     $("generate").addEventListener("click", generateFromSchedule);
     $("loadSample").addEventListener("click", () => {
@@ -2847,6 +3225,12 @@
     $("parseBulk").addEventListener("click", parseBulkInput);
     $("copyTable").addEventListener("click", copyTable);
     $("exportXls").addEventListener("click", exportXls);
+    $("saveSync").addEventListener("click", saveAndSyncCurrentVvd);
+    $("saveToken").addEventListener("click", saveGithubTokenFromInput);
+    $("clearToken").addEventListener("click", () => {
+      setGithubToken("");
+      $("status").textContent = "GitHub Token 已清除";
+    });
     $("printPage").addEventListener("click", () => window.print());
 
     document.querySelectorAll(".tab").forEach((button) => {
