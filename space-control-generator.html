@@ -424,12 +424,28 @@
             <input id="vvd" value="XPBL2625WE">
           </div>
           <div class="field">
-            <label for="wbMt">BSA Weight</label>
+            <label for="wbTeus">WB TEU</label>
+            <input id="wbTeus" type="number" min="0" step="1" value="0">
+          </div>
+          <div class="field">
+            <label for="ebTeus">EB TEU</label>
+            <input id="ebTeus" type="number" min="0" step="1" value="0">
+          </div>
+          <div class="field">
+            <label for="wbMt">WB BSA Weight</label>
             <input id="wbMt" type="number" min="0" step="0.1" value="0">
           </div>
           <div class="field">
-            <label for="wbRf">RF Plug</label>
+            <label for="ebMt">EB BSA Weight</label>
+            <input id="ebMt" type="number" min="0" step="0.1" value="0">
+          </div>
+          <div class="field">
+            <label for="wbRf">WB RF Plug</label>
             <input id="wbRf" type="number" min="0" step="1" value="0">
+          </div>
+          <div class="field">
+            <label for="ebRf">EB RF Plug</label>
+            <input id="ebRf" type="number" min="0" step="1" value="0">
           </div>
         </div>
         <div class="subtle" id="scheduleNote" style="margin-top:10px">
@@ -447,7 +463,6 @@
         <input id="reportDate" value="">
         <input id="vesselName" value="">
         <input id="selection" value="Source Bayplan, Actual Booking & CBF">
-        <input id="wbTeus" type="number" value="0">
         <input id="copyAlloc" value="跟随 WB" disabled>
         <textarea id="bulkText"></textarea>
         <textarea id="wbPods"></textarea>
@@ -501,6 +516,9 @@
       wbTeus: 0,
       wbMt: 0,
       wbRf: 0,
+      ebTeus: 0,
+      ebMt: 0,
+      ebRf: 0,
       wbPods: [
         ["CNTAO", "06/29"],
         ["CNSHA", "07/03"],
@@ -808,7 +826,6 @@
       $("vesselName").value = lookup.vesselName;
       $("reportDate").value = formatGeneratedDate();
       $("selection").value = "Source Bayplan, Actual Booking & CBF";
-      $("wbTeus").value = "";
       $("wbPods").value = rowsToText(callsToPodRows(lookup.wbCalls));
       $("wbPols").value = rowsToText(callsToPolRows(lookup.wbCalls));
       $("ebPods").value = rowsToText(callsToPodRows(lookup.ebRouteCalls));
@@ -864,6 +881,9 @@
       $("wbTeus").value = sample.wbTeus;
       $("wbMt").value = sample.wbMt;
       $("wbRf").value = sample.wbRf;
+      $("ebTeus").value = sample.ebTeus;
+      $("ebMt").value = sample.ebMt;
+      $("ebRf").value = sample.ebRf;
       $("wbPods").value = rowsToText(sample.wbPods);
       $("wbPols").value = rowsToText(sample.wbPols);
       $("ebPods").value = rowsToText(sample.ebPods);
@@ -876,10 +896,15 @@
     }
 
     function readInputs() {
-      const alloc = {
+      const wbAlloc = {
         teus: numberValue("wbTeus"),
         mt: numberValue("wbMt"),
         rf: numberValue("wbRf")
+      };
+      const ebAlloc = {
+        teus: numberValue("ebTeus"),
+        mt: numberValue("ebMt"),
+        rf: numberValue("ebRf")
       };
       return {
         vesselName: $("vesselName").value.trim() || "VESSEL",
@@ -889,13 +914,13 @@
         selection: $("selection").value.trim() || "",
         WB: {
           allocationLabel: "WB ALLOCATION",
-          allocation: alloc,
+          allocation: wbAlloc,
           pods: textToRows($("wbPods").value, 2).map(([port, eta]) => ({ port: port.toUpperCase(), eta })),
           pols: textToRows($("wbPols").value, 3).map(([port, etb, etd]) => ({ port: port.toUpperCase(), etb, etd }))
         },
         EB: {
           allocationLabel: "EB ALLOCATION",
-          allocation: alloc,
+          allocation: ebAlloc,
           pods: textToRows($("ebPods").value, 2).map(([port, eta]) => ({ port: port.toUpperCase(), eta })),
           pols: textToRows($("ebPols").value, 3).map(([port, etb, etd]) => ({ port: port.toUpperCase(), etb, etd }))
         }
@@ -1407,26 +1432,22 @@
     function exportXls() {
       const table = activeTable();
       if (!table) return;
+      if (!window.XLSX) {
+        $("status").textContent = "Excel export library is not loaded";
+        return;
+      }
       const input = readInputs();
-      const css = [...document.styleSheets]
-        .map((sheet) => {
-          try {
-            return [...sheet.cssRules].map((rule) => rule.cssText).join("\n");
-          } catch {
-            return "";
-          }
-        })
-        .join("\n");
-      const html = `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${table.outerHTML}</body></html>`;
-      const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = `${input.vesselName} ${input.vvd} ${state.activeSheet}.xls`.replace(/[\\/:*?"<>|]+/g, "-");
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(link.href);
-      $("status").textContent = "Exported";
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.table_to_sheet(table, { raw: true });
+      const colCount = table.querySelectorAll("col").length || 20;
+      worksheet["!cols"] = Array.from({ length: colCount }, (_, index) => {
+        if (index < 3) return { wch: index === 2 ? 11 : 8 };
+        return { wch: 9 };
+      });
+      XLSX.utils.book_append_sheet(workbook, worksheet, state.activeSheet);
+      const filename = `${input.vesselName} ${input.vvd} ${state.activeSheet}.xlsx`.replace(/[\\/:*?"<>|]+/g, "-");
+      XLSX.writeFile(workbook, filename, { bookType: "xlsx" });
+      $("status").textContent = "Exported .xlsx";
     }
 
     function rerenderIfScheduleReady() {
@@ -1458,7 +1479,7 @@
       }
     });
 
-    ["wbMt", "wbRf"].forEach((id) => {
+    ["wbTeus", "wbMt", "wbRf", "ebTeus", "ebMt", "ebRf"].forEach((id) => {
       $(id).addEventListener("input", rerenderIfScheduleReady);
     });
     $("vvd").addEventListener("change", generateFromSchedule);
