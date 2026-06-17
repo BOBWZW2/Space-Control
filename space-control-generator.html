@@ -684,7 +684,7 @@
         <input id="serviceLane" value="">
         <input id="reportDate" value="">
         <input id="vesselName" value="">
-        <input id="selection" value="Source Bayplan, Actual Booking & CBF">
+        <input id="selection" value="">
         <input id="copyAlloc" value="跟随 WB" disabled>
         <textarea id="bulkText"></textarea>
         <textarea id="wbPods"></textarea>
@@ -735,7 +735,7 @@
       vvd: "XPBL2625WE",
       serviceLane: "CGX/0005",
       reportDate: "15-Jun-2026",
-      selection: "Source Bayplan, Actual Booking & CBF",
+      selection: "",
       tonPerTeu: 14,
       wbTeus: 0,
       wbMt: 0,
@@ -1164,7 +1164,7 @@
       $("serviceLane").value = lookup.lane;
       $("vesselName").value = lookup.vesselName;
       $("reportDate").value = formatGeneratedDate();
-      $("selection").value = "Source Bayplan, Actual Booking & CBF";
+      $("selection").value = "";
       renderWbPodOptions(lookup);
       updateScheduleTextareasFromLookup();
       $("scheduleSummary").textContent =
@@ -1503,7 +1503,7 @@
       const titleSpan = Math.min(7, Math.max(1, totalCols - reportSpan - 1));
       const selectionSpan = Math.max(1, totalCols - titleSpan - reportSpan);
       addCell(titleRow, "Vessel Space Utilization Report -", { colspan: titleSpan, tag: "th" });
-      addCell(titleRow, `Selection: ${model.meta.selection}`, { colspan: selectionSpan, tag: "th" });
+      addCell(titleRow, "", { colspan: selectionSpan, tag: "th" });
       addCell(titleRow, `Report Generated: ${model.meta.reportDate}`, { colspan: reportSpan, tag: "th" });
 
       const infoRow = addRow(tbody, "header");
@@ -1848,10 +1848,14 @@
 
     function appendText(parent, tag, text, className = "") {
       const element = document.createElement(tag);
-      element.textContent = text ?? "";
+      element.textContent = cleanDisplayText(text);
       if (className) element.className = className;
       parent.appendChild(element);
       return element;
+    }
+
+    function cleanDisplayText(text) {
+      return String(text ?? "");
     }
 
     function previewNumber(value, decimals = 0) {
@@ -1908,7 +1912,7 @@
       appendText(
         titleBlock,
         "div",
-        `Lane ${input.serviceLane || "-"} · Report ${input.reportDate || "-"} · Source Bayplan, Actual Booking & CBF`,
+        `Lane ${input.serviceLane || "-"} · Report ${input.reportDate || "-"}`,
         "schedule-meta"
       );
       appendText(head, "div", `Ton/Teu ${previewNumber(input.tonPerTeu, 2)}`, "status");
@@ -2382,7 +2386,7 @@
       if (spacerCol - 1 >= 8) safeMerge(ws, 1, 8, 1, spacerCol - 1);
       safeMerge(ws, 1, summaryStart, 1, summary.last);
       setCell(ws, 1, 1, "Vessel Space Utilization Report -", headerStyle);
-      if (spacerCol - 1 >= 8) setCell(ws, 1, 8, `Selection: ${input.selection}`, headerStyle);
+      if (spacerCol - 1 >= 8) setCell(ws, 1, 8, "", headerStyle);
       setCell(ws, 1, summaryStart, `Report Generated: ${input.reportDate}`, headerStyle);
 
       safeMerge(ws, 2, 1, 2, 3);
