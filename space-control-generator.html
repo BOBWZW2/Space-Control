@@ -526,21 +526,20 @@
         ["CNSHA", "07/03"],
         ["CNNGB", "07/04"],
         ["CNSHK", "07/07"],
-        ["CNNSA", "07/08"],
+        ["CNNAS", "07/08"],
         ["MYPKG", "07/13"],
-        ["INMUN", "SKIP"],
-        ["PKKHI", "08/01"],
+        ["AEKLF", "07/24"],
         ["OMSOH", "07/27"],
-        ["AEKLF", "07/24"]
+        ["PKKHI", "08/01"],
+        ["CNTAO", "08/16"]
       ],
       wbPols: [
         ["CNTAO", "06/28", "06/29"],
         ["CNSHA", "07/02", "07/03"],
         ["CNNGB", "07/04", "07/04"],
         ["CNSHK", "07/07", "07/07"],
-        ["CNNSA", "07/07", "07/08"],
+        ["CNNAS", "07/07", "07/08"],
         ["MYPKG", "07/13", "07/13"],
-        ["INMUN", "SKIP", "SKIP"],
         ["AEKLF", "07/22", "07/24"],
         ["OMSOH", "07/26", "07/27"],
         ["PKKHI", "07/30", "08/01"]
@@ -553,7 +552,7 @@
         ["CNSHA", "08/20"],
         ["CNNGB", "08/21"],
         ["CNSHK", "08/24"],
-        ["CNNSA", "08/25"],
+        ["CNNAS", "08/25"],
         ["MYPKG", "08/30"],
         ["INMUN", "SKIP"],
         ["PKKHI", "09/18"],
@@ -803,6 +802,29 @@
       });
     }
 
+    function callDateKey(call) {
+      return call?.etd || call?.eta || call?.etb || "";
+    }
+
+    function dedupeCallsByPortDate(calls) {
+      const seen = new Set();
+      const result = [];
+      calls.forEach((call) => {
+        if (!call?.port) return;
+        const key = `${call.port}::${callDateKey(call)}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        result.push(call);
+      });
+      return result;
+    }
+
+    function trimClosingReturnCall(calls, firstPort) {
+      if (!calls.length || !firstPort) return calls;
+      const last = calls[calls.length - 1];
+      return last.port === firstPort ? calls.slice(0, -1) : calls;
+    }
+
     function vesselNameForVvd(vvd, mapping) {
       const clean = cleanVvd(vvd);
       const codes = Object.keys(mapping).sort((a, b) => b.length - a.length);
@@ -873,8 +895,13 @@
       $("vesselName").value = lookup.vesselName;
       $("reportDate").value = formatGeneratedDate();
       $("selection").value = "Source Bayplan, Actual Booking & CBF";
-      $("wbPods").value = rowsToText(callsToPodRows(lookup.wbCalls));
-      $("wbPols").value = rowsToText(callsToPolRows(lookup.wbCalls));
+      const wbPodCalls = dedupeCallsByPortDate([...lookup.wbCalls, ...lookup.ebCalls]);
+      const wbPolCalls = dedupeCallsByPortDate([
+        ...lookup.wbCalls,
+        ...trimClosingReturnCall(lookup.ebCalls, lookup.wbCalls[0]?.port)
+      ]);
+      $("wbPods").value = rowsToText(callsToPodRows(wbPodCalls));
+      $("wbPols").value = rowsToText(callsToPolRows(wbPolCalls));
       $("ebPods").value = rowsToText(callsToPodRows(lookup.ebRouteCalls));
       $("ebPols").value = rowsToText(callsToPolRows(lookup.ebCalls));
       $("scheduleSummary").textContent =
@@ -2138,6 +2165,51 @@
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFFFF" } };
     }
 
+    function setFormulaOnly(cell, formula, numFmt = "0;-0;;@") {
+      cell.value = { formula, result: 0 };
+      cell.numFmt = numFmt;
+    }
+
+    function callMatchesPod(sourcePod, targetPod) {
+      if (!sourcePod || !targetPod) return false;
+      if (sourcePod.port !== targetPod.port) return false;
+      const sourceDate = normalizeText(sourcePod.eta);
+      const targetDate = normalizeText(targetPod.eta);
+      return !sourceDate || !targetDate || sourceDate === targetDate;
+    }
+
+    function applyEbRobCarryover(wbMeta, ebMeta) {
+      const firstEbPod = ebMeta?.model?.sheet?.pods?.[0];
+      if (!firstEbPod) return;
+      let wbPodIndex = wbMeta.model.sheet.pods.findIndex((pod) => callMatchesPod(pod, firstEbPod));
+      if (wbPodIndex < 0) {
+        wbPodIndex = wbMeta.model.sheet.pods.findIndex((pod) => pod.port === firstEbPod.port);
+      }
+      if (wbPodIndex < 0) return;
+
+      const ebLeft = ebMeta.podLeftCols[0];
+      const ebRight = ebMeta.podRightCols[0];
+      const wbLeft = wbMeta.podLeftCols[wbPodIndex];
+      const wbRight = wbMeta.podRightCols[wbPodIndex];
+
+      for (let offset = 0; offset < 6; offset += 1) {
+        const row = 6 + offset;
+        setFormulaOnly(
+          ebMeta.ws.getCell(row, ebLeft),
+          `WB!${excelCell(wbLeft, wbMeta.totalStart + offset)}`
+        );
+        setFormulaOnly(
+          ebMeta.ws.getCell(row, ebRight),
+          `WB!${excelCell(wbRight, wbMeta.totalStart + offset)}`
+        );
+      }
+      setFormulaOnly(
+        ebMeta.ws.getCell(12, ebLeft),
+        `WB!${excelCell(wbLeft, wbMeta.totalStart + 6)}`,
+        "0.0;-0.0;;@"
+      );
+    }
+
     function applyCombinedMoveCount(wbMeta, ebMeta) {
       if (!wbMeta?.podRightCols?.length || !ebMeta?.podRightCols?.length) return;
       const wbLastPod = excelCol(wbMeta.podRightCols[wbMeta.podRightCols.length - 1]);
@@ -2173,6 +2245,7 @@
       workbook.calcProperties.forceFullCalc = true;
       const wbMeta = buildExcelSheet(workbook, input, "WB");
       const ebMeta = buildExcelSheet(workbook, input, "EB");
+      applyEbRobCarryover(wbMeta, ebMeta);
       applyCombinedMoveCount(wbMeta, ebMeta);
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
