@@ -159,6 +159,59 @@
       min-width: 0;
     }
 
+    .pair-row {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 38px minmax(0, 1fr);
+      align-items: end;
+      gap: 8px;
+    }
+
+    .sync-button {
+      min-width: 38px;
+      padding: 0;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .action-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .action-grid .wide-action {
+      grid-column: 1 / -1;
+    }
+
+    .port-options {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .port-option {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #f8fafc;
+      padding: 7px 8px;
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 700;
+      margin: 0;
+    }
+
+    .port-option input {
+      width: auto;
+      min-height: 0;
+      margin: 0;
+      padding: 0;
+    }
+
     input,
     textarea {
       width: 100%;
@@ -565,13 +618,16 @@
             <input id="vvd" list="vvdOptions" value="XPBL2625WE">
             <datalist id="vvdOptions"></datalist>
           </div>
-          <div class="field">
-            <label for="wbTeus">WB TEU</label>
-            <input id="wbTeus" type="number" min="0" step="1" value="">
-          </div>
-          <div class="field">
-            <label for="ebTeus">EB TEU</label>
-            <input id="ebTeus" type="number" min="0" step="1" value="">
+          <div class="pair-row">
+            <div class="field">
+              <label for="wbTeus">WB TEU</label>
+              <input id="wbTeus" type="number" min="0" step="1" value="">
+            </div>
+            <button id="syncTeus" class="sync-button" type="button" title="同步 WB / EB TEU">=</button>
+            <div class="field">
+              <label for="ebTeus">EB TEU</label>
+              <input id="ebTeus" type="number" min="0" step="1" value="">
+            </div>
           </div>
           <div class="field wide">
             <label for="tonPerTeu">Ton/Teu</label>
@@ -585,13 +641,16 @@
             <label for="ebMt">EB BSA Weight (MT)</label>
             <input id="ebMt" type="number" min="0" step="1" value="">
           </div>
-          <div class="field">
-            <label for="wbRf">WB RF Plug</label>
-            <input id="wbRf" type="number" min="0" step="1" value="">
-          </div>
-          <div class="field">
-            <label for="ebRf">EB RF Plug</label>
-            <input id="ebRf" type="number" min="0" step="1" value="">
+          <div class="pair-row">
+            <div class="field">
+              <label for="wbRf">WB RF Plug</label>
+              <input id="wbRf" type="number" min="0" step="1" value="">
+            </div>
+            <button id="syncRf" class="sync-button" type="button" title="同步 WB / EB RF Plug">=</button>
+            <div class="field">
+              <label for="ebRf">EB RF Plug</label>
+              <input id="ebRf" type="number" min="0" step="1" value="">
+            </div>
           </div>
         </div>
         <div class="subtle" id="scheduleNote" style="margin-top:10px">
@@ -602,6 +661,23 @@
       <div class="section">
         <h2>当前船期</h2>
         <div class="subtle" id="scheduleSummary">尚未读取船期</div>
+      </div>
+
+      <div class="section">
+        <h2>WB POD</h2>
+        <div class="subtle">EB 港口固定作为 WB POD；下面只控制 WB 港口是否也作为 WB POD。</div>
+        <div class="port-options" id="wbPodOptions"></div>
+      </div>
+
+      <div class="section">
+        <h2>操作</h2>
+        <div class="action-grid">
+          <button id="generate" type="button" class="primary">刷新船期</button>
+          <button id="exportXls" type="button">导出 Excel</button>
+          <button id="copyTable" type="button">复制预览</button>
+          <button id="printPage" type="button">打印</button>
+          <span class="status wide-action" id="status">Ready</span>
+        </div>
       </div>
 
       <div class="hidden">
@@ -626,7 +702,7 @@
           <h1>控舱表生成器</h1>
           <div class="subtle" id="summaryLine">Schedule preview</div>
         </div>
-        <div class="toolbar">
+        <div class="toolbar hidden">
           <div class="tabs" role="tablist" aria-label="Direction">
             <button class="tab active" type="button" data-sheet="WB">WB</button>
             <button class="tab" type="button" data-sheet="EB">EB</button>
@@ -721,6 +797,11 @@
       vesselMapping: null,
       currentLookup: null,
       lookupSignature: ""
+    };
+
+    const syncSource = {
+      teus: "wbTeus",
+      rf: "wbRf"
     };
 
     const $ = (id) => document.getElementById(id);
@@ -1030,6 +1111,49 @@
       ].join("::");
     }
 
+    function podOptionKey(call) {
+      return `${call.port}::${callDateKey(call)}`;
+    }
+
+    function selectedWbPodCalls(lookup) {
+      const checked = new Set(
+        [...$("wbPodOptions").querySelectorAll("input[type='checkbox']:checked")].map((input) => input.value)
+      );
+      return lookup.wbCalls.filter((call) => checked.has(podOptionKey(call)));
+    }
+
+    function updateScheduleTextareasFromLookup() {
+      const lookup = state.currentLookup;
+      if (!lookup) return;
+      const wbPodCalls = dedupeCallsByPortDate([...selectedWbPodCalls(lookup), ...lookup.ebCalls]);
+      $("wbPods").value = rowsToText(callsToPodRows(wbPodCalls));
+      $("wbPols").value = rowsToText(callsToPolRows(lookup.wbCalls));
+      $("ebPods").value = rowsToText(callsToPodRows(lookup.ebRouteCalls));
+      $("ebPols").value = rowsToText(callsToPolRows(lookup.ebCalls));
+    }
+
+    function renderWbPodOptions(lookup) {
+      const container = $("wbPodOptions");
+      container.replaceChildren();
+      lookup.wbCalls.forEach((call) => {
+        const label = document.createElement("label");
+        label.className = "port-option";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.value = podOptionKey(call);
+        checkbox.checked = true;
+        checkbox.addEventListener("change", () => {
+          updateScheduleTextareasFromLookup();
+          render();
+        });
+        const text = document.createElement("span");
+        text.textContent = `${call.port} ${formatMmDd(call.etd)}`;
+        label.appendChild(checkbox);
+        label.appendChild(text);
+        container.appendChild(label);
+      });
+    }
+
     function applyLookup(lookup) {
       const signature = lookupSignature(lookup);
       if (state.lookupSignature && state.lookupSignature !== signature) {
@@ -1041,19 +1165,19 @@
       $("vesselName").value = lookup.vesselName;
       $("reportDate").value = formatGeneratedDate();
       $("selection").value = "Source Bayplan, Actual Booking & CBF";
-      const wbPodCalls = dedupeCallsByPortDate([...lookup.wbCalls, ...lookup.ebCalls]);
-      const wbPolCalls = dedupeCallsByPortDate([
-        ...lookup.wbCalls,
-        ...trimClosingReturnCall(lookup.ebCalls, lookup.wbCalls[0]?.port)
-      ]);
-      $("wbPods").value = rowsToText(callsToPodRows(wbPodCalls));
-      $("wbPols").value = rowsToText(callsToPolRows(wbPolCalls));
-      $("ebPods").value = rowsToText(callsToPodRows(lookup.ebRouteCalls));
-      $("ebPols").value = rowsToText(callsToPolRows(lookup.ebCalls));
+      renderWbPodOptions(lookup);
+      updateScheduleTextareasFromLookup();
       $("scheduleSummary").textContent =
         `${lookup.vesselName} / ${lookup.inputVvd} · ${lookup.lane} · ` +
         `WB ${lookup.currentWVvd || "-"} (${lookup.wbCalls.length} calls), ` +
         `EB ${lookup.currentEVvd || "-"} + ${lookup.nextWVvd || "-"} + ${lookup.nextEVvd || "-"} (${lookup.ebRouteCalls.length} calls)`;
+    }
+
+    function setCompactScheduleSummary(lookup) {
+      $("scheduleSummary").textContent =
+        `${lookup.vesselName} / ${lookup.inputVvd} · ${lookup.lane} · ` +
+        `WB ${lookup.currentWVvd || "-"} (${lookup.wbCalls.length} calls), ` +
+        `EB ${lookup.currentEVvd || "-"} (${lookup.ebCalls.length} calls)`;
     }
 
     async function generateFromSchedule() {
@@ -1068,8 +1192,9 @@
       try {
         const lookup = await lookupSchedule(vvd);
         applyLookup(lookup);
+        setCompactScheduleSummary(lookup);
         render();
-        $("status").textContent = `Schedule loaded · ${lookup.lane}`;
+        $("status").textContent = `船期已刷新 · ${lookup.lane}`;
       } catch (error) {
         console.error(error);
         $("status").textContent = "船期读取失败";
@@ -1166,20 +1291,42 @@
     function syncPairedInput(sourceId, targetId) {
       const sourceValue = inputNumberOrNull(sourceId);
       if (sourceValue === null) return;
-      const targetValue = inputNumberOrNull(targetId);
-      if (targetValue === null || targetValue === 0) {
+      setNumberInput(targetId, sourceValue, 0);
+    }
+
+    function syncLastEditedPair(kind, wbId, ebId) {
+      const sourceId = syncSource[kind] || wbId;
+      const targetId = sourceId === wbId ? ebId : wbId;
+      const sourceValue = inputNumberOrNull(sourceId);
+      if (sourceValue !== null) {
         setNumberInput(targetId, sourceValue, 0);
+        return;
+      }
+      const targetValue = inputNumberOrNull(targetId);
+      if (targetValue !== null) {
+        setNumberInput(sourceId, targetValue, 0);
       }
     }
 
-    function handleTeuInput(sourceId, targetId) {
-      syncPairedInput(sourceId, targetId);
+    function syncTeuPair() {
+      syncLastEditedPair("teus", "wbTeus", "ebTeus");
       syncBsaWeightsFromTeu();
       rerenderIfScheduleReady();
     }
 
-    function handleRfInput(sourceId, targetId) {
-      syncPairedInput(sourceId, targetId);
+    function syncRfPair() {
+      syncLastEditedPair("rf", "wbRf", "ebRf");
+      rerenderIfScheduleReady();
+    }
+
+    function handleTeuInput(sourceId) {
+      syncSource.teus = sourceId;
+      syncBsaWeightsFromTeu();
+      rerenderIfScheduleReady();
+    }
+
+    function handleRfInput(sourceId) {
+      syncSource.rf = sourceId;
       rerenderIfScheduleReady();
     }
 
@@ -1723,7 +1870,16 @@
       const lookup = state.currentLookup;
       if (!lookup) return direction;
       if (direction === "WB") return lookup.currentWVvd || "WB";
-      return [lookup.currentEVvd, lookup.nextWVvd, lookup.nextEVvd].filter(Boolean).join(" + ") || "EB";
+      return lookup.currentEVvd || "EB";
+    }
+
+    function previewCalls(direction, input) {
+      const lookup = state.currentLookup;
+      if (lookup) {
+        const calls = direction === "WB" ? lookup.wbCalls : lookup.ebCalls;
+        return calls.map((call) => ({ port: call.port, eta: formatMmDd(call.etd) }));
+      }
+      return input[direction].pols.map((call) => ({ port: call.port, eta: call.etd }));
     }
 
     function addRouteCell(row, direction, calls) {
@@ -1782,8 +1938,8 @@
       appendText(row, "td", input.vvd);
       appendText(row, "td", input.serviceLane || "-");
       appendText(row, "td", input.vesselName || "-");
-      addRouteCell(row, "WB", input.WB.pods);
-      addRouteCell(row, "EB", input.EB.pods);
+      addRouteCell(row, "WB", previewCalls("WB", input));
+      addRouteCell(row, "EB", previewCalls("EB", input));
       wrap.appendChild(table);
       return wrap;
     }
@@ -1795,6 +1951,8 @@
       state.tableData.EB = makeTableModel(input, "EB");
       $("summaryLine").textContent = `Schedule preview · ${input.vesselName} / ${input.vvd} · ${input.serviceLane || "-"}`;
       $("sheetWrap").replaceChildren(buildSchedulePreview(input));
+      $("status").textContent = `WB ${previewCalls("WB", input).length} ports · EB ${previewCalls("EB", input).length} ports`;
+      return;
       $("status").textContent = `WB ${input.WB.pods.length} ports · EB ${input.EB.pods.length} ports`;
     }
 
@@ -1828,10 +1986,6 @@
       if (sections.wbPol.length) $("wbPols").value = sections.wbPol.join("\n");
       if (sections.ebPod.length) $("ebPods").value = sections.ebPod.join("\n");
       if (sections.ebPol.length) $("ebPols").value = sections.ebPol.join("\n");
-      syncPairedInput("wbTeus", "ebTeus");
-      syncPairedInput("ebTeus", "wbTeus");
-      syncPairedInput("wbRf", "ebRf");
-      syncPairedInput("ebRf", "wbRf");
       syncBsaWeightsFromTeu();
       render();
     }
@@ -2589,6 +2743,8 @@
       render();
     }
 
+    document.querySelector(".topbar .toolbar")?.remove();
+
     $("generate").addEventListener("click", generateFromSchedule);
     $("loadSample").addEventListener("click", () => {
       setSample();
@@ -2614,12 +2770,14 @@
       }
     });
 
-    $("wbTeus").addEventListener("input", () => handleTeuInput("wbTeus", "ebTeus"));
-    $("ebTeus").addEventListener("input", () => handleTeuInput("ebTeus", "wbTeus"));
+    $("syncTeus").addEventListener("click", syncTeuPair);
+    $("syncRf").addEventListener("click", syncRfPair);
+    $("wbTeus").addEventListener("input", () => handleTeuInput("wbTeus"));
+    $("ebTeus").addEventListener("input", () => handleTeuInput("ebTeus"));
     $("wbMt").addEventListener("input", () => handleWeightInput("wbMt", "wbTeus"));
     $("ebMt").addEventListener("input", () => handleWeightInput("ebMt", "ebTeus"));
-    $("wbRf").addEventListener("input", () => handleRfInput("wbRf", "ebRf"));
-    $("ebRf").addEventListener("input", () => handleRfInput("ebRf", "wbRf"));
+    $("wbRf").addEventListener("input", () => handleRfInput("wbRf"));
+    $("ebRf").addEventListener("input", () => handleRfInput("ebRf"));
     $("tonPerTeu").addEventListener("input", handleTonPerTeuInput);
     $("vvd").addEventListener("change", generateFromSchedule);
 
