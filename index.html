@@ -421,7 +421,8 @@
         <div class="grid">
           <div class="field wide">
             <label for="vvd">VVD</label>
-            <input id="vvd" value="XPBL2625WE">
+            <input id="vvd" list="vvdOptions" value="XPBL2625WE">
+            <datalist id="vvdOptions"></datalist>
           </div>
           <div class="field">
             <label for="wbTeus">WB TEU</label>
@@ -677,7 +678,32 @@
       if (missing.length) throw new Error(`Schedule is missing columns: ${missing.join(", ")}`);
 
       state.scheduleRows = rows;
+      populateVvdOptions(rows);
       return rows;
+    }
+
+    function populateVvdOptions(rows) {
+      const list = $("vvdOptions");
+      if (!list || list.dataset.loaded === "Y") return;
+      const grouped = new Map();
+      rows.forEach((row) => {
+        const match = row.vvd.match(/^([A-Z]+\d+)([WE])$/);
+        const key = match ? match[1] : row.vvd;
+        if (!grouped.has(key)) grouped.set(key, { lanes: new Set(), dirs: new Set() });
+        grouped.get(key).lanes.add(row.lane);
+        if (match) grouped.get(key).dirs.add(match[2]);
+      });
+      const options = [...grouped.entries()].map(([stem, info]) => {
+        const value = info.dirs.has("W") && info.dirs.has("E") ? `${stem}WE` : stem;
+        return { value, label: [...info.lanes].sort().join("/") };
+      }).sort((a, b) => a.label.localeCompare(b.label) || a.value.localeCompare(b.value));
+      list.replaceChildren(...options.map((item) => {
+        const option = document.createElement("option");
+        option.value = item.value;
+        option.label = item.label;
+        return option;
+      }));
+      list.dataset.loaded = "Y";
     }
 
     async function loadVesselMapping() {
@@ -1508,6 +1534,38 @@
       return clean.length ? clean.join("+") : "0";
     }
 
+    function nRef(cellRef) {
+      return `N(${cellRef})`;
+    }
+
+    function excelBorder(style = "thin") {
+      const color = style === "medium" ? "FF111827" : "FF4B5563";
+      return {
+        style,
+        color: { argb: color }
+      };
+    }
+
+    function fullBorder(style = "thin") {
+      const side = excelBorder(style);
+      return {
+        top: side,
+        left: side,
+        bottom: side,
+        right: side
+      };
+    }
+
+    function setRowBottomBorder(ws, row, lastCol, style = "medium") {
+      for (let col = 1; col <= lastCol; col += 1) {
+        const cell = ws.getCell(row, col);
+        cell.border = {
+          ...(cell.border || fullBorder("thin")),
+          bottom: excelBorder(style)
+        };
+      }
+    }
+
     function safeMerge(ws, r1, c1, r2, c2) {
       if (r1 === r2 && c1 === c2) return;
       ws.mergeCells(r1, c1, r2, c2);
@@ -1534,12 +1592,7 @@
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: style.fill } };
       }
       if (style.numFmt) cell.numFmt = style.numFmt;
-      cell.border = style.border || {
-        top: { style: "thin", color: { argb: "FF1F2937" } },
-        left: { style: "thin", color: { argb: "FF1F2937" } },
-        bottom: { style: "thin", color: { argb: "FF1F2937" } },
-        right: { style: "thin", color: { argb: "FF1F2937" } }
-      };
+      cell.border = style.border || fullBorder(style.borderStyle || "thin");
     }
 
     function entryValue(sheetName, block, row, pod, side) {
@@ -1576,6 +1629,8 @@
         last: summaryStart + 9
       };
       const maxRow = 5 + model.blocks.length * 8;
+      const moveSummaryStart = maxRow + 1;
+      const finalRow = maxRow + 7;
       const headerFill = "FF92C8F6";
       const yellowFill = "FFFFFF00";
       const whiteFill = "FFFFFFFF";
@@ -1583,10 +1638,13 @@
       const countFmt = '0;-0;;@';
       const weightFmt = '0.0;-0.0;;@';
       const percentFmt = '0%;-0%;;@';
+      const visibleCountFmt = "0";
+      const visibleWeightFmt = "0.0";
       const baseStyle = { fill: whiteFill };
       const headerStyle = { fill: headerFill, bold: true };
       const yellowStyle = { fill: yellowFill, bold: true };
       const computedStyle = { fill: computedFill, bold: true };
+      const moveLabelStyle = { fill: headerFill, bold: true, alignment: { horizontal: "left", vertical: "middle" } };
 
       ws.columns = Array.from({ length: summary.last }, (_, index) => {
         if (index === 0) return { width: 8 };
@@ -1595,7 +1653,7 @@
         if (index >= summaryStart - 1) return { width: 9.5 };
         return { width: 7.5 };
       });
-      for (let row = 1; row <= maxRow; row += 1) {
+      for (let row = 1; row <= finalRow; row += 1) {
         ws.getRow(row).height = row <= 5 ? 20 : 18;
       }
 
@@ -1615,11 +1673,11 @@
       setCell(ws, 2, 1, `Service Lane : ${input.serviceLane}`, headerStyle);
       setCell(ws, 2, 4, `${input.vesselName} / ${input.vvd}`, headerStyle);
       setCell(ws, 2, summary.total20, `${model.sheet.allocationLabel} :`, headerStyle);
-      setCell(ws, 2, summary.total40, model.sheet.allocation.teus || "", yellowStyle);
+      setCell(ws, 2, summary.total40, Number(model.sheet.allocation.teus) || 0, { ...yellowStyle, numFmt: countFmt });
       setCell(ws, 2, summary.ttl, "TEUS,", headerStyle);
-      setCell(ws, 2, summary.robAll, model.sheet.allocation.mt || "", yellowStyle);
+      setCell(ws, 2, summary.robAll, Number(model.sheet.allocation.mt) || 0, { ...yellowStyle, numFmt: weightFmt });
       setCell(ws, 2, summary.robLd, "MT,", headerStyle);
-      setCell(ws, 2, summary.utilAll, model.sheet.allocation.rf || "", yellowStyle);
+      setCell(ws, 2, summary.utilAll, Number(model.sheet.allocation.rf) || 0, { ...yellowStyle, numFmt: countFmt });
       safeMerge(ws, 2, summary.utilLd, 2, summary.rf);
       setCell(ws, 2, summary.utilLd, "RF PLUGS", headerStyle);
 
@@ -1667,6 +1725,9 @@
       const allocTeuCell = excelCell(summary.total40, 2);
       const allocWeightCell = excelCell(summary.robAll, 2);
       const allocRfCell = excelCell(summary.utilAll, 2);
+      const allocTeuValue = nRef(allocTeuCell);
+      const allocWeightValue = nRef(allocWeightCell);
+      const allocRfValue = nRef(allocRfCell);
 
       model.blocks.forEach((block, blockIndex) => {
         const start = blockStarts[blockIndex];
@@ -1767,27 +1828,77 @@
         const robAllFormula = blockIndex === 0 ? loadAll : `${excelCell(summary.robAll, prevStart)}+${loadAll}-(${dischargeTeu})`;
         const robLdFormula = blockIndex === 0 ? loadLd : `${excelCell(summary.robLd, prevStart)}+${loadLd}-((${dischargeTeu})-(${dischargeMt}))`;
         const weightFormula = blockIndex === 0 ? loadWeight : `${excelCell(summary.robAll, prevStart + 6)}+${loadWeight}-(${dischargeWeight})`;
-        const rfFormula = blockIndex === 0 ? `${allocRfCell}-(${loadRf})` : `${excelCell(summary.rf, prevStart + 4)}-(${loadRf})+(${dischargeRf})`;
+        const rfFormula = blockIndex === 0 ? `${allocRfValue}-(${loadRf})` : `${excelCell(summary.rf, prevStart + 4)}-(${loadRf})+(${dischargeRf})`;
 
         setFormulaCell(ws, start, summary.robAll, robAllFormula, { ...computedStyle, numFmt: countFmt });
         setFormulaCell(ws, start, summary.robLd, robLdFormula, { ...computedStyle, numFmt: countFmt });
-        setFormulaCell(ws, start, summary.utilAll, `IF(${allocTeuCell}>0,${excelCell(summary.robAll, start)}/${allocTeuCell},0)`, { ...computedStyle, numFmt: percentFmt });
-        setFormulaCell(ws, start, summary.utilLd, `IF(${allocTeuCell}>0,${excelCell(summary.robLd, start)}/${allocTeuCell},0)`, { ...computedStyle, numFmt: percentFmt });
+        setFormulaCell(ws, start, summary.utilAll, `IF(${allocTeuValue}>0,${excelCell(summary.robAll, start)}/${allocTeuValue},0)`, { ...computedStyle, numFmt: percentFmt });
+        setFormulaCell(ws, start, summary.utilLd, `IF(${allocTeuValue}>0,${excelCell(summary.robLd, start)}/${allocTeuValue},0)`, { ...computedStyle, numFmt: percentFmt });
         setFormulaCell(ws, start + 6, summary.robAll, weightFormula, { ...computedStyle, numFmt: weightFmt });
         setFormulaCell(ws, start + 6, summary.robLd, `${excelCell(summary.robAll, start + 6)}-(${excelCell(summary.robAll, start)}-${excelCell(summary.robLd, start)})*2`, { ...computedStyle, numFmt: weightFmt });
-        setFormulaCell(ws, start + 6, summary.utilAll, `IF(${allocWeightCell}>0,${excelCell(summary.robAll, start + 6)}/${allocWeightCell},0)`, { ...computedStyle, numFmt: percentFmt });
-        setFormulaCell(ws, start + 6, summary.utilLd, `IF(${allocWeightCell}>0,${excelCell(summary.robLd, start + 6)}/${allocWeightCell},0)`, { ...computedStyle, numFmt: percentFmt });
-        setFormulaCell(ws, start + 7, summary.avlTeu, `${allocTeuCell}-${excelCell(summary.robAll, start)}`, { ...computedStyle, numFmt: countFmt });
-        setFormulaCell(ws, start + 6, summary.avlWeight, `${allocWeightCell}-${excelCell(summary.robAll, start + 6)}`, { ...computedStyle, numFmt: weightFmt });
+        setFormulaCell(ws, start + 6, summary.utilAll, `IF(${allocWeightValue}>0,${excelCell(summary.robAll, start + 6)}/${allocWeightValue},0)`, { ...computedStyle, numFmt: percentFmt });
+        setFormulaCell(ws, start + 6, summary.utilLd, `IF(${allocWeightValue}>0,${excelCell(summary.robLd, start + 6)}/${allocWeightValue},0)`, { ...computedStyle, numFmt: percentFmt });
+        setFormulaCell(ws, start + 7, summary.avlTeu, `${allocTeuValue}-${excelCell(summary.robAll, start)}`, { ...computedStyle, numFmt: countFmt });
+        setFormulaCell(ws, start + 6, summary.avlWeight, `${allocWeightValue}-${excelCell(summary.robAll, start + 6)}`, { ...computedStyle, numFmt: weightFmt });
         setFormulaCell(ws, start + 4, summary.rf, rfFormula, { ...computedStyle, numFmt: countFmt });
       });
 
-      for (let row = 1; row <= maxRow; row += 1) {
+      const blockStartsByPort = new Map();
+      blockStarts.slice(0, totalBlockIndex).forEach((start, blockIndex) => {
+        const port = model.blocks[blockIndex].port;
+        if (!blockStartsByPort.has(port)) blockStartsByPort.set(port, []);
+        blockStartsByPort.get(port).push(start);
+      });
+
+      const addMoveRow = (row, label, builder, style = computedStyle, numFmt = visibleCountFmt) => {
+        safeMerge(ws, row, 1, row, 3);
+        setCell(ws, row, 1, label, moveLabelStyle);
+        model.sheet.pods.forEach((pod, podIndex) => {
+          const left = podLeftCols[podIndex];
+          const right = podRightCols[podIndex];
+          safeMerge(ws, row, left, row, right);
+          const value = builder({ pod, podIndex, left, right, row });
+          if (typeof value === "string" && value.startsWith("=")) {
+            setFormulaCell(ws, row, left, value.slice(1), { ...style, numFmt });
+          } else {
+            setCell(ws, row, left, value, { ...style, numFmt });
+          }
+        });
+      };
+
+      addMoveRow(moveSummaryStart, "TEUS", ({ left, right }) => (
+        `=${excelCell(left, totalStart + 7)}+${excelCell(right, totalStart + 7)}*2`
+      ));
+      addMoveRow(moveSummaryStart + 1, "TOTAL MTONS", ({ left }) => (
+        `=${excelCell(left, totalStart + 6)}`
+      ), computedStyle, visibleWeightFmt);
+      addMoveRow(moveSummaryStart + 4, "Move counts utilised", ({ pod, left, right }) => {
+        const dischargeCount = `${excelCell(left, totalStart + 7)}+${excelCell(right, totalStart + 7)}`;
+        const loadCounts = (blockStartsByPort.get(pod.port) || []).map((start) => (
+          `${excelCell(summary.total20, start + 7)}+${excelCell(summary.total40, start + 7)}`
+        ));
+        return `=${sumFormula([dischargeCount, ...loadCounts])}`;
+      });
+      addMoveRow(moveSummaryStart + 5, "Step Up/Down Move Count", () => 0, { ...baseStyle, bold: true }, visibleCountFmt);
+      addMoveRow(moveSummaryStart + 6, "Balance Move Count", ({ left, row }) => (
+        `=${excelCell(left, row - 1)}-${excelCell(left, row - 2)}`
+      ));
+
+      for (let row = 1; row <= finalRow; row += 1) {
         for (let col = 1; col <= summary.last; col += 1) {
           const cell = ws.getCell(row, col);
-          if (!cell.style || Object.keys(cell.style).length === 0) applyExcelStyle(cell, row <= 5 ? headerStyle : baseStyle);
+          if (!cell.style || Object.keys(cell.style).length === 0) {
+            applyExcelStyle(cell, row <= 5 ? headerStyle : baseStyle);
+          } else {
+            cell.border = cell.border || fullBorder("thin");
+            cell.alignment = cell.alignment || { horizontal: "center", vertical: "middle" };
+            cell.font = cell.font || { name: "Arial", size: 9 };
+          }
         }
       }
+      [5, ...blockStarts.map((start) => start + 7), moveSummaryStart + 1, moveSummaryStart + 6]
+        .filter((row) => row <= finalRow)
+        .forEach((row) => setRowBottomBorder(ws, row, summary.last, "medium"));
       return ws;
     }
 
@@ -1812,7 +1923,8 @@
       });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = `${input.vesselName} ${input.vvd} Space Control.xlsx`.replace(/[\\/:*?"<>|]+/g, "-");
+      const laneName = normalizeText(input.serviceLane).split(/[\s/]+/)[0] || "LANE";
+      link.download = `${laneName} ${input.vvd}.xlsx`.replace(/[\\/:*?"<>|]+/g, "-");
       document.body.appendChild(link);
       link.click();
       link.remove();
