@@ -1566,6 +1566,154 @@
       }
     }
 
+    function styleOfBorder(cell, sideName) {
+      return cell.border?.[sideName]?.style || null;
+    }
+
+    function setExcelBorder(cell, sides = {}) {
+      const border = {};
+      ["top", "bottom", "left", "right"].forEach((sideName) => {
+        const style = sides[sideName];
+        if (style) border[sideName] = excelBorder(style);
+      });
+      cell.border = border;
+    }
+
+    function applyTemplateBorders(ws, summary, podLeftCols, blockStarts, totalStart, finalRow, moveSummaryStart) {
+      const maxCol = summary.last;
+      const summaryLeftCols = [
+        summary.total20,
+        summary.ttl,
+        summary.robAll,
+        summary.utilAll,
+        summary.avlTeu,
+        summary.rf
+      ];
+      const setBorder = (row, col, sides) => setExcelBorder(ws.getCell(row, col), sides);
+
+      for (let row = 1; row <= finalRow; row += 1) {
+        for (let col = 1; col <= maxCol; col += 1) {
+          ws.getCell(row, col).border = {};
+        }
+      }
+
+      for (let col = 1; col <= maxCol; col += 1) {
+        setBorder(2, col, { top: "thick" });
+        setBorder(3, col, { top: "medium" });
+        setBorder(5, col, { bottom: "medium" });
+      }
+
+      [3, 4, 5].forEach((row) => {
+        let cell = ws.getCell(row, 3);
+        setExcelBorder(cell, {
+          right: "medium",
+          top: styleOfBorder(cell, "top"),
+          bottom: styleOfBorder(cell, "bottom")
+        });
+        [...podLeftCols, ...summaryLeftCols].forEach((col) => {
+          cell = ws.getCell(row, col);
+          setExcelBorder(cell, {
+            left: "medium",
+            top: styleOfBorder(cell, "top"),
+            bottom: styleOfBorder(cell, "bottom")
+          });
+        });
+        cell = ws.getCell(row, summary.avlWeight);
+        setExcelBorder(cell, {
+          left: styleOfBorder(cell, "left"),
+          right: "medium",
+          top: styleOfBorder(cell, "top"),
+          bottom: styleOfBorder(cell, "bottom")
+        });
+        cell = ws.getCell(row, maxCol);
+        setExcelBorder(cell, {
+          left: styleOfBorder(cell, "left"),
+          right: "medium",
+          top: styleOfBorder(cell, "top"),
+          bottom: styleOfBorder(cell, "bottom")
+        });
+      });
+
+      const styleBodyRow = (row, horizontal = null, bottom = null) => {
+        for (let col = 1; col <= maxCol; col += 1) {
+          let left = null;
+          let right = null;
+          if (podLeftCols.includes(col) || summaryLeftCols.includes(col)) left = "thin";
+          if (col === summary.rf) left = "medium";
+          if (col === 2 || col === 3) right = "medium";
+          else if (col === summary.avlWeight) right = "medium";
+          else if (col === maxCol) right = "thin";
+          setBorder(row, col, { left, right, top: horizontal, bottom });
+        }
+      };
+
+      blockStarts.forEach((start) => {
+        for (let row = start; row <= start + 5; row += 1) {
+          styleBodyRow(row);
+        }
+        styleBodyRow(start + 6, "thin", "thin");
+        styleBodyRow(start + 7, "thin", "medium");
+      });
+
+      const styleBottomSummaryRow = (row) => {
+        for (let col = 1; col <= maxCol; col += 1) {
+          ws.getCell(row, col).border = {};
+        }
+        [1, 2, 3].forEach((col) => setBorder(row, col, { top: "medium", bottom: "medium" }));
+        setBorder(row, 1, { right: "medium", top: "medium", bottom: "medium" });
+        setBorder(row, 3, { right: "medium", top: "medium", bottom: "medium" });
+        podLeftCols.forEach((left) => {
+          const right = left + 1;
+          setBorder(row, left, { left: "medium", right: "medium", top: "medium", bottom: "medium" });
+          setBorder(row, right, { right: "medium", top: "medium", bottom: "medium" });
+        });
+      };
+
+      [moveSummaryStart, moveSummaryStart + 1].forEach(styleBottomSummaryRow);
+      for (let row = moveSummaryStart + 2; row <= moveSummaryStart + 3; row += 1) {
+        for (let col = 1; col <= maxCol; col += 1) {
+          ws.getCell(row, col).border = {};
+        }
+      }
+      for (let row = moveSummaryStart + 4; row <= finalRow; row += 1) {
+        styleBottomSummaryRow(row);
+      }
+
+      for (let col = 1; col <= maxCol; col += 1) {
+        const topCell = ws.getCell(1, col);
+        setExcelBorder(topCell, {
+          left: styleOfBorder(topCell, "left"),
+          right: styleOfBorder(topCell, "right"),
+          top: "medium",
+          bottom: styleOfBorder(topCell, "bottom")
+        });
+        const secondRowCell = ws.getCell(2, col);
+        setExcelBorder(secondRowCell, {
+          left: styleOfBorder(secondRowCell, "left"),
+          right: styleOfBorder(secondRowCell, "right"),
+          top: "thick",
+          bottom: styleOfBorder(secondRowCell, "bottom")
+        });
+      }
+
+      for (let row = 1; row <= totalStart + 7; row += 1) {
+        let cell = ws.getCell(row, 1);
+        setExcelBorder(cell, {
+          left: "medium",
+          right: styleOfBorder(cell, "right"),
+          top: styleOfBorder(cell, "top"),
+          bottom: styleOfBorder(cell, "bottom")
+        });
+        cell = ws.getCell(row, maxCol);
+        setExcelBorder(cell, {
+          left: styleOfBorder(cell, "left"),
+          right: "medium",
+          top: styleOfBorder(cell, "top"),
+          bottom: styleOfBorder(cell, "bottom")
+        });
+      }
+    }
+
     function safeMerge(ws, r1, c1, r2, c2) {
       if (r1 === r2 && c1 === c2) return;
       ws.mergeCells(r1, c1, r2, c2);
@@ -1896,9 +2044,7 @@
           }
         }
       }
-      [5, ...blockStarts.map((start) => start + 7), moveSummaryStart + 1, moveSummaryStart + 6]
-        .filter((row) => row <= finalRow)
-        .forEach((row) => setRowBottomBorder(ws, row, summary.last, "medium"));
+      applyTemplateBorders(ws, summary, podLeftCols, blockStarts, totalStart, finalRow, moveSummaryStart);
       return ws;
     }
 
