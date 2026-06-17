@@ -1539,10 +1539,9 @@
     }
 
     function excelBorder(style = "thin") {
-      const color = style === "medium" ? "FF111827" : "FF4B5563";
       return {
         style,
-        color: { argb: color }
+        color: { argb: "FF000000" }
       };
     }
 
@@ -1714,6 +1713,50 @@
       }
     }
 
+    function conditionalFill(argb) {
+      return { type: "pattern", pattern: "solid", fgColor: { argb } };
+    }
+
+    function addExportConditionalFormatting(ws, summary, totalStart) {
+      if (typeof ws.addConditionalFormatting !== "function") return;
+      const utilRef = `${excelCol(summary.utilAll)}6:${excelCol(summary.utilLd)}${totalStart + 7}`;
+      const avlRef = `${excelCol(summary.avlTeu)}6:${excelCol(summary.avlWeight)}${totalStart + 7}`;
+      ws.addConditionalFormatting({
+        ref: utilRef,
+        rules: [
+          {
+            type: "cellIs",
+            operator: "equal",
+            formulae: ["1"],
+            style: { fill: conditionalFill("FFC6EFCE") }
+          },
+          {
+            type: "cellIs",
+            operator: "greaterThan",
+            formulae: ["1"],
+            style: {
+              fill: conditionalFill("FFFFC7CE"),
+              font: { color: { argb: "FFFF0000" }, bold: true }
+            }
+          }
+        ]
+      });
+      ws.addConditionalFormatting({
+        ref: avlRef,
+        rules: [
+          {
+            type: "cellIs",
+            operator: "lessThan",
+            formulae: ["0"],
+            style: {
+              fill: conditionalFill("FFFFFF00"),
+              font: { color: { argb: "FFFF0000" }, bold: true }
+            }
+          }
+        ]
+      });
+    }
+
     function safeMerge(ws, r1, c1, r2, c2) {
       if (r1 === r2 && c1 === c2) return;
       ws.mergeCells(r1, c1, r2, c2);
@@ -1735,7 +1778,12 @@
 
     function applyExcelStyle(cell, style = {}) {
       cell.alignment = style.alignment || { horizontal: "center", vertical: "middle" };
-      cell.font = style.font || { name: "Arial", size: 9, bold: !!style.bold };
+      cell.font = style.font || {
+        name: "Calibri",
+        size: 11,
+        bold: !!style.bold,
+        color: { argb: "FF000000" }
+      };
       if (style.fill) {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: style.fill } };
       }
@@ -1757,12 +1805,14 @@
       const ws = workbook.addWorksheet(sheetName, {
         views: [{ showGridLines: false, state: "frozen", ySplit: 5 }]
       });
+      ws.properties.defaultColWidth = 9;
 
       const n = model.sheet.pods.length;
       const podLeftCols = Array.from({ length: n }, (_, i) => 4 + i * 2);
       const podRightCols = podLeftCols.map((col) => col + 1);
       const podEnd = 3 + n * 2;
-      const summaryStart = podEnd + 1;
+      const spacerCol = podEnd + 1;
+      const summaryStart = spacerCol + 1;
       const summary = {
         total20: summaryStart,
         total40: summaryStart + 1,
@@ -1774,83 +1824,88 @@
         avlTeu: summaryStart + 7,
         avlWeight: summaryStart + 8,
         rf: summaryStart + 9,
+        spacer: spacerCol,
         last: summaryStart + 9
       };
       const maxRow = 5 + model.blocks.length * 8;
       const moveSummaryStart = maxRow + 1;
-      const finalRow = maxRow + 7;
-      const headerFill = "FF92C8F6";
+      const finalRow = maxRow + 8;
+      const headerFill = "FF99CCFF";
       const yellowFill = "FFFFFF00";
       const whiteFill = "FFFFFFFF";
-      const computedFill = "FFFAFAFA";
       const countFmt = '0;-0;;@';
       const weightFmt = '0.0;-0.0;;@';
       const percentFmt = '0%;-0%;;@';
       const visibleCountFmt = "0";
       const visibleWeightFmt = "0.0";
+      const headerFont = { name: "Carlito", size: 11, bold: true, color: { argb: "FF000000" } };
+      const skipFont = { name: "Carlito", size: 11, bold: true, color: { argb: "FFFF0000" } };
       const baseStyle = { fill: whiteFill };
-      const headerStyle = { fill: headerFill, bold: true };
-      const yellowStyle = { fill: yellowFill, bold: true };
-      const computedStyle = { fill: computedFill, bold: true };
-      const moveLabelStyle = { fill: headerFill, bold: true, alignment: { horizontal: "left", vertical: "middle" } };
+      const headerStyle = { fill: headerFill, font: headerFont };
+      const yellowStyle = { fill: yellowFill, font: headerFont };
+      const skipStyle = { fill: yellowFill, font: skipFont };
+      const computedStyle = { fill: whiteFill };
+      const moveLabelStyle = { fill: whiteFill, bold: true };
+      const moveValueStyle = { fill: whiteFill, bold: true };
 
-      ws.columns = Array.from({ length: summary.last }, (_, index) => {
-        if (index === 0) return { width: 8 };
-        if (index === 1) return { width: 9 };
-        if (index === 2) return { width: 11 };
-        if (index >= summaryStart - 1) return { width: 9.5 };
-        return { width: 7.5 };
-      });
+      for (let col = 1; col <= summary.last; col += 1) {
+        let width = 7.5;
+        if (col === 1) width = 8;
+        else if (col === 2) width = 9;
+        else if (col === 3) width = 11;
+        else if (col === summary.spacer) width = 2;
+        else if (col >= summaryStart) width = 9.5;
+        ws.getColumn(col).width = width;
+      }
       for (let row = 1; row <= finalRow; row += 1) {
         ws.getRow(row).height = row <= 5 ? 20 : 18;
       }
 
       const totalCols = summary.last;
-      const reportSpan = 5;
-      const titleSpan = Math.min(7, Math.max(1, totalCols - reportSpan - 1));
-      const selectionSpan = Math.max(1, totalCols - titleSpan - reportSpan);
-      safeMerge(ws, 1, 1, 1, titleSpan);
-      safeMerge(ws, 1, titleSpan + 1, 1, titleSpan + selectionSpan);
-      safeMerge(ws, 1, totalCols - reportSpan + 1, 1, totalCols);
+      const titleEnd = Math.min(7, totalCols);
+      safeMerge(ws, 1, 1, 1, titleEnd);
+      if (spacerCol - 1 >= 8) safeMerge(ws, 1, 8, 1, spacerCol - 1);
+      safeMerge(ws, 1, summaryStart, 1, summary.last);
       setCell(ws, 1, 1, "Vessel Space Utilization Report -", headerStyle);
-      setCell(ws, 1, titleSpan + 1, `Selection: ${input.selection}`, headerStyle);
-      setCell(ws, 1, totalCols - reportSpan + 1, `Report Generated: ${input.reportDate}`, headerStyle);
+      if (spacerCol - 1 >= 8) setCell(ws, 1, 8, `Selection: ${input.selection}`, headerStyle);
+      setCell(ws, 1, summaryStart, `Report Generated: ${input.reportDate}`, headerStyle);
 
       safeMerge(ws, 2, 1, 2, 3);
-      if (n > 0) safeMerge(ws, 2, 4, 2, podEnd);
+      if (podEnd >= 4) safeMerge(ws, 2, 4, 2, Math.min(8, podEnd));
+      safeMerge(ws, 2, summary.total20, 2, summary.total20 + 1);
       setCell(ws, 2, 1, `Service Lane : ${input.serviceLane}`, headerStyle);
       setCell(ws, 2, 4, `${input.vesselName} / ${input.vvd}`, headerStyle);
       setCell(ws, 2, summary.total20, `${model.sheet.allocationLabel} :`, headerStyle);
-      setCell(ws, 2, summary.total40, Number(model.sheet.allocation.teus) || 0, { ...yellowStyle, numFmt: countFmt });
-      setCell(ws, 2, summary.ttl, "TEUS,", headerStyle);
-      setCell(ws, 2, summary.robAll, Number(model.sheet.allocation.mt) || 0, { ...yellowStyle, numFmt: weightFmt });
-      setCell(ws, 2, summary.robLd, "MT,", headerStyle);
-      setCell(ws, 2, summary.utilAll, Number(model.sheet.allocation.rf) || 0, { ...yellowStyle, numFmt: countFmt });
-      safeMerge(ws, 2, summary.utilLd, 2, summary.rf);
-      setCell(ws, 2, summary.utilLd, "RF PLUGS", headerStyle);
+      setCell(ws, 2, summary.total20 + 2, Number(model.sheet.allocation.teus) || 0, { ...yellowStyle, numFmt: countFmt });
+      setCell(ws, 2, summary.total20 + 3, " TEUS, ", headerStyle);
+      setCell(ws, 2, summary.total20 + 5, Number(model.sheet.allocation.mt) || 0, { ...yellowStyle, numFmt: weightFmt });
+      setCell(ws, 2, summary.total20 + 6, " MT, ", headerStyle);
+      setCell(ws, 2, summary.total20 + 7, Number(model.sheet.allocation.rf) || 0, { ...yellowStyle, numFmt: countFmt });
+      setCell(ws, 2, summary.total20 + 8, " RF PLUGS ", headerStyle);
 
-      safeMerge(ws, 3, 1, 5, 1);
-      safeMerge(ws, 3, 2, 3, 3);
-      safeMerge(ws, 4, 2, 4, 3);
-      safeMerge(ws, 5, 2, 5, 3);
-      setCell(ws, 3, 2, "POD", headerStyle);
-      setCell(ws, 4, 2, "ETA", headerStyle);
-      setCell(ws, 5, 2, "POL", headerStyle);
+      safeMerge(ws, 3, 1, 3, 3);
+      safeMerge(ws, 4, 1, 4, 3);
+      safeMerge(ws, 5, 1, 5, 3);
+      setCell(ws, 3, 1, "POD", headerStyle);
+      setCell(ws, 4, 1, "ETA", headerStyle);
+      setCell(ws, 5, 1, "POL", headerStyle);
       model.sheet.pods.forEach((pod, index) => {
         const left = podLeftCols[index];
         safeMerge(ws, 3, left, 3, left + 1);
         safeMerge(ws, 4, left, 4, left + 1);
         setCell(ws, 3, left, pod.port, headerStyle);
-        setCell(ws, 4, left, pod.eta, String(pod.eta).toUpperCase() === "SKIP" ? yellowStyle : headerStyle);
+        setCell(ws, 4, left, pod.eta, String(pod.eta).toUpperCase() === "SKIP" ? skipStyle : headerStyle);
         setCell(ws, 5, left, "20'", headerStyle);
         setCell(ws, 5, left + 1, "40'", headerStyle);
       });
       safeMerge(ws, 3, summary.total20, 3, summary.total40);
-      safeMerge(ws, 3, summary.ttl, 4, summary.ttl);
+      safeMerge(ws, 4, summary.total20, 4, summary.total40);
       safeMerge(ws, 3, summary.robAll, 3, summary.robLd);
+      safeMerge(ws, 4, summary.robAll, 4, summary.robLd);
       safeMerge(ws, 3, summary.utilAll, 3, summary.utilLd);
+      safeMerge(ws, 4, summary.utilAll, 4, summary.utilLd);
       safeMerge(ws, 3, summary.avlTeu, 3, summary.avlWeight);
-      safeMerge(ws, 3, summary.rf, 4, summary.rf);
+      safeMerge(ws, 4, summary.avlTeu, 4, summary.avlWeight);
       setCell(ws, 3, summary.total20, "TOTAL", headerStyle);
       setCell(ws, 5, summary.total20, "20'", headerStyle);
       setCell(ws, 5, summary.total40, "40'", headerStyle);
@@ -1870,22 +1925,24 @@
       const totalBlockIndex = model.blocks.length - 1;
       const blockStarts = model.blocks.map((_, index) => 6 + index * 8);
       const totalStart = blockStarts[totalBlockIndex];
-      const allocTeuCell = excelCell(summary.total40, 2);
-      const allocWeightCell = excelCell(summary.robAll, 2);
-      const allocRfCell = excelCell(summary.utilAll, 2);
+      const allocTeuCell = excelCell(summary.total20 + 2, 2);
+      const allocWeightCell = excelCell(summary.total20 + 5, 2);
+      const allocRfCell = excelCell(summary.total20 + 7, 2);
       const allocTeuValue = nRef(allocTeuCell);
       const allocWeightValue = nRef(allocWeightCell);
       const allocRfValue = nRef(allocRfCell);
 
       model.blocks.forEach((block, blockIndex) => {
         const start = blockStarts[blockIndex];
-        safeMerge(ws, start, 1, start + 4, 2);
+        if (block.type !== "TOTAL") safeMerge(ws, start, 1, start + 4, 2);
         safeMerge(ws, start + 7, 1, start + 7, 2);
         setCell(ws, start, 1, block.port, { ...baseStyle, bold: true });
-        setCell(ws, start + 5, 1, "ETB", baseStyle);
-        setCell(ws, start + 5, 2, block.etb || "", baseStyle);
-        setCell(ws, start + 6, 1, "ETD", baseStyle);
-        setCell(ws, start + 6, 2, block.etd || "", baseStyle);
+        if (block.type !== "TOTAL") {
+          setCell(ws, start + 5, 1, "ETB", baseStyle);
+          setCell(ws, start + 5, 2, block.etb || "", baseStyle);
+          setCell(ws, start + 6, 1, "ETD", baseStyle);
+          setCell(ws, start + 6, 2, block.etd || "", baseStyle);
+        }
         cargoLabels.forEach((label, offset) => {
           const row = start + offset;
           setCell(ws, row, 3, label, { ...baseStyle, bold: true, alignment: { horizontal: "left", vertical: "middle" } });
@@ -1998,7 +2055,7 @@
         blockStartsByPort.get(port).push(start);
       });
 
-      const addMoveRow = (row, label, builder, style = computedStyle, numFmt = visibleCountFmt) => {
+      const addMoveRow = (row, label, builder, style = moveValueStyle, numFmt = visibleCountFmt) => {
         safeMerge(ws, row, 1, row, 3);
         setCell(ws, row, 1, label, moveLabelStyle);
         model.sheet.pods.forEach((pod, podIndex) => {
@@ -2015,22 +2072,23 @@
       };
 
       addMoveRow(moveSummaryStart, "TEUS", ({ left, right }) => (
-        `=${excelCell(left, totalStart + 7)}+${excelCell(right, totalStart + 7)}*2`
+        `=${sumFormula(Array.from({ length: 6 }, (_, offset) => (
+          `${excelCell(left, totalStart + offset)}+${excelCell(right, totalStart + offset)}*2`
+        )))}`
       ));
       addMoveRow(moveSummaryStart + 1, "TOTAL MTONS", ({ left }) => (
         `=${excelCell(left, totalStart + 6)}`
-      ), computedStyle, visibleWeightFmt);
-      addMoveRow(moveSummaryStart + 4, "Move counts utilised", ({ pod, left, right }) => {
+      ), moveValueStyle, visibleWeightFmt);
+      addMoveRow(moveSummaryStart + 4, "Move Count Utilised (Sheet)", ({ pod, left, right }) => {
         const dischargeCount = `${excelCell(left, totalStart + 7)}+${excelCell(right, totalStart + 7)}`;
         const loadCounts = (blockStartsByPort.get(pod.port) || []).map((start) => (
           `${excelCell(summary.total20, start + 7)}+${excelCell(summary.total40, start + 7)}`
         ));
         return `=${sumFormula([dischargeCount, ...loadCounts])}`;
       });
-      addMoveRow(moveSummaryStart + 5, "Step Up/Down Move Count", () => 0, { ...baseStyle, bold: true }, visibleCountFmt);
-      addMoveRow(moveSummaryStart + 6, "Balance Move Count", ({ left, row }) => (
-        `=${excelCell(left, row - 1)}-${excelCell(left, row - 2)}`
-      ));
+      addMoveRow(moveSummaryStart + 5, "Move Count Utilised (WB+EB)", () => null);
+      addMoveRow(moveSummaryStart + 6, "Move Count Limit", () => null);
+      addMoveRow(moveSummaryStart + 7, "Balance Move Count", () => null);
 
       for (let row = 1; row <= finalRow; row += 1) {
         for (let col = 1; col <= summary.last; col += 1) {
@@ -2040,12 +2098,52 @@
           } else {
             cell.border = cell.border || fullBorder("thin");
             cell.alignment = cell.alignment || { horizontal: "center", vertical: "middle" };
-            cell.font = cell.font || { name: "Arial", size: 9 };
+            cell.font = cell.font || { name: "Calibri", size: 11, color: { argb: "FF000000" } };
           }
         }
       }
       applyTemplateBorders(ws, summary, podLeftCols, blockStarts, totalStart, finalRow, moveSummaryStart);
-      return ws;
+      addExportConditionalFormatting(ws, summary, totalStart);
+      return {
+        ws,
+        model,
+        summary,
+        podLeftCols,
+        podRightCols,
+        totalStart,
+        moveSheetRow: moveSummaryStart + 4,
+        moveTotalRow: moveSummaryStart + 5,
+        moveLimitRow: moveSummaryStart + 6,
+        moveBalanceRow: moveSummaryStart + 7,
+        finalRow
+      };
+    }
+
+    function setFormulaValue(cell, formula, numFmt = "0") {
+      cell.value = { formula, result: 0 };
+      cell.numFmt = numFmt;
+      cell.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FF000000" } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFFFF" } };
+    }
+
+    function applyCombinedMoveCount(wbMeta, ebMeta) {
+      if (!wbMeta?.podRightCols?.length || !ebMeta?.podRightCols?.length) return;
+      const wbLastPod = excelCol(wbMeta.podRightCols[wbMeta.podRightCols.length - 1]);
+      const ebLastPod = excelCol(ebMeta.podRightCols[ebMeta.podRightCols.length - 1]);
+      [wbMeta, ebMeta].forEach((meta) => {
+        meta.podLeftCols.forEach((left) => {
+          const criteria = excelCell(left, 3);
+          const totalFormula = (
+            `SUMIF(WB!$D$3:$${wbLastPod}$3,${criteria},WB!$D$${wbMeta.moveSheetRow}:$${wbLastPod}$${wbMeta.moveSheetRow})`
+            + `+SUMIF(EB!$D$3:$${ebLastPod}$3,${criteria},EB!$D$${ebMeta.moveSheetRow}:$${ebLastPod}$${ebMeta.moveSheetRow})`
+          );
+          setFormulaValue(meta.ws.getCell(meta.moveTotalRow, left), totalFormula);
+          setFormulaValue(
+            meta.ws.getCell(meta.moveBalanceRow, left),
+            `${excelCell(left, meta.moveLimitRow)}-${excelCell(left, meta.moveTotalRow)}`
+          );
+        });
+      });
     }
 
     async function exportXls() {
@@ -2061,8 +2159,9 @@
       workbook.calcProperties = workbook.calcProperties || {};
       workbook.calcProperties.fullCalcOnLoad = true;
       workbook.calcProperties.forceFullCalc = true;
-      buildExcelSheet(workbook, input, "WB");
-      buildExcelSheet(workbook, input, "EB");
+      const wbMeta = buildExcelSheet(workbook, input, "WB");
+      const ebMeta = buildExcelSheet(workbook, input, "EB");
+      applyCombinedMoveCount(wbMeta, ebMeta);
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
