@@ -1,0 +1,1469 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Space Control Generator</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #f4f6f8;
+      --panel: #ffffff;
+      --text: #172033;
+      --muted: #667085;
+      --line: #c7d0dc;
+      --line-strong: #1d2939;
+      --blue: #92c8f6;
+      --blue-dark: #5a9bd6;
+      --yellow: #fff200;
+      --input: #f8fafc;
+      --accent: #0f766e;
+      --accent-strong: #0b5f59;
+      --danger: #c1121f;
+      --warn-bg: #fff6cc;
+      --bad-bg: #ffe1e1;
+      --good-bg: #d9f2dd;
+      font-family: Arial, "Microsoft YaHei", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(330px, 420px) minmax(0, 1fr);
+    }
+
+    .sidebar {
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      padding: 18px;
+      overflow-y: auto;
+      max-height: 100vh;
+    }
+
+    .workspace {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      max-height: 100vh;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 18px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    .subtle {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.3;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    button {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: #ffffff;
+      color: var(--text);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font: inherit;
+      line-height: 1;
+      cursor: pointer;
+      min-height: 34px;
+    }
+
+    button:hover {
+      border-color: var(--blue-dark);
+    }
+
+    button.primary {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #ffffff;
+      font-weight: 700;
+    }
+
+    button.primary:hover {
+      background: var(--accent-strong);
+    }
+
+    .section {
+      border-top: 1px solid var(--line);
+      padding-top: 15px;
+      margin-top: 15px;
+    }
+
+    .section:first-child {
+      border-top: 0;
+      margin-top: 0;
+      padding-top: 0;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 14px;
+      line-height: 1.2;
+    }
+
+    label {
+      display: block;
+      margin: 0 0 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .field {
+      min-width: 0;
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--input);
+      color: var(--text);
+      font: inherit;
+      padding: 8px 9px;
+      min-height: 36px;
+    }
+
+    textarea {
+      min-height: 112px;
+      resize: vertical;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    input:focus,
+    textarea:focus {
+      outline: 2px solid rgba(15, 118, 110, 0.18);
+      border-color: var(--accent);
+      background: #ffffff;
+    }
+
+    .wide {
+      grid-column: 1 / -1;
+    }
+
+    .tabs {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+      background: #ffffff;
+    }
+
+    .tab {
+      border: 0;
+      border-radius: 0;
+      min-width: 64px;
+      background: #ffffff;
+    }
+
+    .tab.active {
+      background: var(--accent);
+      color: #ffffff;
+      font-weight: 700;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 0 10px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .preview {
+      padding: 14px 18px 22px;
+      overflow: auto;
+      min-height: 0;
+    }
+
+    .sheet-wrap {
+      min-width: max-content;
+      background: #ffffff;
+      border: 1px solid var(--line);
+    }
+
+    table.space-table {
+      border-collapse: collapse;
+      table-layout: fixed;
+      width: max-content;
+      min-width: 100%;
+      background: #ffffff;
+      font-size: 10px;
+      color: #101828;
+    }
+
+    .space-table th,
+    .space-table td {
+      border: 1px solid #1f2937;
+      height: 22px;
+      padding: 2px 4px;
+      text-align: center;
+      vertical-align: middle;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .space-table .top-title {
+      background: var(--blue);
+      font-weight: 700;
+      height: 20px;
+      border-bottom-width: 2px;
+    }
+
+    .space-table .header {
+      background: var(--blue);
+      font-weight: 700;
+    }
+
+    .space-table .alloc-input {
+      background: var(--yellow);
+      font-weight: 700;
+    }
+
+    .space-table .fixed-left {
+      width: 44px;
+      min-width: 44px;
+    }
+
+    .space-table .fixed-mid {
+      width: 48px;
+      min-width: 48px;
+    }
+
+    .space-table .label {
+      width: 58px;
+      min-width: 58px;
+      text-align: left;
+      font-weight: 700;
+    }
+
+    .space-table .pod-col {
+      width: 48px;
+      min-width: 48px;
+    }
+
+    .space-table .sum-col {
+      width: 58px;
+      min-width: 58px;
+    }
+
+    .space-table .block-port {
+      font-weight: 700;
+    }
+
+    .space-table .block-line td {
+      border-top-width: 2px;
+    }
+
+    .space-table .block-end td {
+      border-bottom-width: 2px;
+    }
+
+    .space-table .editable {
+      background: #ffffff;
+      cursor: text;
+    }
+
+    .space-table .editable:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+      background: #f0fdfa;
+    }
+
+    .space-table .computed {
+      background: #fafafa;
+      color: #1f2937;
+      font-weight: 700;
+    }
+
+    .space-table .muted-cell {
+      color: var(--muted);
+      background: #f8fafc;
+    }
+
+    .space-table .skip {
+      background: var(--yellow);
+      color: var(--danger);
+      font-weight: 700;
+    }
+
+    .space-table .bad {
+      background: var(--bad-bg);
+      color: var(--danger);
+      font-weight: 700;
+    }
+
+    .space-table .good {
+      background: var(--good-bg);
+      font-weight: 700;
+    }
+
+    .space-table .warn {
+      background: var(--warn-bg);
+      color: var(--danger);
+      font-weight: 700;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    @media (max-width: 980px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        max-height: none;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .workspace {
+        max-height: none;
+      }
+
+      .topbar {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .toolbar {
+        justify-content: flex-start;
+      }
+    }
+
+    @media print {
+      body {
+        background: #ffffff;
+      }
+
+      .sidebar,
+      .topbar {
+        display: none;
+      }
+
+      .app,
+      .workspace {
+        display: block;
+        max-height: none;
+      }
+
+      .preview {
+        padding: 0;
+        overflow: visible;
+      }
+
+      .sheet-wrap {
+        border: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="section">
+        <h2>生成条件</h2>
+        <div class="grid">
+          <div class="field wide">
+            <label for="vvd">VVD</label>
+            <input id="vvd" value="XPBL2625WE">
+          </div>
+          <div class="field">
+            <label for="wbMt">BSA Weight</label>
+            <input id="wbMt" type="number" min="0" step="0.1" value="0">
+          </div>
+          <div class="field">
+            <label for="wbRf">RF Plug</label>
+            <input id="wbRf" type="number" min="0" step="1" value="0">
+          </div>
+        </div>
+        <div class="subtle" id="scheduleNote" style="margin-top:10px">
+          船期来源：GitHub schedule_latest.xlsx。生成时会按 VVD 自动匹配 WB/EB 港序和时间。
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>当前船期</h2>
+        <div class="subtle" id="scheduleSummary">尚未读取船期</div>
+      </div>
+
+      <div class="hidden">
+        <input id="serviceLane" value="">
+        <input id="reportDate" value="">
+        <input id="vesselName" value="">
+        <input id="selection" value="Source Bayplan, Actual Booking & CBF">
+        <input id="wbTeus" type="number" value="0">
+        <input id="copyAlloc" value="跟随 WB" disabled>
+        <textarea id="bulkText"></textarea>
+        <textarea id="wbPods"></textarea>
+        <textarea id="wbPols"></textarea>
+        <textarea id="ebPods"></textarea>
+        <textarea id="ebPols"></textarea>
+        <button id="parseBulk" type="button"></button>
+        <button id="loadSample" type="button"></button>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <div class="topbar">
+        <div class="brand">
+          <h1>控舱表生成器</h1>
+          <div class="subtle" id="summaryLine">WB / EB table preview</div>
+        </div>
+        <div class="toolbar">
+          <div class="tabs" role="tablist" aria-label="Direction">
+            <button class="tab active" type="button" data-sheet="WB">WB</button>
+            <button class="tab" type="button" data-sheet="EB">EB</button>
+          </div>
+          <button id="copyTable" type="button">复制表格</button>
+          <button id="exportXls" type="button">导出 Excel</button>
+          <button id="printPage" type="button">打印</button>
+          <button id="generate" type="button" class="primary">生成</button>
+          <span class="status" id="status">Ready</span>
+        </div>
+      </div>
+
+      <div class="preview">
+        <div class="sheet-wrap" id="sheetWrap"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script>
+    const cargoLabels = ["LILIAN", "SUL", "T/S", "SOC", "RF", "MT", "Weight", "TTL"];
+    const SCHEDULE_URL = "https://raw.githubusercontent.com/BOBWZW2/data-base/main/schedule_latest.xlsx";
+    const LOCAL_MAPPING_URL = "data/vessel_mapping_latest.csv";
+    const REMOTE_MAPPING_URL = "https://raw.githubusercontent.com/BOBWZW2/data-base/main/vessel_mapping_latest.csv";
+    const PORT_ALIASES = { CNNSA: "CNNAS" };
+
+    const sample = {
+      vesselName: "EXPRESS BERLIN",
+      vvd: "XPBL2625WE",
+      serviceLane: "CGX/0005",
+      reportDate: "15-Jun-2026",
+      selection: "Source Bayplan, Actual Booking & CBF",
+      wbTeus: 0,
+      wbMt: 0,
+      wbRf: 0,
+      wbPods: [
+        ["CNTAO", "06/29"],
+        ["CNSHA", "07/03"],
+        ["CNNGB", "07/04"],
+        ["CNSHK", "07/07"],
+        ["CNNSA", "07/08"],
+        ["MYPKG", "07/13"],
+        ["INMUN", "SKIP"],
+        ["PKKHI", "08/01"],
+        ["OMSOH", "07/27"],
+        ["AEKLF", "07/24"]
+      ],
+      wbPols: [
+        ["CNTAO", "06/28", "06/29"],
+        ["CNSHA", "07/02", "07/03"],
+        ["CNNGB", "07/04", "07/04"],
+        ["CNSHK", "07/07", "07/07"],
+        ["CNNSA", "07/07", "07/08"],
+        ["MYPKG", "07/13", "07/13"],
+        ["INMUN", "SKIP", "SKIP"],
+        ["AEKLF", "07/22", "07/24"],
+        ["OMSOH", "07/26", "07/27"],
+        ["PKKHI", "07/30", "08/01"]
+      ],
+      ebPods: [
+        ["AEKLF", "07/24"],
+        ["OMSOH", "07/27"],
+        ["PKKHI", "08/01"],
+        ["CNTAO", "08/16"],
+        ["CNSHA", "08/20"],
+        ["CNNGB", "08/21"],
+        ["CNSHK", "08/24"],
+        ["CNNSA", "08/25"],
+        ["MYPKG", "08/30"],
+        ["INMUN", "SKIP"],
+        ["PKKHI", "09/18"],
+        ["OMSOH", "09/13"],
+        ["AEKLF", "09/10"]
+      ],
+      ebPols: [
+        ["AEKLF", "07/22", "07/24"],
+        ["OMSOH", "07/26", "07/27"],
+        ["PKKHI", "07/30", "08/01"],
+        ["CNTAO", "08/15", "08/16"]
+      ]
+    };
+
+    const state = {
+      activeSheet: "WB",
+      tableData: { WB: null, EB: null },
+      scheduleRows: null,
+      vesselMapping: null,
+      currentLookup: null
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    function rowsToText(rows) {
+      return rows.map((row) => row.join(" ")).join("\n");
+    }
+
+    function normalizeText(value) {
+      if (value === null || value === undefined) return "";
+      return String(value).trim();
+    }
+
+    function normalizePort(port) {
+      const value = normalizeText(port).toUpperCase();
+      return PORT_ALIASES[value] || value;
+    }
+
+    function cleanVvd(value) {
+      return normalizeText(value).replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+    }
+
+    function parseDateValue(value) {
+      if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+      if (typeof value === "number" && Number.isFinite(value)) {
+        const excelEpoch = Date.UTC(1899, 11, 30);
+        return new Date(excelEpoch + value * 86400000);
+      }
+      const text = normalizeText(value);
+      if (!text) return null;
+      if (text.toUpperCase() === "SKIP") return null;
+      const normalized = text.replace(/\//g, "-");
+      const dateTime = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+      if (dateTime) {
+        return new Date(
+          Number(dateTime[1]),
+          Number(dateTime[2]) - 1,
+          Number(dateTime[3]),
+          Number(dateTime[4] || 0),
+          Number(dateTime[5] || 0),
+          Number(dateTime[6] || 0)
+        );
+      }
+      const mmdd = normalized.match(/^(\d{1,2})-(\d{1,2})$/);
+      if (mmdd) return new Date(2026, Number(mmdd[1]) - 1, Number(mmdd[2]));
+      return null;
+    }
+
+    function formatMmDd(value) {
+      const text = normalizeText(value);
+      if (text.toUpperCase() === "SKIP") return "SKIP";
+      const parsed = parseDateValue(value);
+      if (!parsed) return text;
+      const mm = String(parsed.getMonth() + 1).padStart(2, "0");
+      const dd = String(parsed.getDate()).padStart(2, "0");
+      return `${mm}/${dd}`;
+    }
+
+    function formatGeneratedDate(date = new Date()) {
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      return `${String(date.getDate()).padStart(2, "0")}-${months[date.getMonth()]}-${date.getFullYear()}`;
+    }
+
+    async function loadScheduleRows() {
+      if (state.scheduleRows) return state.scheduleRows;
+      if (!window.XLSX) {
+        throw new Error("Excel parser is not loaded. Check internet access to jsdelivr.net.");
+      }
+
+      const response = await fetch(SCHEDULE_URL, { cache: "no-store" });
+      if (!response.ok) throw new Error(`Cannot read GitHub schedule (${response.status})`);
+      const buffer = await response.arrayBuffer();
+      const workbook = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: true });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const records = XLSX.utils.sheet_to_json(sheet, {
+        defval: "",
+        raw: false,
+        dateNF: "yyyy-mm-dd hh:mm:ss"
+      });
+
+      const rows = records.map((record, index) => {
+        const normalized = {};
+        Object.entries(record).forEach(([key, value]) => {
+          normalized[normalizeText(key).toUpperCase()] = value;
+        });
+        return {
+          row: index + 2,
+          lane: normalizeText(normalized.LANE).toUpperCase(),
+          vvd: cleanVvd(normalized.VVD),
+          port: normalizePort(normalized.PORT),
+          eta: normalizeText(normalized.ETA),
+          etb: normalizeText(normalized.ETB),
+          etd: normalizeText(normalized.ETD)
+        };
+      }).filter((row) => row.lane && row.vvd && row.port);
+
+      const missing = ["LANE", "VVD", "PORT", "ETA", "ETB", "ETD"].filter((name) => {
+        return !records.some((record) => Object.keys(record).some((key) => normalizeText(key).toUpperCase() === name));
+      });
+      if (missing.length) throw new Error(`Schedule is missing columns: ${missing.join(", ")}`);
+
+      state.scheduleRows = rows;
+      return rows;
+    }
+
+    async function loadVesselMapping() {
+      if (state.vesselMapping) return state.vesselMapping;
+      const mapping = {};
+      for (const url of [LOCAL_MAPPING_URL, REMOTE_MAPPING_URL]) {
+        try {
+          const response = await fetch(url, { cache: "no-store" });
+          if (!response.ok) continue;
+          const csv = await response.text();
+          csv.split(/\r?\n/).slice(1).forEach((line) => {
+            if (!line.trim()) return;
+            const [code, name, active] = line.split(",").map((part) => normalizeText(part));
+            if (code && name && !["N", "NO", "FALSE", "0", "INACTIVE"].includes(active.toUpperCase())) {
+              mapping[code.toUpperCase()] = name.toUpperCase();
+            }
+          });
+          break;
+        } catch {
+          // Try the next mapping source.
+        }
+      }
+      state.vesselMapping = mapping;
+      return mapping;
+    }
+
+    function vvdParts(vvd) {
+      const match = cleanVvd(vvd).match(/^([A-Z]+)(\d+)([A-Z]+)$/);
+      if (!match) throw new Error(`Cannot parse VVD: ${vvd}`);
+      return { code: match[1], cycle: match[2], suffix: match[3] };
+    }
+
+    function currentDirectionVvds(vvd) {
+      const { code, cycle, suffix } = vvdParts(vvd);
+      const stem = `${code}${cycle}`;
+      if (suffix === "WE" || suffix === "EW") return { w: `${stem}W`, e: `${stem}E` };
+      if (suffix === "W") return { w: `${stem}W`, e: null };
+      if (suffix === "E") return { w: null, e: `${stem}E` };
+      return {
+        w: suffix.includes("W") ? `${stem}W` : null,
+        e: suffix.includes("E") ? `${stem}E` : null
+      };
+    }
+
+    function inferLane(rows, vvds) {
+      const lanes = rows
+        .filter((row) => vvds.includes(row.vvd))
+        .map((row) => row.lane);
+      const unique = [...new Set(lanes)].sort();
+      if (unique.length !== 1) {
+        throw new Error(`Cannot infer one lane for VVD. Candidates: ${unique.join(", ") || "none"}`);
+      }
+      return unique[0];
+    }
+
+    function findCalls(rows, vvd, lane) {
+      if (!vvd) return [];
+      return rows
+        .filter((row) => row.vvd === vvd && row.lane === lane)
+        .sort((a, b) => a.row - b.row);
+    }
+
+    function firstTime(calls) {
+      if (!calls.length) return null;
+      return parseDateValue(calls[0].eta) || parseDateValue(calls[0].etb) || parseDateValue(calls[0].etd);
+    }
+
+    function findNextW(rows, lane, currentECalls, vesselCode) {
+      if (!currentECalls.length) return [];
+      const lastEPort = currentECalls[currentECalls.length - 1].port;
+      const boundary = parseDateValue(currentECalls[currentECalls.length - 1].eta) || firstTime(currentECalls);
+      const grouped = new Map();
+      rows
+        .filter((row) => row.lane === lane && row.vvd.startsWith(vesselCode) && row.vvd.endsWith("W"))
+        .forEach((row) => {
+          if (!grouped.has(row.vvd)) grouped.set(row.vvd, []);
+          grouped.get(row.vvd).push(row);
+        });
+
+      const candidates = [];
+      grouped.forEach((calls, vvd) => {
+        calls.sort((a, b) => a.row - b.row);
+        if (!calls.length || calls[0].port !== lastEPort) return;
+        const start = firstTime(calls);
+        if (!start) return;
+        if (boundary && start < boundary) return;
+        candidates.push({ start, vvd, calls });
+      });
+      candidates.sort((a, b) => a.start - b.start || a.vvd.localeCompare(b.vvd));
+      return candidates[0]?.calls || [];
+    }
+
+    function appendConsecutiveDedup(route, calls) {
+      calls.forEach((call) => {
+        if (route.length && route[route.length - 1].port === call.port) return;
+        route.push(call);
+      });
+    }
+
+    function vesselNameForVvd(vvd, mapping) {
+      const clean = cleanVvd(vvd);
+      const codes = Object.keys(mapping).sort((a, b) => b.length - a.length);
+      const code = codes.find((candidate) => clean.startsWith(candidate)) || vvdParts(vvd).code;
+      return { code, name: mapping[code] || code };
+    }
+
+    async function lookupSchedule(vvd) {
+      const [rows, mapping] = await Promise.all([loadScheduleRows(), loadVesselMapping()]);
+      const current = currentDirectionVvds(vvd);
+      const vvds = [current.w, current.e].filter(Boolean);
+      const lane = inferLane(rows, vvds);
+      const vessel = vesselNameForVvd(vvd, mapping);
+      const wbCalls = findCalls(rows, current.w, lane);
+      const ebCalls = findCalls(rows, current.e, lane);
+      const nextWCalls = findNextW(rows, lane, ebCalls, vessel.code);
+      const nextEVvd = nextWCalls.length ? `${nextWCalls[0].vvd.slice(0, -1)}E` : null;
+      const nextECalls = findCalls(rows, nextEVvd, lane);
+      const ebRouteCalls = [];
+      appendConsecutiveDedup(ebRouteCalls, ebCalls);
+      appendConsecutiveDedup(ebRouteCalls, nextWCalls);
+      appendConsecutiveDedup(ebRouteCalls, nextECalls);
+
+      return {
+        inputVvd: cleanVvd(vvd),
+        lane,
+        vesselCode: vessel.code,
+        vesselName: vessel.name,
+        currentWVvd: current.w,
+        currentEVvd: current.e,
+        nextWVvd: nextWCalls[0]?.vvd || "",
+        nextEVvd: nextECalls[0]?.vvd || "",
+        wbCalls,
+        ebCalls,
+        ebRouteCalls
+      };
+    }
+
+    function callsToPodRows(calls) {
+      return calls.map((call) => [call.port, formatMmDd(call.etd)]);
+    }
+
+    function callsToPolRows(calls) {
+      return calls.map((call) => [call.port, formatMmDd(call.etb), formatMmDd(call.etd)]);
+    }
+
+    function applyLookup(lookup) {
+      state.currentLookup = lookup;
+      $("serviceLane").value = lookup.lane;
+      $("vesselName").value = lookup.vesselName;
+      $("reportDate").value = formatGeneratedDate();
+      $("selection").value = "Source Bayplan, Actual Booking & CBF";
+      $("wbTeus").value = "";
+      $("wbPods").value = rowsToText(callsToPodRows(lookup.wbCalls));
+      $("wbPols").value = rowsToText(callsToPolRows(lookup.wbCalls));
+      $("ebPods").value = rowsToText(callsToPodRows(lookup.ebRouteCalls));
+      $("ebPols").value = rowsToText(callsToPolRows(lookup.ebCalls));
+      $("scheduleSummary").textContent =
+        `${lookup.vesselName} / ${lookup.inputVvd} · ${lookup.lane} · ` +
+        `WB ${lookup.currentWVvd || "-"} (${lookup.wbCalls.length} calls), ` +
+        `EB ${lookup.currentEVvd || "-"} + ${lookup.nextWVvd || "-"} + ${lookup.nextEVvd || "-"} (${lookup.ebRouteCalls.length} calls)`;
+    }
+
+    async function generateFromSchedule() {
+      const vvd = cleanVvd($("vvd").value);
+      if (!vvd) {
+        $("status").textContent = "请输入 VVD";
+        return;
+      }
+      $("vvd").value = vvd;
+      $("status").textContent = "正在读取 GitHub 船期...";
+      $("generate").disabled = true;
+      try {
+        const lookup = await lookupSchedule(vvd);
+        applyLookup(lookup);
+        render();
+        $("status").textContent = `${state.activeSheet} 已生成 · ${lookup.lane}`;
+      } catch (error) {
+        console.error(error);
+        $("status").textContent = "船期读取失败";
+        $("scheduleSummary").textContent = error.message || String(error);
+      } finally {
+        $("generate").disabled = false;
+      }
+    }
+
+    function textToRows(text, fieldCount) {
+      return text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => line.split(/[\s,，\t]+/).filter(Boolean).slice(0, fieldCount))
+        .filter((parts) => parts.length >= 1)
+        .map((parts) => {
+          while (parts.length < fieldCount) parts.push("");
+          return parts;
+        });
+    }
+
+    function setSample() {
+      $("vesselName").value = sample.vesselName;
+      $("vvd").value = sample.vvd;
+      $("serviceLane").value = sample.serviceLane;
+      $("reportDate").value = sample.reportDate;
+      $("selection").value = sample.selection;
+      $("wbTeus").value = sample.wbTeus;
+      $("wbMt").value = sample.wbMt;
+      $("wbRf").value = sample.wbRf;
+      $("wbPods").value = rowsToText(sample.wbPods);
+      $("wbPols").value = rowsToText(sample.wbPols);
+      $("ebPods").value = rowsToText(sample.ebPods);
+      $("ebPols").value = rowsToText(sample.ebPols);
+    }
+
+    function numberValue(id) {
+      const value = Number($(id).value);
+      return Number.isFinite(value) ? value : 0;
+    }
+
+    function readInputs() {
+      const alloc = {
+        teus: numberValue("wbTeus"),
+        mt: numberValue("wbMt"),
+        rf: numberValue("wbRf")
+      };
+      return {
+        vesselName: $("vesselName").value.trim() || "VESSEL",
+        vvd: $("vvd").value.trim().toUpperCase() || "VVD",
+        serviceLane: $("serviceLane").value.trim() || "",
+        reportDate: $("reportDate").value.trim() || "",
+        selection: $("selection").value.trim() || "",
+        WB: {
+          allocationLabel: "WB ALLOCATION",
+          allocation: alloc,
+          pods: textToRows($("wbPods").value, 2).map(([port, eta]) => ({ port: port.toUpperCase(), eta })),
+          pols: textToRows($("wbPols").value, 3).map(([port, etb, etd]) => ({ port: port.toUpperCase(), etb, etd }))
+        },
+        EB: {
+          allocationLabel: "EB ALLOCATION",
+          allocation: alloc,
+          pods: textToRows($("ebPods").value, 2).map(([port, eta]) => ({ port: port.toUpperCase(), eta })),
+          pols: textToRows($("ebPols").value, 3).map(([port, etb, etd]) => ({ port: port.toUpperCase(), etb, etd }))
+        }
+      };
+    }
+
+    function makeTableModel(input, sheetName) {
+      const sheet = input[sheetName];
+      const blocks = [
+        { key: "ROB", port: "ROB", etb: "", etd: "", type: "ROB" },
+        ...sheet.pols.map((pol, index) => ({ ...pol, key: `${pol.port}-${index}`, type: "POL" })),
+        { key: "TOTAL", port: "TOTAL", etb: "", etd: "", type: "TOTAL" }
+      ];
+
+      const podTotals = sheet.pods.map(() => ({
+        cargo20: Array(6).fill(0),
+        cargo40: Array(6).fill(0),
+        weight: 0
+      }));
+
+      const blockRows = blocks.map((block) => cargoLabels.map((label, offset) => ({
+        block,
+        label,
+        offset,
+        cells: sheet.pods.map(() => ({ left: "", right: "" })),
+        totals: { left: 0, right: 0, teus: 0 },
+        rob: { all: "", ld: "", utilAll: "", utilLd: "", avlTeu: "", avlWeight: "", rf: "" }
+      })));
+
+      return {
+        meta: input,
+        sheetName,
+        sheet,
+        blocks,
+        rows: blockRows,
+        podTotals
+      };
+    }
+
+    function cellText(value, decimals = 0) {
+      if (value === "" || value === null || value === undefined) return "";
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return String(value);
+      if (Math.abs(numeric) < 0.000001) return "";
+      return numeric.toLocaleString("en-US", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
+      });
+    }
+
+    function percentText(value) {
+      if (value === "" || value === null || value === undefined) return "";
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || numeric === 0) return "";
+      return `${Math.round(numeric * 100)}%`;
+    }
+
+    function parseCellNumber(text) {
+      const value = Number(String(text || "").replace(/,/g, "").trim());
+      return Number.isFinite(value) ? value : 0;
+    }
+
+    function buildTable(model) {
+      const podColspan = model.sheet.pods.length * 2;
+      const totalCols = 3 + podColspan + 10;
+      const table = document.createElement("table");
+      table.className = "space-table";
+      table.dataset.sheet = model.sheetName;
+
+      const colgroup = document.createElement("colgroup");
+      const widths = [
+        "fixed-left",
+        "fixed-mid",
+        "label",
+        ...model.sheet.pods.flatMap(() => ["pod-col", "pod-col"]),
+        ...Array(10).fill("sum-col")
+      ];
+      widths.forEach((className) => {
+        const col = document.createElement("col");
+        col.className = className;
+        colgroup.appendChild(col);
+      });
+      table.appendChild(colgroup);
+
+      const tbody = document.createElement("tbody");
+      table.appendChild(tbody);
+
+      const titleRow = addRow(tbody, "top-title");
+      const reportSpan = 5;
+      const titleSpan = Math.min(7, Math.max(1, totalCols - reportSpan - 1));
+      const selectionSpan = Math.max(1, totalCols - titleSpan - reportSpan);
+      addCell(titleRow, "Vessel Space Utilization Report -", { colspan: titleSpan, tag: "th" });
+      addCell(titleRow, `Selection: ${model.meta.selection}`, { colspan: selectionSpan, tag: "th" });
+      addCell(titleRow, `Report Generated: ${model.meta.reportDate}`, { colspan: reportSpan, tag: "th" });
+
+      const infoRow = addRow(tbody, "header");
+      addCell(infoRow, `Service Lane : ${model.meta.serviceLane}`, { colspan: 3, tag: "th" });
+      addCell(infoRow, `${model.meta.vesselName} / ${model.meta.vvd}`, { colspan: Math.max(1, podColspan), tag: "th" });
+      addCell(infoRow, `${model.sheet.allocationLabel} :`, { colspan: 1, tag: "th" });
+      addCell(infoRow, cellText(model.sheet.allocation.teus), { colspan: 1, tag: "th", className: "alloc-input", dataset: { alloc: "teus" } });
+      addCell(infoRow, "TEUS,", { colspan: 1, tag: "th" });
+      addCell(infoRow, cellText(model.sheet.allocation.mt, 1), { colspan: 1, tag: "th", className: "alloc-input", dataset: { alloc: "mt" } });
+      addCell(infoRow, "MT,", { colspan: 1, tag: "th" });
+      addCell(infoRow, cellText(model.sheet.allocation.rf), { colspan: 1, tag: "th", className: "alloc-input", dataset: { alloc: "rf" } });
+      addCell(infoRow, "RF PLUGS", { colspan: 4, tag: "th" });
+
+      const headerA = addRow(tbody, "header");
+      addCell(headerA, "", { rowspan: 3, tag: "th" });
+      addCell(headerA, "POD", { colspan: 2, tag: "th" });
+      model.sheet.pods.forEach((pod) => {
+        const className = String(pod.eta).toUpperCase() === "SKIP" ? "skip" : "";
+        addCell(headerA, pod.port, { colspan: 2, tag: "th", className });
+      });
+      addCell(headerA, "TOTAL", { colspan: 2, tag: "th" });
+      addCell(headerA, "TTL", { rowspan: 2, tag: "th" });
+      addCell(headerA, "ROB (TEUS)", { colspan: 2, tag: "th" });
+      addCell(headerA, "UTILISATION", { colspan: 2, tag: "th" });
+      addCell(headerA, "AVL", { colspan: 2, tag: "th" });
+      addCell(headerA, "RF Plug", { rowspan: 2, tag: "th" });
+
+      const headerB = addRow(tbody, "header");
+      addCell(headerB, "ETA", { colspan: 2, tag: "th" });
+      model.sheet.pods.forEach((pod) => {
+        const className = String(pod.eta).toUpperCase() === "SKIP" ? "skip" : "";
+        addCell(headerB, pod.eta, { colspan: 2, tag: "th", className });
+      });
+      addCell(headerB, "", { colspan: 2, tag: "th" });
+      addCell(headerB, "", { colspan: 2, tag: "th" });
+      addCell(headerB, "", { colspan: 2, tag: "th" });
+      addCell(headerB, "", { colspan: 2, tag: "th" });
+
+      const headerC = addRow(tbody, "header block-end");
+      addCell(headerC, "POL", { colspan: 2, tag: "th" });
+      model.sheet.pods.forEach(() => {
+        addCell(headerC, "20'", { tag: "th" });
+        addCell(headerC, "40'", { tag: "th" });
+      });
+      addCell(headerC, "20'", { tag: "th" });
+      addCell(headerC, "40'", { tag: "th" });
+      addCell(headerC, "TEUS", { tag: "th" });
+      addCell(headerC, "(All)", { tag: "th" });
+      addCell(headerC, "(LD)", { tag: "th" });
+      addCell(headerC, "(All)", { tag: "th" });
+      addCell(headerC, "(LD)", { tag: "th" });
+      addCell(headerC, "TEUs", { tag: "th" });
+      addCell(headerC, "Weight", { tag: "th" });
+      addCell(headerC, "", { tag: "th" });
+
+      model.rows.forEach((group, groupIndex) => {
+        const block = group[0].block;
+        group.forEach((row, rowIndex) => {
+          const tr = addRow(tbody, `${rowIndex === 0 ? "block-line" : ""} ${rowIndex === 7 ? "block-end" : ""}`);
+          if (rowIndex === 0) {
+            addCell(tr, block.port, { rowspan: 5, colspan: 2, className: "block-port" });
+          }
+          if (rowIndex === 5) {
+            addCell(tr, "ETB", { className: "muted-cell" });
+            addCell(tr, block.etb || "", { className: String(block.etb).toUpperCase() === "SKIP" ? "skip" : "muted-cell" });
+          }
+          if (rowIndex === 6) {
+            addCell(tr, "ETD", { className: "muted-cell" });
+            addCell(tr, block.etd || "", { className: String(block.etd).toUpperCase() === "SKIP" ? "skip" : "muted-cell" });
+          }
+          if (rowIndex === 7) {
+            addCell(tr, "", { colspan: 2, className: "muted-cell" });
+          }
+
+          addCell(tr, row.label, { className: "label" });
+          model.sheet.pods.forEach((pod, podIndex) => {
+            if (row.offset === 6) {
+              addCell(tr, "", {
+                colspan: 2,
+                className: editableClass(block.type),
+                contenteditable: block.type !== "TOTAL",
+                dataset: { block: groupIndex, row: rowIndex, pod: podIndex, side: "weight" }
+              });
+              return;
+            }
+            const editable = block.type !== "TOTAL" && row.offset < 6;
+            addCell(tr, "", {
+              className: editable ? "editable" : "computed",
+              contenteditable: editable,
+              dataset: { block: groupIndex, row: rowIndex, pod: podIndex, side: "left" }
+            });
+            addCell(tr, "", {
+              className: editable ? "editable" : "computed",
+              contenteditable: editable,
+              dataset: { block: groupIndex, row: rowIndex, pod: podIndex, side: "right" }
+            });
+          });
+
+          addCell(tr, "", { className: "computed", dataset: { total: "left", block: groupIndex, row: rowIndex } });
+          addCell(tr, "", { className: "computed", dataset: { total: "right", block: groupIndex, row: rowIndex } });
+          addCell(tr, "", { className: "computed", dataset: { total: "teus", block: groupIndex, row: rowIndex } });
+          addCell(tr, "", { className: "computed", dataset: { metric: "robAll", block: groupIndex, row: rowIndex } });
+          addCell(tr, "", { className: "computed", dataset: { metric: "robLd", block: groupIndex, row: rowIndex } });
+          addCell(tr, "", { className: "computed", dataset: { metric: "utilAll", block: groupIndex, row: rowIndex } });
+          addCell(tr, "", { className: "computed", dataset: { metric: "utilLd", block: groupIndex, row: rowIndex } });
+          addCell(tr, "", { className: "computed", dataset: { metric: "avlTeu", block: groupIndex, row: rowIndex } });
+          addCell(tr, "", { className: "computed", dataset: { metric: "avlWeight", block: groupIndex, row: rowIndex } });
+          addCell(tr, "", { className: "computed", dataset: { metric: "rf", block: groupIndex, row: rowIndex } });
+        });
+      });
+
+      return table;
+    }
+
+    function editableClass(type) {
+      return type === "TOTAL" ? "computed" : "editable";
+    }
+
+    function addRow(parent, className = "") {
+      const tr = document.createElement("tr");
+      if (className.trim()) tr.className = className.trim();
+      parent.appendChild(tr);
+      return tr;
+    }
+
+    function addCell(row, text, options = {}) {
+      const cell = document.createElement(options.tag || "td");
+      cell.textContent = text ?? "";
+      if (options.colspan) cell.colSpan = options.colspan;
+      if (options.rowspan) cell.rowSpan = options.rowspan;
+      if (options.className) cell.className = options.className;
+      if (options.contenteditable) {
+        cell.contentEditable = "true";
+        cell.inputMode = "decimal";
+      }
+      if (options.dataset) {
+        Object.entries(options.dataset).forEach(([key, value]) => {
+          cell.dataset[key] = value;
+        });
+      }
+      row.appendChild(cell);
+      return cell;
+    }
+
+    function recalcTable(table) {
+      const sheetName = table.dataset.sheet;
+      const model = state.tableData[sheetName];
+      if (!model) return;
+
+      const blockCount = model.blocks.length;
+      const podCount = model.sheet.pods.length;
+      const totalBlockIndex = blockCount - 1;
+
+      for (let b = 0; b < blockCount; b += 1) {
+        for (let r = 0; r < 8; r += 1) {
+          const row = model.rows[b][r];
+          row.totals = { left: 0, right: 0, teus: 0 };
+          for (let p = 0; p < podCount; p += 1) {
+            if (r === 6) {
+              const cell = table.querySelector(`[data-block="${b}"][data-row="${r}"][data-pod="${p}"][data-side="weight"]`);
+              const value = b === totalBlockIndex ? 0 : parseCellNumber(cell?.textContent);
+              row.cells[p] = { left: value, right: 0 };
+              row.totals.left += value;
+              continue;
+            }
+            const leftCell = table.querySelector(`[data-block="${b}"][data-row="${r}"][data-pod="${p}"][data-side="left"]`);
+            const rightCell = table.querySelector(`[data-block="${b}"][data-row="${r}"][data-pod="${p}"][data-side="right"]`);
+            const left = b === totalBlockIndex || r === 7 ? 0 : parseCellNumber(leftCell?.textContent);
+            const right = b === totalBlockIndex || r === 7 ? 0 : parseCellNumber(rightCell?.textContent);
+            row.cells[p] = { left, right };
+            if (r < 6) {
+              row.totals.left += left;
+              row.totals.right += right;
+              row.totals.teus += left + right * 2;
+            }
+          }
+        }
+      }
+
+      for (let b = 0; b < totalBlockIndex; b += 1) {
+        for (let p = 0; p < podCount; p += 1) {
+          let left = 0;
+          let right = 0;
+          for (let r = 0; r < 6; r += 1) {
+            left += model.rows[b][r].cells[p].left;
+            right += model.rows[b][r].cells[p].right;
+          }
+          const ttlLeft = table.querySelector(`[data-block="${b}"][data-row="7"][data-pod="${p}"][data-side="left"]`);
+          const ttlRight = table.querySelector(`[data-block="${b}"][data-row="7"][data-pod="${p}"][data-side="right"]`);
+          if (ttlLeft) ttlLeft.textContent = cellText(left);
+          if (ttlRight) ttlRight.textContent = cellText(right);
+          model.rows[b][7].cells[p] = { left, right };
+          model.rows[b][7].totals.left += left;
+          model.rows[b][7].totals.right += right;
+          model.rows[b][7].totals.teus += left + right * 2;
+        }
+      }
+
+      for (let r = 0; r < 7; r += 1) {
+        for (let p = 0; p < podCount; p += 1) {
+          let left = 0;
+          let right = 0;
+          for (let b = 0; b < totalBlockIndex; b += 1) {
+            left += model.rows[b][r].cells[p].left;
+            right += model.rows[b][r].cells[p].right;
+          }
+          const totalLeft = table.querySelector(`[data-block="${totalBlockIndex}"][data-row="${r}"][data-pod="${p}"][data-side="${r === 6 ? "weight" : "left"}"]`);
+          const totalRight = table.querySelector(`[data-block="${totalBlockIndex}"][data-row="${r}"][data-pod="${p}"][data-side="right"]`);
+          if (totalLeft) totalLeft.textContent = cellText(left, r === 6 ? 1 : 0);
+          if (totalRight) totalRight.textContent = r === 6 ? "" : cellText(right);
+          model.rows[totalBlockIndex][r].cells[p] = { left, right };
+          model.rows[totalBlockIndex][r].totals.left += left;
+          model.rows[totalBlockIndex][r].totals.right += right;
+          if (r < 6) {
+            model.rows[totalBlockIndex][r].totals.teus += left + right * 2;
+          }
+        }
+      }
+
+      for (let p = 0; p < podCount; p += 1) {
+        const left = model.rows[totalBlockIndex].slice(0, 6).reduce((sum, row) => sum + row.cells[p].left, 0);
+        const right = model.rows[totalBlockIndex].slice(0, 6).reduce((sum, row) => sum + row.cells[p].right, 0);
+        const ttlLeft = table.querySelector(`[data-block="${totalBlockIndex}"][data-row="7"][data-pod="${p}"][data-side="left"]`);
+        const ttlRight = table.querySelector(`[data-block="${totalBlockIndex}"][data-row="7"][data-pod="${p}"][data-side="right"]`);
+        if (ttlLeft) ttlLeft.textContent = cellText(left);
+        if (ttlRight) ttlRight.textContent = cellText(right);
+        model.rows[totalBlockIndex][7].cells[p] = { left, right };
+      }
+
+      for (let b = 0; b < blockCount; b += 1) {
+        for (let r = 0; r < 8; r += 1) {
+          const row = model.rows[b][r];
+          const leftTotal = table.querySelector(`[data-total="left"][data-block="${b}"][data-row="${r}"]`);
+          const rightTotal = table.querySelector(`[data-total="right"][data-block="${b}"][data-row="${r}"]`);
+          const teuTotal = table.querySelector(`[data-total="teus"][data-block="${b}"][data-row="${r}"]`);
+          if (r === 6) {
+            if (leftTotal) leftTotal.textContent = cellText(row.totals.left, 1);
+            if (rightTotal) rightTotal.textContent = "";
+            if (teuTotal) teuTotal.textContent = "";
+          } else if (r < 6 || r === 7) {
+            const left = r === 7
+              ? row.cells.reduce((sum, cell) => sum + cell.left, 0)
+              : row.totals.left;
+            const right = r === 7
+              ? row.cells.reduce((sum, cell) => sum + cell.right, 0)
+              : row.totals.right;
+            if (leftTotal) leftTotal.textContent = cellText(left);
+            if (rightTotal) rightTotal.textContent = cellText(right);
+            if (teuTotal) teuTotal.textContent = cellText(left + right * 2);
+          }
+        }
+      }
+
+      recalcRobMetrics(table, model);
+    }
+
+    function recalcRobMetrics(table, model) {
+      const podByName = new Map();
+      model.sheet.pods.forEach((pod, index) => {
+        if (!podByName.has(pod.port)) podByName.set(pod.port, index);
+      });
+
+      const totalBlockIndex = model.blocks.length - 1;
+      const allocation = model.sheet.allocation;
+      let prevAll = 0;
+      let prevLd = 0;
+      let prevWeight = 0;
+      let prevRf = allocation.rf || 0;
+
+      for (let b = 0; b < totalBlockIndex; b += 1) {
+        const block = model.blocks[b];
+        const loadAll = sumTeus(model.rows[b], 0, 6);
+        const loadLd = sumTeus(model.rows[b], 0, 5);
+        const loadWeight = model.rows[b][6].totals.left;
+        const loadRf = model.rows[b][4].totals.left + model.rows[b][4].totals.right;
+        let dischargeTeu = 0;
+        let dischargeMt = 0;
+        let dischargeWeight = 0;
+        let dischargeRf = 0;
+
+        if (b > 0) {
+          const podIndex = podByName.get(block.port);
+          if (podIndex !== undefined) {
+            for (let r = 0; r < 6; r += 1) {
+              const cell = model.rows[totalBlockIndex][r].cells[podIndex];
+              const teu = cell.left + cell.right * 2;
+              dischargeTeu += teu;
+              if (r === 4) dischargeRf += cell.left + cell.right;
+              if (r === 5) dischargeMt += teu;
+            }
+            dischargeWeight = model.rows[totalBlockIndex][6].cells[podIndex].left;
+          }
+        }
+
+        const robAll = prevAll + loadAll - dischargeTeu;
+        const robLd = prevLd + loadLd - (dischargeTeu - dischargeMt);
+        const robWeight = prevWeight + loadWeight - dischargeWeight;
+        const robLdWeight = robWeight - (robAll - robLd) * 2;
+        const rf = b === 0 ? (allocation.rf || 0) - loadRf : prevRf - loadRf + dischargeRf;
+
+        setMetric(table, b, 0, "robAll", robAll);
+        setMetric(table, b, 0, "robLd", robLd);
+        setMetric(table, b, 0, "utilAll", allocation.teus ? robAll / allocation.teus : "");
+        setMetric(table, b, 0, "utilLd", allocation.teus ? robLd / allocation.teus : "");
+        setMetric(table, b, 6, "robAll", robWeight, 1);
+        setMetric(table, b, 6, "robLd", robLdWeight, 1);
+        setMetric(table, b, 6, "utilAll", allocation.mt ? robWeight / allocation.mt : "");
+        setMetric(table, b, 6, "utilLd", allocation.mt ? robLdWeight / allocation.mt : "");
+        setMetric(table, b, 7, "avlTeu", allocation.teus ? allocation.teus - robAll : "");
+        setMetric(table, b, 6, "avlWeight", allocation.mt ? allocation.mt - robWeight : "", 1);
+        setMetric(table, b, 4, "rf", rf);
+
+        prevAll = robAll;
+        prevLd = robLd;
+        prevWeight = robWeight;
+        prevRf = rf;
+      }
+    }
+
+    function sumTeus(rows, start, end) {
+      let total = 0;
+      for (let r = start; r < end; r += 1) {
+        total += rows[r].totals.teus;
+      }
+      return total;
+    }
+
+    function setMetric(table, block, row, metric, value, decimals = 0) {
+      const cell = table.querySelector(`[data-metric="${metric}"][data-block="${block}"][data-row="${row}"]`);
+      if (!cell) return;
+      const isPercent = metric === "utilAll" || metric === "utilLd";
+      cell.textContent = isPercent ? percentText(value) : cellText(value, decimals);
+      cell.classList.remove("bad", "good", "warn");
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return;
+      if (isPercent && numeric === 1) cell.classList.add("good");
+      if (isPercent && numeric > 1) cell.classList.add("bad");
+      if ((metric === "avlTeu" || metric === "avlWeight" || metric === "rf") && numeric < 0) {
+        cell.classList.add("warn");
+      }
+    }
+
+    function render() {
+      const input = readInputs();
+      $("summaryLine").textContent = `${input.vesselName} / ${input.vvd} · ${input.serviceLane}`;
+      state.tableData.WB = makeTableModel(input, "WB");
+      state.tableData.EB = makeTableModel(input, "EB");
+      const model = state.tableData[state.activeSheet];
+      const table = buildTable(model);
+      $("sheetWrap").replaceChildren(table);
+      recalcTable(table);
+      $("status").textContent = `${state.activeSheet} ${model.sheet.pods.length} POD · ${model.sheet.pols.length} POL`;
+    }
+
+    function parseBulkInput() {
+      const text = $("bulkText").value;
+      if (!text.trim()) return;
+      const sections = { wbPod: [], wbPol: [], ebPod: [], ebPol: [] };
+      let current = null;
+
+      text.split(/\r?\n/).forEach((rawLine) => {
+        const line = rawLine.trim();
+        if (!line) return;
+        const lower = line.toLowerCase();
+        const valueAfterColon = /[:：]/.test(line) ? line.split(/[:：]/).slice(1).join(":").trim() : "";
+
+        if (/^(船名|vessel|vessel name)\s*[:：]/i.test(line)) $("vesselName").value = valueAfterColon;
+        else if (/^vvd\s*[:：]/i.test(line)) $("vvd").value = valueAfterColon.toUpperCase();
+        else if (/^(航线|service lane|lane)\s*[:：]/i.test(line)) $("serviceLane").value = valueAfterColon;
+        else if (/^(日期|report date)\s*[:：]/i.test(line)) $("reportDate").value = valueAfterColon;
+        else if (/^teus?\s*[:：]/i.test(line)) $("wbTeus").value = numericText(valueAfterColon);
+        else if (/^mt\s*[:：]/i.test(line)) $("wbMt").value = numericText(valueAfterColon);
+        else if (/^rf\s*[:：]/i.test(line)) $("wbRf").value = numericText(valueAfterColon);
+        else if (/^wb\s+pod\s*[:：]?/i.test(lower)) current = "wbPod";
+        else if (/^wb\s+pol\s*[:：]?/i.test(lower)) current = "wbPol";
+        else if (/^eb\s+pod\s*[:：]?/i.test(lower)) current = "ebPod";
+        else if (/^eb\s+pol\s*[:：]?/i.test(lower)) current = "ebPol";
+        else if (current) sections[current].push(line);
+      });
+
+      if (sections.wbPod.length) $("wbPods").value = sections.wbPod.join("\n");
+      if (sections.wbPol.length) $("wbPols").value = sections.wbPol.join("\n");
+      if (sections.ebPod.length) $("ebPods").value = sections.ebPod.join("\n");
+      if (sections.ebPol.length) $("ebPols").value = sections.ebPol.join("\n");
+      render();
+    }
+
+    function numericText(text) {
+      const value = String(text || "").match(/-?\d+(?:\.\d+)?/);
+      return value ? value[0] : "";
+    }
+
+    function activeTable() {
+      return $("sheetWrap").querySelector("table");
+    }
+
+    async function copyTable() {
+      const table = activeTable();
+      if (!table) return;
+      const html = table.outerHTML;
+      const text = [...table.rows].map((row) => [...row.cells].map((cell) => cell.innerText).join("\t")).join("\n");
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/html": new Blob([html], { type: "text/html" }),
+            "text/plain": new Blob([text], { type: "text/plain" })
+          })
+        ]);
+        $("status").textContent = "Copied";
+      } catch {
+        await navigator.clipboard.writeText(text);
+        $("status").textContent = "Copied text";
+      }
+    }
+
+    function exportXls() {
+      const table = activeTable();
+      if (!table) return;
+      const input = readInputs();
+      const css = [...document.styleSheets]
+        .map((sheet) => {
+          try {
+            return [...sheet.cssRules].map((rule) => rule.cssText).join("\n");
+          } catch {
+            return "";
+          }
+        })
+        .join("\n");
+      const html = `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${table.outerHTML}</body></html>`;
+      const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `${input.vesselName} ${input.vvd} ${state.activeSheet}.xls`.replace(/[\\/:*?"<>|]+/g, "-");
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(link.href);
+      $("status").textContent = "Exported";
+    }
+
+    function rerenderIfScheduleReady() {
+      if (!state.currentLookup) return;
+      render();
+    }
+
+    $("generate").addEventListener("click", generateFromSchedule);
+    $("loadSample").addEventListener("click", () => {
+      setSample();
+      render();
+    });
+    $("parseBulk").addEventListener("click", parseBulkInput);
+    $("copyTable").addEventListener("click", copyTable);
+    $("exportXls").addEventListener("click", exportXls);
+    $("printPage").addEventListener("click", () => window.print());
+
+    document.querySelectorAll(".tab").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.activeSheet = button.dataset.sheet;
+        document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab === button));
+        rerenderIfScheduleReady();
+      });
+    });
+
+    $("sheetWrap").addEventListener("input", (event) => {
+      if (event.target.matches(".editable")) {
+        recalcTable(activeTable());
+      }
+    });
+
+    ["wbMt", "wbRf"].forEach((id) => {
+      $(id).addEventListener("input", rerenderIfScheduleReady);
+    });
+    $("vvd").addEventListener("change", generateFromSchedule);
+
+    generateFromSchedule();
+  </script>
+</body>
+</html>
