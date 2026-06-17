@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-06-17T15:16:53.463Z",
+  "updatedAt": "2026-06-17T15:37:13.733Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -27,7 +27,7 @@
       "vvd": "NHZY2624WE",
       "lane": "CGS",
       "vesselName": "NHZY",
-      "updatedAt": "2026-06-17T15:16:53.463Z",
+      "updatedAt": "2026-06-17T15:37:13.733Z",
       "allocation": {
         "wbTeus": 300,
         "ebTeus": 300,
