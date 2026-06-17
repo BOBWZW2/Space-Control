@@ -614,6 +614,11 @@
         <h2>生成条件</h2>
         <div class="grid">
           <div class="field wide">
+            <label for="serviceLane">LANE</label>
+            <input id="serviceLane" list="laneOptions" value="">
+            <datalist id="laneOptions"></datalist>
+          </div>
+          <div class="field wide">
             <label for="vvd">VVD</label>
             <input id="vvd" list="vvdOptions" value="XPBL2625WE">
             <datalist id="vvdOptions"></datalist>
@@ -681,7 +686,6 @@
       </div>
 
       <div class="hidden">
-        <input id="serviceLane" value="">
         <input id="reportDate" value="">
         <input id="vesselName" value="">
         <input id="selection" value="">
@@ -761,10 +765,7 @@
         ["CNNGB", "07/04", "07/04"],
         ["CNSHK", "07/07", "07/07"],
         ["CNNAS", "07/07", "07/08"],
-        ["MYPKG", "07/13", "07/13"],
-        ["AEKLF", "07/22", "07/24"],
-        ["OMSOH", "07/26", "07/27"],
-        ["PKKHI", "07/30", "08/01"]
+        ["MYPKG", "07/13", "07/13"]
       ],
       ebPods: [
         ["AEKLF", "07/24"],
@@ -775,11 +776,7 @@
         ["CNNGB", "08/21"],
         ["CNSHK", "08/24"],
         ["CNNAS", "08/25"],
-        ["MYPKG", "08/30"],
-        ["INMUN", "SKIP"],
-        ["PKKHI", "09/18"],
-        ["OMSOH", "09/13"],
-        ["AEKLF", "09/10"]
+        ["MYPKG", "08/30"]
       ],
       ebPols: [
         ["AEKLF", "07/22", "07/24"],
@@ -794,6 +791,7 @@
       tableData: { WB: null, EB: null },
       entries: { WB: {}, EB: {} },
       scheduleRows: null,
+      scheduleRowsPromise: null,
       vesselMapping: null,
       currentLookup: null,
       lookupSignature: ""
@@ -822,6 +820,10 @@
 
     function cleanVvd(value) {
       return normalizeText(value).replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+    }
+
+    function normalizeLane(value) {
+      return normalizeText(value).toUpperCase();
     }
 
     function parseDateValue(value) {
@@ -867,52 +869,100 @@
 
     async function loadScheduleRows() {
       if (state.scheduleRows) return state.scheduleRows;
+      if (state.scheduleRowsPromise) return state.scheduleRowsPromise;
       if (!window.XLSX) {
         throw new Error("Excel parser is not loaded. Check internet access to jsdelivr.net.");
       }
 
-      const response = await fetch(SCHEDULE_URL, { cache: "no-store" });
-      if (!response.ok) throw new Error(`Cannot read GitHub schedule (${response.status})`);
-      const buffer = await response.arrayBuffer();
-      const workbook = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: true });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const records = XLSX.utils.sheet_to_json(sheet, {
-        defval: "",
-        raw: false,
-        dateNF: "yyyy-mm-dd hh:mm:ss"
-      });
-
-      const rows = records.map((record, index) => {
-        const normalized = {};
-        Object.entries(record).forEach(([key, value]) => {
-          normalized[normalizeText(key).toUpperCase()] = value;
+      state.scheduleRowsPromise = (async () => {
+        const response = await fetch(SCHEDULE_URL, { cache: "no-store" });
+        if (!response.ok) throw new Error(`Cannot read GitHub schedule (${response.status})`);
+        const buffer = await response.arrayBuffer();
+        const workbook = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: true });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const records = XLSX.utils.sheet_to_json(sheet, {
+          defval: "",
+          raw: false,
+          dateNF: "yyyy-mm-dd hh:mm:ss"
         });
-        return {
-          row: index + 2,
-          lane: normalizeText(normalized.LANE).toUpperCase(),
-          vvd: cleanVvd(normalized.VVD),
-          port: normalizePort(normalized.PORT),
-          eta: normalizeText(normalized.ETA),
-          etb: normalizeText(normalized.ETB),
-          etd: normalizeText(normalized.ETD)
-        };
-      }).filter((row) => row.lane && row.vvd && row.port);
 
-      const missing = ["LANE", "VVD", "PORT", "ETA", "ETB", "ETD"].filter((name) => {
-        return !records.some((record) => Object.keys(record).some((key) => normalizeText(key).toUpperCase() === name));
-      });
-      if (missing.length) throw new Error(`Schedule is missing columns: ${missing.join(", ")}`);
+        const rows = records.map((record, index) => {
+          const normalized = {};
+          Object.entries(record).forEach(([key, value]) => {
+            normalized[normalizeText(key).toUpperCase()] = value;
+          });
+          return {
+            row: index + 2,
+            lane: normalizeLane(normalized.LANE),
+            vvd: cleanVvd(normalized.VVD),
+            port: normalizePort(normalized.PORT),
+            eta: normalizeText(normalized.ETA),
+            etb: normalizeText(normalized.ETB),
+            etd: normalizeText(normalized.ETD)
+          };
+        }).filter((row) => row.lane && row.vvd && row.port);
 
-      state.scheduleRows = rows;
-      populateVvdOptions(rows);
-      return rows;
+        const missing = ["LANE", "VVD", "PORT", "ETA", "ETB", "ETD"].filter((name) => {
+          return !records.some((record) => Object.keys(record).some((key) => normalizeText(key).toUpperCase() === name));
+        });
+        if (missing.length) throw new Error(`Schedule is missing columns: ${missing.join(", ")}`);
+
+        state.scheduleRows = rows;
+        refreshScheduleFieldOptions();
+        return rows;
+      })();
+
+      try {
+        return await state.scheduleRowsPromise;
+      } finally {
+        state.scheduleRowsPromise = null;
+      }
     }
 
-    function populateVvdOptions(rows) {
+    function rowMatchesLane(row, laneInput) {
+      const lane = normalizeLane(laneInput);
+      return !lane || row.lane === lane || row.lane.startsWith(lane) || lane.startsWith(`${row.lane}/`);
+    }
+
+    function rowMatchesVvdInput(row, vvdInput) {
+      const vvd = cleanVvd(vvdInput);
+      if (!vvd) return true;
+      try {
+        const current = currentDirectionVvds(vvd);
+        const vvds = [current.w, current.e].filter(Boolean);
+        if (vvds.length) return vvds.includes(row.vvd);
+      } catch {
+        // While the user is still typing, fall back to prefix matching.
+      }
+      return row.vvd.startsWith(vvd);
+    }
+
+    function makeVvdOptionValue(stem, dirs) {
+      if (dirs.has("W") && dirs.has("E")) return `${stem}WE`;
+      if (dirs.size === 1) return `${stem}${[...dirs][0]}`;
+      return stem;
+    }
+
+    function populateLaneOptions(rows = state.scheduleRows, vvdInput = $("vvd")?.value || "") {
+      const list = $("laneOptions");
+      if (!list || !rows) return;
+      const lanes = [...new Set(
+        rows
+          .filter((row) => rowMatchesVvdInput(row, vvdInput))
+          .map((row) => row.lane)
+      )].sort();
+      list.replaceChildren(...lanes.map((lane) => {
+        const option = document.createElement("option");
+        option.value = lane;
+        return option;
+      }));
+    }
+
+    function populateVvdOptions(rows = state.scheduleRows, laneInput = $("serviceLane")?.value || "") {
       const list = $("vvdOptions");
-      if (!list || list.dataset.loaded === "Y") return;
+      if (!list || !rows) return;
       const grouped = new Map();
-      rows.forEach((row) => {
+      rows.filter((row) => rowMatchesLane(row, laneInput)).forEach((row) => {
         const match = row.vvd.match(/^([A-Z]+\d+)([WE])$/);
         const key = match ? match[1] : row.vvd;
         if (!grouped.has(key)) grouped.set(key, { lanes: new Set(), dirs: new Set() });
@@ -920,7 +970,7 @@
         if (match) grouped.get(key).dirs.add(match[2]);
       });
       const options = [...grouped.entries()].map(([stem, info]) => {
-        const value = info.dirs.has("W") && info.dirs.has("E") ? `${stem}WE` : stem;
+        const value = makeVvdOptionValue(stem, info.dirs);
         return { value, label: [...info.lanes].sort().join("/") };
       }).sort((a, b) => a.label.localeCompare(b.label) || a.value.localeCompare(b.value));
       list.replaceChildren(...options.map((item) => {
@@ -929,7 +979,41 @@
         option.label = item.label;
         return option;
       }));
-      list.dataset.loaded = "Y";
+    }
+
+    function refreshScheduleFieldOptions() {
+      if (!state.scheduleRows) return;
+      populateLaneOptions(state.scheduleRows, $("vvd")?.value || "");
+      populateVvdOptions(state.scheduleRows, $("serviceLane")?.value || "");
+    }
+
+    function hasConcreteVvdDirection(vvdInput) {
+      try {
+        const current = currentDirectionVvds(vvdInput);
+        return Boolean(current.w || current.e);
+      } catch {
+        return false;
+      }
+    }
+
+    async function syncLaneFromVvd() {
+      const vvd = $("vvd")?.value || "";
+      const rows = await loadScheduleRows();
+      const lanes = [...new Set(
+        rows
+          .filter((row) => rowMatchesVvdInput(row, vvd))
+          .map((row) => row.lane)
+      )].sort();
+      populateLaneOptions(rows, vvd);
+      if (lanes.length === 1) $("serviceLane").value = lanes[0];
+      else if (
+        hasConcreteVvdDirection(vvd)
+        && normalizeLane($("serviceLane").value)
+        && !lanes.some((lane) => rowMatchesLane({ lane }, $("serviceLane").value))
+      ) {
+        $("serviceLane").value = "";
+      }
+      populateVvdOptions(rows, $("serviceLane")?.value || "");
     }
 
     async function loadVesselMapping() {
@@ -983,6 +1067,18 @@
         throw new Error(`Cannot infer one lane for VVD. Candidates: ${unique.join(", ") || "none"}`);
       }
       return unique[0];
+    }
+
+    function resolveLane(rows, vvds, laneInput) {
+      const lane = normalizeLane(laneInput);
+      if (!lane) return inferLane(rows, vvds);
+      const candidates = [...new Set(
+        rows
+          .filter((row) => vvds.includes(row.vvd) && rowMatchesLane(row, lane))
+          .map((row) => row.lane)
+      )].sort();
+      if (candidates.length === 1) return candidates[0];
+      throw new Error(`Cannot resolve lane for VVD. Candidates: ${candidates.join(", ") || "none"}`);
     }
 
     function findCalls(rows, vvd, lane) {
@@ -1059,11 +1155,11 @@
       return { code, name: mapping[code] || code };
     }
 
-    async function lookupSchedule(vvd) {
+    async function lookupSchedule(vvd, laneInput = "") {
       const [rows, mapping] = await Promise.all([loadScheduleRows(), loadVesselMapping()]);
       const current = currentDirectionVvds(vvd);
       const vvds = [current.w, current.e].filter(Boolean);
-      const lane = inferLane(rows, vvds);
+      const lane = resolveLane(rows, vvds, laneInput);
       const vessel = vesselNameForVvd(vvd, mapping);
       const wbCalls = findCalls(rows, current.w, lane);
       const ebCalls = findCalls(rows, current.e, lane);
@@ -1073,7 +1169,6 @@
       const ebRouteCalls = [];
       appendConsecutiveDedup(ebRouteCalls, ebCalls);
       appendConsecutiveDedup(ebRouteCalls, nextWCalls);
-      appendConsecutiveDedup(ebRouteCalls, nextECalls);
 
       return {
         inputVvd: cleanVvd(vvd),
@@ -1162,6 +1257,7 @@
       state.lookupSignature = signature;
       state.currentLookup = lookup;
       $("serviceLane").value = lookup.lane;
+      refreshScheduleFieldOptions();
       $("vesselName").value = lookup.vesselName;
       $("reportDate").value = formatGeneratedDate();
       $("selection").value = "";
@@ -1171,6 +1267,7 @@
         `${lookup.vesselName} / ${lookup.inputVvd} · ${lookup.lane} · ` +
         `WB ${lookup.currentWVvd || "-"} (${lookup.wbCalls.length} calls), ` +
         `EB ${lookup.currentEVvd || "-"} + ${lookup.nextWVvd || "-"} + ${lookup.nextEVvd || "-"} (${lookup.ebRouteCalls.length} calls)`;
+      setCompactScheduleSummary(lookup);
     }
 
     function setCompactScheduleSummary(lookup) {
@@ -1186,11 +1283,13 @@
         $("status").textContent = "请输入 VVD";
         return;
       }
+      const lane = normalizeLane($("serviceLane").value);
       $("vvd").value = vvd;
+      $("serviceLane").value = lane;
       $("status").textContent = "正在读取 GitHub 船期...";
       $("generate").disabled = true;
       try {
-        const lookup = await lookupSchedule(vvd);
+        const lookup = await lookupSchedule(vvd, lane);
         applyLookup(lookup);
         setCompactScheduleSummary(lookup);
         render();
@@ -2598,16 +2697,17 @@
       addMoveRow(moveSummaryStart + 1, "TOTAL MTONS", ({ left }) => (
         `=${excelCell(left, totalStart + 6)}`
       ), moveValueStyle, visibleWeightFmt);
-      addMoveRow(moveSummaryStart + 4, "Move Count Utilised (Sheet)", ({ pod, left, right }) => {
+      addMoveRow(moveSummaryStart + 4, "Move counts utilised", ({ pod, left, right }) => {
         const dischargeCount = `${excelCell(left, totalStart + 7)}+${excelCell(right, totalStart + 7)}`;
         const loadCounts = (blockStartsByPort.get(pod.port) || []).map((start) => (
           `${excelCell(summary.total20, start + 7)}+${excelCell(summary.total40, start + 7)}`
         ));
         return `=${sumFormula([dischargeCount, ...loadCounts])}`;
       });
-      addMoveRow(moveSummaryStart + 5, "Move Count Utilised (WB+EB)", () => null);
-      addMoveRow(moveSummaryStart + 6, "Move Count Limit", () => null);
-      addMoveRow(moveSummaryStart + 7, "Balance Move Count", () => null);
+      addMoveRow(moveSummaryStart + 5, "Step Up/Down Move Count", () => null);
+      addMoveRow(moveSummaryStart + 6, "Balance Move Count", ({ left }) => (
+        `=${excelCell(left, moveSummaryStart + 5)}-${excelCell(left, moveSummaryStart + 4)}`
+      ));
 
       for (let row = 1; row <= finalRow; row += 1) {
         for (let col = 1; col <= summary.last; col += 1) {
@@ -2631,18 +2731,10 @@
         podRightCols,
         totalStart,
         moveSheetRow: moveSummaryStart + 4,
-        moveTotalRow: moveSummaryStart + 5,
-        moveLimitRow: moveSummaryStart + 6,
-        moveBalanceRow: moveSummaryStart + 7,
+        moveLimitRow: moveSummaryStart + 5,
+        moveBalanceRow: moveSummaryStart + 6,
         finalRow
       };
-    }
-
-    function setFormulaValue(cell, formula, numFmt = "0") {
-      cell.value = { formula, result: 0 };
-      cell.numFmt = numFmt;
-      cell.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FF000000" } };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFFFF" } };
     }
 
     function setFormulaOnly(cell, formula, numFmt = "0;-0;;@") {
@@ -2690,26 +2782,6 @@
       );
     }
 
-    function applyCombinedMoveCount(wbMeta, ebMeta) {
-      if (!wbMeta?.podRightCols?.length || !ebMeta?.podRightCols?.length) return;
-      const wbLastPod = excelCol(wbMeta.podRightCols[wbMeta.podRightCols.length - 1]);
-      const ebLastPod = excelCol(ebMeta.podRightCols[ebMeta.podRightCols.length - 1]);
-      [wbMeta, ebMeta].forEach((meta) => {
-        meta.podLeftCols.forEach((left) => {
-          const criteria = excelCell(left, 3);
-          const totalFormula = (
-            `SUMIF(WB!$D$3:$${wbLastPod}$3,${criteria},WB!$D$${wbMeta.moveSheetRow}:$${wbLastPod}$${wbMeta.moveSheetRow})`
-            + `+SUMIF(EB!$D$3:$${ebLastPod}$3,${criteria},EB!$D$${ebMeta.moveSheetRow}:$${ebLastPod}$${ebMeta.moveSheetRow})`
-          );
-          setFormulaValue(meta.ws.getCell(meta.moveTotalRow, left), totalFormula);
-          setFormulaValue(
-            meta.ws.getCell(meta.moveBalanceRow, left),
-            `${excelCell(left, meta.moveLimitRow)}-${excelCell(left, meta.moveTotalRow)}`
-          );
-        });
-      });
-    }
-
     async function exportXls() {
       saveEntriesFromCurrentTable();
       if (!window.ExcelJS) {
@@ -2726,7 +2798,6 @@
       const wbMeta = buildExcelSheet(workbook, input, "WB");
       const ebMeta = buildExcelSheet(workbook, input, "EB");
       applyEbRobCarryover(wbMeta, ebMeta);
-      applyCombinedMoveCount(wbMeta, ebMeta);
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -2745,6 +2816,25 @@
     function rerenderIfScheduleReady() {
       if (!state.currentLookup) return;
       render();
+    }
+
+    async function handleVvdInput() {
+      try {
+        await syncLaneFromVvd();
+      } catch (error) {
+        console.warn(error);
+      }
+    }
+
+    async function handleLaneInput() {
+      $("serviceLane").value = normalizeLane($("serviceLane").value);
+      try {
+        const rows = await loadScheduleRows();
+        populateLaneOptions(rows, "");
+        populateVvdOptions(rows, $("serviceLane").value);
+      } catch (error) {
+        console.warn(error);
+      }
     }
 
     document.querySelector(".topbar .toolbar")?.remove();
@@ -2783,6 +2873,9 @@
     $("wbRf").addEventListener("input", () => handleRfInput("wbRf"));
     $("ebRf").addEventListener("input", () => handleRfInput("ebRf"));
     $("tonPerTeu").addEventListener("input", handleTonPerTeuInput);
+    $("serviceLane").addEventListener("input", handleLaneInput);
+    $("serviceLane").addEventListener("change", handleLaneInput);
+    $("vvd").addEventListener("input", handleVvdInput);
     $("vvd").addEventListener("change", generateFromSchedule);
 
     generateFromSchedule();
