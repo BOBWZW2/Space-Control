@@ -2628,11 +2628,24 @@
         }
       };
 
+      const styleMergedWeightRow = (row) => {
+        [...podLeftCols, summary.total20].forEach((col) => {
+          const cell = ws.getCell(row, col);
+          setExcelBorder(cell, {
+            left: "thin",
+            right: styleOfBorder(cell, "right"),
+            top: "thin",
+            bottom: "thin"
+          });
+        });
+      };
+
       blockStarts.forEach((start) => {
         for (let row = start; row <= start + 5; row += 1) {
           styleBodyRow(row);
         }
         styleBodyRow(start + 6, "thin", "thin");
+        styleMergedWeightRow(start + 6);
         styleBodyRow(start + 7, "thin", "medium");
       });
 
@@ -3127,35 +3140,37 @@
     }
 
     function applyEbRobCarryover(wbMeta, ebMeta) {
-      const firstEbPod = ebMeta?.model?.sheet?.pods?.[0];
-      if (!firstEbPod) return;
-      let wbPodIndex = wbMeta.model.sheet.pods.findIndex((pod) => callMatchesPod(pod, firstEbPod));
-      if (wbPodIndex < 0) {
-        wbPodIndex = wbMeta.model.sheet.pods.findIndex((pod) => pod.port === firstEbPod.port);
-      }
-      if (wbPodIndex < 0) return;
+      const wbPods = wbMeta?.model?.sheet?.pods || [];
+      const ebPods = ebMeta?.model?.sheet?.pods || [];
+      ebPods.forEach((ebPod, ebPodIndex) => {
+        let wbPodIndex = wbPods.findIndex((pod) => callMatchesPod(pod, ebPod));
+        if (wbPodIndex < 0) {
+          wbPodIndex = wbPods.findIndex((pod) => pod.port === ebPod.port);
+        }
+        if (wbPodIndex < 0) return;
 
-      const ebLeft = ebMeta.podLeftCols[0];
-      const ebRight = ebMeta.podRightCols[0];
-      const wbLeft = wbMeta.podLeftCols[wbPodIndex];
-      const wbRight = wbMeta.podRightCols[wbPodIndex];
+        const ebLeft = ebMeta.podLeftCols[ebPodIndex];
+        const ebRight = ebMeta.podRightCols[ebPodIndex];
+        const wbLeft = wbMeta.podLeftCols[wbPodIndex];
+        const wbRight = wbMeta.podRightCols[wbPodIndex];
 
-      for (let offset = 0; offset < 6; offset += 1) {
-        const row = 6 + offset;
+        for (let offset = 0; offset < 6; offset += 1) {
+          const row = 6 + offset;
+          setFormulaOnly(
+            ebMeta.ws.getCell(row, ebLeft),
+            `WB!${excelCell(wbLeft, wbMeta.totalStart + offset)}`
+          );
+          setFormulaOnly(
+            ebMeta.ws.getCell(row, ebRight),
+            `WB!${excelCell(wbRight, wbMeta.totalStart + offset)}`
+          );
+        }
         setFormulaOnly(
-          ebMeta.ws.getCell(row, ebLeft),
-          `WB!${excelCell(wbLeft, wbMeta.totalStart + offset)}`
+          ebMeta.ws.getCell(12, ebLeft),
+          `WB!${excelCell(wbLeft, wbMeta.totalStart + 6)}`,
+          "0.0;-0.0;;@"
         );
-        setFormulaOnly(
-          ebMeta.ws.getCell(row, ebRight),
-          `WB!${excelCell(wbRight, wbMeta.totalStart + offset)}`
-        );
-      }
-      setFormulaOnly(
-        ebMeta.ws.getCell(12, ebLeft),
-        `WB!${excelCell(wbLeft, wbMeta.totalStart + 6)}`,
-        "0.0;-0.0;;@"
-      );
+      });
     }
 
     async function exportXls() {
