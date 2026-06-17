@@ -1105,9 +1105,9 @@
       addCell(infoRow, `${model.meta.vesselName} / ${model.meta.vvd}`, { colspan: Math.max(1, podColspan), tag: "th" });
       addCell(infoRow, `${model.sheet.allocationLabel} :`, { colspan: 1, tag: "th" });
       addCell(infoRow, cellText(model.sheet.allocation.teus), { colspan: 1, tag: "th", className: "alloc-input", dataset: { alloc: "teus" } });
-      addCell(infoRow, "TEUS,", { colspan: 1, tag: "th" });
+      addCell(infoRow, "TEUS", { colspan: 1, tag: "th" });
       addCell(infoRow, cellText(model.sheet.allocation.mt, 1), { colspan: 1, tag: "th", className: "alloc-input", dataset: { alloc: "mt" } });
-      addCell(infoRow, "MT,", { colspan: 1, tag: "th" });
+      addCell(infoRow, "MT", { colspan: 1, tag: "th" });
       addCell(infoRow, cellText(model.sheet.allocation.rf), { colspan: 1, tag: "th", className: "alloc-input", dataset: { alloc: "rf" } });
       addCell(infoRow, "RF PLUGS", { colspan: 4, tag: "th" });
 
@@ -1711,10 +1711,22 @@
           bottom: styleOfBorder(cell, "bottom")
         });
       }
+
+      if (summary.spacer) {
+        for (let row = 1; row <= finalRow; row += 1) {
+          const cell = ws.getCell(row, summary.spacer);
+          setExcelBorder(cell, {
+            left: "medium",
+            right: "medium",
+            top: styleOfBorder(cell, "top"),
+            bottom: styleOfBorder(cell, "bottom")
+          });
+        }
+      }
     }
 
     function conditionalFill(argb) {
-      return { type: "pattern", pattern: "solid", fgColor: { argb } };
+      return { type: "pattern", pattern: "solid", bgColor: { argb } };
     }
 
     function addExportConditionalFormatting(ws, summary, totalStart) {
@@ -1877,9 +1889,9 @@
       setCell(ws, 2, 4, `${input.vesselName} / ${input.vvd}`, headerStyle);
       setCell(ws, 2, summary.total20, `${model.sheet.allocationLabel} :`, headerStyle);
       setCell(ws, 2, summary.total20 + 2, Number(model.sheet.allocation.teus) || 0, { ...yellowStyle, numFmt: countFmt });
-      setCell(ws, 2, summary.total20 + 3, " TEUS, ", headerStyle);
+      setCell(ws, 2, summary.total20 + 3, "TEUS", headerStyle);
       setCell(ws, 2, summary.total20 + 5, Number(model.sheet.allocation.mt) || 0, { ...yellowStyle, numFmt: weightFmt });
-      setCell(ws, 2, summary.total20 + 6, " MT, ", headerStyle);
+      setCell(ws, 2, summary.total20 + 6, "MT", headerStyle);
       setCell(ws, 2, summary.total20 + 7, Number(model.sheet.allocation.rf) || 0, { ...yellowStyle, numFmt: countFmt });
       setCell(ws, 2, summary.total20 + 8, " RF PLUGS ", headerStyle);
 
