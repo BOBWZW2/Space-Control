@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-06-17T15:37:13.733Z",
+  "updatedAt": "2026-06-18T03:15:35.809Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -39,6 +39,31 @@
       },
       "selectedWbPodKeys": [],
       "selectedWbPodPorts": []
+    },
+    "ZGNJ2627WE": {
+      "vvd": "ZGNJ2627WE",
+      "lane": "HLX",
+      "vesselName": "ZGNJ",
+      "updatedAt": "2026-06-18T03:15:35.809Z",
+      "allocation": {
+        "wbTeus": 400,
+        "ebTeus": 400,
+        "tonPerTeu": 14,
+        "wbMt": 5600,
+        "ebMt": 5600,
+        "wbRf": null,
+        "ebRf": null
+      },
+      "selectedWbPodKeys": [
+        "THLCH::2026-07-05 23:00:00",
+        "SGSIN::2026-07-10 03:00:00",
+        "MYPKG::2026-07-12 09:00:00"
+      ],
+      "selectedWbPodPorts": [
+        "THLCH",
+        "SGSIN",
+        "MYPKG"
+      ]
     }
   }
 }
