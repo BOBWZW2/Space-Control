@@ -148,7 +148,7 @@
 
     .history-tools {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) auto auto;
       gap: 8px;
       align-items: end;
     }
@@ -157,6 +157,12 @@
       display: grid;
       gap: 7px;
       margin-top: 10px;
+    }
+
+    .history-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px;
     }
 
     .history-item {
@@ -180,6 +186,17 @@
       color: var(--muted);
       font-size: 12px;
       font-weight: 400;
+    }
+
+    .history-delete,
+    .history-clear {
+      color: var(--danger);
+      font-weight: 700;
+    }
+
+    .history-delete {
+      min-width: 42px;
+      padding: 0 8px;
     }
 
     .section {
@@ -258,6 +275,30 @@
     }
 
     .action-grid .wide-action {
+      grid-column: 1 / -1;
+    }
+
+    .export-progress {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px 10px;
+      align-items: center;
+      margin-top: 10px;
+    }
+
+    .export-progress progress {
+      width: 100%;
+      height: 9px;
+      accent-color: var(--accent);
+    }
+
+    .export-progress span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .export-progress .export-progress-text {
       grid-column: 1 / -1;
     }
 
@@ -848,6 +889,7 @@
             <datalist id="historyOptions"></datalist>
           </div>
           <button id="loadHistory" type="button">载入</button>
+          <button id="clearHistory" type="button" class="history-clear">清空</button>
         </div>
         <div class="history-list" id="historyList"></div>
       </div>
@@ -867,6 +909,11 @@
           <button id="copyTable" type="button">复制预览</button>
           <button id="printPage" type="button">打印</button>
           <span class="status wide-action" id="status">Ready</span>
+        </div>
+        <div class="export-progress hidden" id="exportProgressWrap" role="status" aria-live="polite">
+          <progress id="exportProgress" max="100" value="0"></progress>
+          <span id="exportProgressPercent">0%</span>
+          <span class="export-progress-text" id="exportProgressText">准备导出</span>
         </div>
         <div class="sync-settings">
           <div class="field">
@@ -1148,6 +1195,18 @@
       renderHistory();
     }
 
+    function removeLocalHistoryRecord(record) {
+      const key = historyKey(record);
+      const remaining = getLocalHistory().filter((item) => historyKey(item) !== key);
+      saveStorageJson(LOCAL_HISTORY_KEY, remaining);
+      clearLocalDraft(record?.vvd);
+    }
+
+    function clearLocalHistoryRecords() {
+      saveStorageJson(LOCAL_HISTORY_KEY, []);
+      saveStorageJson(LOCAL_DRAFTS_KEY, {});
+    }
+
     function sharedHistoryRecords() {
       return Object.values(state.sharedCache?.records || {}).map((record) => normalizeHistoryRecord(record, "synced"));
     }
@@ -1200,6 +1259,8 @@
         return;
       }
       visible.forEach((record) => {
+        const row = document.createElement("div");
+        row.className = "history-row";
         const button = document.createElement("button");
         button.type = "button";
         button.className = "history-item";
@@ -1211,7 +1272,15 @@
         button.appendChild(title);
         button.appendChild(meta);
         button.addEventListener("click", () => loadHistoryRecord(record));
-        list.appendChild(button);
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.className = "history-delete";
+        deleteButton.textContent = "删除";
+        deleteButton.title = `删除 ${record.vvd}`;
+        deleteButton.addEventListener("click", () => deleteHistoryRecord(record));
+        row.appendChild(button);
+        row.appendChild(deleteButton);
+        list.appendChild(row);
       });
     }
 
@@ -1434,14 +1503,14 @@
       };
     }
 
-    async function pushRecordToGithub(record, token) {
+    async function updateGithubCache(token, message, mutateCache) {
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const current = await readGithubCacheFile(token);
         const cache = normalizeSharedCache(current.cache);
-        cache.records[record.vvd] = record;
-        cache.updatedAt = record.updatedAt;
+        mutateCache(cache);
+        cache.updatedAt = new Date().toISOString();
         const body = {
-          message: `Save space control cache ${record.vvd}`,
+          message,
           content: encodeBase64Utf8(`${JSON.stringify(cache, null, 2)}\n`),
           branch: GITHUB_CACHE_BRANCH
         };
@@ -1457,6 +1526,87 @@
         return response.json();
       }
       throw new Error("GitHub cache conflict");
+    }
+
+    async function pushRecordToGithub(record, token) {
+      return updateGithubCache(token, `Save space control cache ${record.vvd}`, (cache) => {
+        cache.records[record.vvd] = record;
+      });
+    }
+
+    function useTypedGithubToken() {
+      const typedToken = $("githubToken").value.trim();
+      if (typedToken) setGithubToken(typedToken);
+      return getGithubToken();
+    }
+
+    function setHistoryBusy(disabled) {
+      document.querySelectorAll(".history-delete, #clearHistory").forEach((button) => {
+        button.disabled = disabled;
+      });
+    }
+
+    async function deleteHistoryRecord(record) {
+      const vvd = cleanVvd(record?.vvd);
+      if (!vvd) return;
+      if (!window.confirm(`删除 ${vvd} 的历史记录？已同步的输入数据也会同时删除。`)) return;
+      const shared = await loadSharedCache();
+      const hasSharedRecord = Boolean(shared.records[vvd]);
+      const token = useTypedGithubToken();
+      if (hasSharedRecord && !token) {
+        $("status").textContent = "该记录已同步，请先填写 GitHub Token 后再删除";
+        return;
+      }
+      setHistoryBusy(true);
+      try {
+        if (hasSharedRecord) {
+          await updateGithubCache(token, `Delete space control cache ${vvd}`, (cache) => {
+            delete cache.records[vvd];
+          });
+        }
+        removeLocalHistoryRecord(record);
+        if (historyMatches(record, $("historySearch").value)) $("historySearch").value = "";
+        renderHistory();
+        $("status").textContent = `已删除 ${vvd} 的历史记录`;
+      } catch (error) {
+        console.error(error);
+        $("status").textContent = `删除失败：${error.message || error}`;
+      } finally {
+        setHistoryBusy(false);
+      }
+    }
+
+    async function clearAllHistoryRecords() {
+      const records = combinedHistoryRecords();
+      if (!records.length) {
+        $("status").textContent = "暂无历史记录";
+        return;
+      }
+      if (!window.confirm("清空全部历史记录？所有已同步输入数据也会从 GitHub 删除，且无法恢复。")) return;
+      const shared = await loadSharedCache();
+      const hasSharedRecords = Object.keys(shared.records).length > 0;
+      const token = useTypedGithubToken();
+      if (hasSharedRecords && !token) {
+        $("status").textContent = "存在已同步记录，请先填写 GitHub Token 后再清空";
+        return;
+      }
+      setHistoryBusy(true);
+      try {
+        if (hasSharedRecords) {
+          await updateGithubCache(token, "Clear space control cache history", (cache) => {
+            cache.records = {};
+          });
+        }
+        clearLocalHistoryRecords();
+        $("historySearch").value = "";
+        renderHistory();
+        $("status").textContent = "历史记录已清空";
+      } catch (error) {
+        console.error(error);
+        $("status").textContent = `清空失败：${error.message || error}`;
+      } finally {
+        setHistoryBusy(false);
+      }
     }
 
     async function saveAndSyncCurrentVvd() {
@@ -1588,6 +1738,8 @@
       if (targetDate) {
         const exact = candidates.find(({ pod }) => dateValueKey(podCallDate(pod)) === targetDate);
         if (exact) return exact.index;
+        const hasDatedCandidate = candidates.some(({ pod }) => dateValueKey(podCallDate(pod)));
+        if (hasDatedCandidate) return -1;
       }
 
       const targetPortCount = options.targetPortCount ?? 1;
@@ -4182,100 +4334,160 @@
       });
     }
 
+    function setExportButtonsDisabled(disabled) {
+      document.querySelectorAll("#exportXls").forEach((button) => {
+        button.disabled = disabled;
+      });
+    }
+
+    function setExportProgress(percent, text, visible = true) {
+      const value = Math.max(0, Math.min(100, Math.round(percent)));
+      $("exportProgress").value = value;
+      $("exportProgressPercent").textContent = `${value}%`;
+      $("exportProgressText").textContent = text;
+      $("exportProgressWrap").classList.toggle("hidden", !visible);
+    }
+
+    function waitForUiPaint() {
+      return new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    }
+
+    async function updateExportProgress(percent, text) {
+      setExportProgress(percent, text, true);
+      $("status").textContent = text;
+      await waitForUiPaint();
+    }
+
     async function exportXls() {
       saveEntriesFromCurrentTable();
       if (!window.ExcelJS) {
         $("status").textContent = "Excel export library is not loaded";
         return;
       }
-      const input = readInputs();
-      const workbook = new ExcelJS.Workbook();
-      workbook.creator = "Space Control Generator";
-      workbook.created = new Date();
-      workbook.calcProperties = workbook.calcProperties || {};
-      workbook.calcProperties.fullCalcOnLoad = true;
-      workbook.calcProperties.forceFullCalc = true;
-      const carriers = input.carriers?.length ? input.carriers : [defaultCarrier()];
-      const isMultiCarrier = carriers.length > 1;
-      if (!isMultiCarrier) {
-        const carrier = carriers[0];
-        const wbName = carrierSheetName("WB", carrier, false);
-        const ebName = carrierSheetName("EB", carrier, false);
-        const wbMeta = buildExcelSheet(
-          workbook,
-          inputForSheet(input, "WB", wbName, sheetDataForCarrier(input, "WB", carrier, false), 0),
-          wbName
-        );
-        const ebMeta = buildExcelSheet(
-          workbook,
-          inputForSheet(input, "EB", ebName, sheetDataForCarrier(input, "EB", carrier, false), 0),
-          ebName
-        );
-        applyEbRobCarryover(wbMeta, ebMeta);
-        addRobInputSheet(workbook, wbMeta);
-        addRobOutputSheet(workbook, ebMeta);
-      } else {
-        const wbTotalMeta = buildExcelSheet(
-          workbook,
-          inputForSheet(input, "WB", totalSheetName("WB"), sheetDataForTotal(input, "WB", carriers), 0),
-          totalSheetName("WB")
-        );
-        const ebTotalMeta = buildExcelSheet(
-          workbook,
-          inputForSheet(input, "EB", totalSheetName("EB"), sheetDataForTotal(input, "EB", carriers), 0),
-          totalSheetName("EB")
-        );
-        const wbCarrierMetas = carriers.map((carrier, index) => {
-          const sheetName = carrierSheetName("WB", carrier, true);
-          const meta = buildExcelSheet(
+      setExportButtonsDisabled(true);
+      let exported = false;
+      try {
+        await updateExportProgress(3, "正在准备 Excel 数据");
+        const input = readInputs();
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = "Space Control Generator";
+        workbook.created = new Date();
+        workbook.calcProperties = workbook.calcProperties || {};
+        workbook.calcProperties.fullCalcOnLoad = true;
+        workbook.calcProperties.forceFullCalc = true;
+        const carriers = input.carriers?.length ? input.carriers : [defaultCarrier()];
+        const isMultiCarrier = carriers.length > 1;
+        const buildUnits = isMultiCarrier ? 3 + carriers.length * 2 : 3;
+        let completedUnits = 0;
+        const markBuilt = async (label) => {
+          completedUnits += 1;
+          await updateExportProgress(8 + (completedUnits / buildUnits) * 68, label);
+        };
+
+        if (!isMultiCarrier) {
+          const carrier = carriers[0];
+          const wbName = carrierSheetName("WB", carrier, false);
+          const ebName = carrierSheetName("EB", carrier, false);
+          const wbMeta = buildExcelSheet(
             workbook,
-            inputForSheet(
-              input,
-              "WB",
-              sheetName,
-              sheetDataForCarrier(input, "WB", carrier, true),
-              index * ROB_TRANSFER_SECTION_STEP
-            ),
-            sheetName
+            inputForSheet(input, "WB", wbName, sheetDataForCarrier(input, "WB", carrier, false), 0),
+            wbName
           );
-          return { carrier, meta };
-        });
-        const ebCarrierMetas = carriers.map((carrier, index) => {
-          const sheetName = carrierSheetName("EB", carrier, true);
-          const meta = buildExcelSheet(
+          await markBuilt("WB 工作表已生成");
+          const ebMeta = buildExcelSheet(
             workbook,
-            inputForSheet(
-              input,
-              "EB",
-              sheetName,
-              sheetDataForCarrier(input, "EB", carrier, true),
-              index * ROB_TRANSFER_SECTION_STEP
-            ),
-            sheetName
+            inputForSheet(input, "EB", ebName, sheetDataForCarrier(input, "EB", carrier, false), 0),
+            ebName
           );
-          return { carrier, meta };
+          await markBuilt("EB 工作表已生成");
+          applyEbRobCarryover(wbMeta, ebMeta);
+          addRobInputSheet(workbook, wbMeta);
+          addRobOutputSheet(workbook, ebMeta);
+          await markBuilt("ROB 公式和传递表已生成");
+        } else {
+          const wbTotalMeta = buildExcelSheet(
+            workbook,
+            inputForSheet(input, "WB", totalSheetName("WB"), sheetDataForTotal(input, "WB", carriers), 0),
+            totalSheetName("WB")
+          );
+          await markBuilt("WB_TOTAL 已生成");
+          const ebTotalMeta = buildExcelSheet(
+            workbook,
+            inputForSheet(input, "EB", totalSheetName("EB"), sheetDataForTotal(input, "EB", carriers), 0),
+            totalSheetName("EB")
+          );
+          await markBuilt("EB_TOTAL 已生成");
+          const wbCarrierMetas = [];
+          for (let index = 0; index < carriers.length; index += 1) {
+            const carrier = carriers[index];
+            const sheetName = carrierSheetName("WB", carrier, true);
+            const meta = buildExcelSheet(
+              workbook,
+              inputForSheet(
+                input,
+                "WB",
+                sheetName,
+                sheetDataForCarrier(input, "WB", carrier, true),
+                index * ROB_TRANSFER_SECTION_STEP
+              ),
+              sheetName
+            );
+            wbCarrierMetas.push({ carrier, meta });
+            await markBuilt(`${sheetName} 已生成`);
+          }
+          const ebCarrierMetas = [];
+          for (let index = 0; index < carriers.length; index += 1) {
+            const carrier = carriers[index];
+            const sheetName = carrierSheetName("EB", carrier, true);
+            const meta = buildExcelSheet(
+              workbook,
+              inputForSheet(
+                input,
+                "EB",
+                sheetName,
+                sheetDataForCarrier(input, "EB", carrier, true),
+                index * ROB_TRANSFER_SECTION_STEP
+              ),
+              sheetName
+            );
+            ebCarrierMetas.push({ carrier, meta });
+            await markBuilt(`${sheetName} 已生成`);
+          }
+          wbCarrierMetas.forEach((item, index) => {
+            applyEbRobCarryover(item.meta, ebCarrierMetas[index].meta);
+          });
+          applyTotalSheetFormulas(wbTotalMeta, wbCarrierMetas.map((item) => item.meta));
+          applyTotalSheetFormulas(ebTotalMeta, ebCarrierMetas.map((item) => item.meta));
+          addMultiCarrierRobInputSheet(workbook, wbCarrierMetas);
+          addMultiCarrierRobOutputSheet(workbook, ebCarrierMetas);
+          await markBuilt("TOTAL、ROB 公式和传递表已生成");
+        }
+
+        await updateExportProgress(82, "正在写入 Excel 文件");
+        const buffer = await workbook.xlsx.writeBuffer();
+        await updateExportProgress(96, "正在准备下载");
+        const blob = new Blob([buffer], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         });
-        wbCarrierMetas.forEach((item, index) => {
-          applyEbRobCarryover(item.meta, ebCarrierMetas[index].meta);
-        });
-        applyTotalSheetFormulas(wbTotalMeta, wbCarrierMetas.map((item) => item.meta));
-        applyTotalSheetFormulas(ebTotalMeta, ebCarrierMetas.map((item) => item.meta));
-        addMultiCarrierRobInputSheet(workbook, wbCarrierMetas);
-        addMultiCarrierRobOutputSheet(workbook, ebCarrierMetas);
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        const laneName = normalizeText(input.serviceLane).split(/[\s/]+/)[0] || "LANE";
+        link.download = `${laneName} ${input.vvd}.xlsx`.replace(/[\\/:*?"<>|]+/g, "-");
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(link.href);
+        exported = true;
+        setExportProgress(100, "Excel 已导出", true);
+        $("status").textContent = "Excel 已导出";
+      } catch (error) {
+        console.error(error);
+        setExportProgress($("exportProgress").value, "导出失败", true);
+        $("status").textContent = `导出失败：${error.message || error}`;
+      } finally {
+        setExportButtonsDisabled(false);
+        if (exported) setTimeout(() => setExportProgress(0, "准备导出", false), 2500);
       }
-      const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      const laneName = normalizeText(input.serviceLane).split(/[\s/]+/)[0] || "LANE";
-      link.download = `${laneName} ${input.vvd}.xlsx`.replace(/[\\/:*?"<>|]+/g, "-");
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(link.href);
-      $("status").textContent = "Exported workbook";
     }
 
     function rerenderIfScheduleReady() {
@@ -4412,6 +4624,7 @@
     $("historySearch").addEventListener("input", renderHistory);
     $("historySearch").addEventListener("change", renderHistory);
     $("loadHistory").addEventListener("click", () => loadHistoryRecord());
+    $("clearHistory").addEventListener("click", clearAllHistoryRecords);
 
     renderCarrierRows([defaultCarrier()]);
     initializePage();
