@@ -56,14 +56,28 @@
       position: sticky;
       top: 0;
       z-index: 20;
-      display: grid;
-      grid-template-columns: minmax(180px, 0.65fr) minmax(360px, 1fr) minmax(500px, auto);
-      align-items: center;
-      gap: 14px;
-      padding: 10px 18px;
-      background: #eaf4fb;
+      background: #ffffff;
       border-bottom: 1px solid var(--line);
       box-shadow: 0 2px 8px rgba(16, 24, 40, 0.08);
+    }
+
+    .title-row {
+      display: flex;
+      align-items: center;
+      min-height: 42px;
+      padding: 8px 18px;
+      background: #ffffff;
+      border-bottom: 1px solid #dbe4ee;
+    }
+
+    .generation-controls {
+      display: grid;
+      grid-template-columns: minmax(360px, 0.9fr) minmax(500px, 1.35fr);
+      align-items: end;
+      gap: 14px;
+      padding: 8px 18px 9px;
+      background: #ddecfa;
+      border-left: 4px solid var(--blue-dark);
     }
 
     .generation-fields {
@@ -73,13 +87,23 @@
       min-width: 0;
     }
 
+    .generation-fields .field {
+      padding: 5px 7px 7px;
+      border: 1px solid #9fc3e2;
+      border-radius: 6px;
+      background: #cfe5f8;
+    }
+
     .generation-fields label {
       margin-bottom: 3px;
+      color: #24577f;
     }
 
     .generation-fields input {
       min-height: 32px;
       padding: 6px 8px;
+      background: #ffffff;
+      border-color: #7faed4;
     }
 
     .generation-actions {
@@ -476,9 +500,10 @@
 
     .partner-row {
       display: grid;
-      grid-template-columns: minmax(190px, 0.75fr) repeat(3, minmax(0, 1fr));
+      grid-template-columns: 110px 72px 80px 92px 72px 32px 80px 92px 72px 24px;
       gap: 8px;
       align-items: end;
+      justify-content: start;
       border: 1px solid var(--line);
       border-radius: 6px;
       padding: 8px;
@@ -529,12 +554,30 @@
       text-transform: uppercase;
     }
 
+    .partner-field input[data-field^="wb"] {
+      background: #eef6fd;
+      border-color: #9fc3e2;
+    }
+
+    .partner-field input[data-field^="eb"] {
+      background: #fff9e8;
+      border-color: #d8bd70;
+    }
+
+    .partner-field input[data-field="tonPerTeu"] {
+      background: #edf8f5;
+      border-color: #8cc1b8;
+    }
+
     .partner-row .mini-sync {
       min-width: 32px;
       min-height: 30px;
       padding: 0;
       font-size: 13px;
       font-weight: 700;
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #ffffff;
     }
 
     .partner-row .metric-spacer {
@@ -542,11 +585,13 @@
     }
 
     .partner-row .remove-carrier {
+      width: 24px;
       min-width: 24px;
       min-height: 30px;
       padding: 0;
       color: var(--danger);
       font-weight: 700;
+      justify-self: end;
     }
 
     input,
@@ -947,17 +992,16 @@
     }
 
     @media (max-width: 1180px) {
-      .generation-bar {
-        grid-template-columns: minmax(170px, 0.55fr) minmax(320px, 1fr);
+      .generation-controls {
+        grid-template-columns: minmax(320px, 1fr);
       }
 
       .generation-actions {
-        grid-column: 1 / -1;
         justify-content: flex-start;
       }
 
       .partner-row {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: 110px 72px repeat(3, minmax(72px, 1fr)) 32px;
       }
     }
 
@@ -976,15 +1020,16 @@
     }
 
     @media (max-width: 720px) {
-      .generation-bar {
-        position: sticky;
+      .title-row {
+        min-height: 38px;
+        padding: 7px 12px;
+      }
+
+      .generation-controls {
         grid-template-columns: 1fr;
         gap: 8px;
         padding: 8px 12px;
-      }
-
-      .brand {
-        display: none;
+        border-left-width: 3px;
       }
 
       .control-summary {
@@ -1030,7 +1075,7 @@
       }
 
       .partner-row {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 0.78fr);
       }
 
       .partner-row-head {
@@ -1105,29 +1150,32 @@
   <div class="app">
     <header class="control-shell">
       <div class="generation-bar">
-        <div class="brand">
-          <h1>控舱表生成器</h1>
-          <div class="subtle">生成条件</div>
-        </div>
-        <div class="generation-fields">
-          <div class="field">
-            <label for="serviceLane">LANE</label>
-            <input id="serviceLane" list="laneOptions" value="">
-            <datalist id="laneOptions"></datalist>
-          </div>
-          <div class="field">
-            <label for="vvd">VVD</label>
-            <input id="vvd" list="vvdOptions" value="">
-            <datalist id="vvdOptions"></datalist>
+        <div class="title-row">
+          <div class="brand">
+            <h1>控舱表生成器</h1>
           </div>
         </div>
-        <div class="generation-actions">
-          <button id="clearInputs" type="button">清除</button>
-          <button id="generate" type="button">刷新船期</button>
-          <button id="saveSync" type="button" class="sync-save">保存并同步</button>
-          <button id="copyTable" type="button">复制预览</button>
-          <button id="exportXls" type="button" class="primary export-button">导出 Excel</button>
-          <span class="status" id="status">Ready</span>
+        <div class="generation-controls">
+          <div class="generation-fields">
+            <div class="field">
+              <label for="serviceLane">LANE</label>
+              <input id="serviceLane" list="laneOptions" value="">
+              <datalist id="laneOptions"></datalist>
+            </div>
+            <div class="field">
+              <label for="vvd">VVD</label>
+              <input id="vvd" list="vvdOptions" value="">
+              <datalist id="vvdOptions"></datalist>
+            </div>
+          </div>
+          <div class="generation-actions">
+            <button id="clearInputs" type="button">清除</button>
+            <button id="generate" type="button">刷新船期</button>
+            <button id="saveSync" type="button" class="sync-save">保存并同步</button>
+            <button id="copyTable" type="button">复制预览</button>
+            <button id="exportXls" type="button" class="primary export-button">导出 Excel</button>
+            <span class="status" id="status">Ready</span>
+          </div>
         </div>
       </div>
       <div class="export-progress top-progress hidden" id="exportProgressWrap" role="status" aria-live="polite">
@@ -2648,43 +2696,16 @@
         const row = document.createElement("div");
         row.className = "partner-row";
         row.dataset.carrierRow = "1";
-        const head = document.createElement("div");
-        head.className = "partner-row-head";
-        head.appendChild(createPartnerField("Partner", "code", carrier.code, "text"));
-        head.appendChild(createPartnerField("Ton/TEU", "tonPerTeu", carrierInputText(carrier.tonPerTeu, 4)));
-        head.appendChild(createPartnerAction("remove", "×", "remove-carrier", `删除 ${carrier.code || "Partner"}`));
-        row.appendChild(head);
-
-        const appendMetricRow = (leftLabel, leftField, leftValue, action, rightLabel, rightField, rightValue) => {
-          const metrics = document.createElement("div");
-          metrics.className = "partner-metrics";
-          metrics.appendChild(createPartnerField(leftLabel, leftField, leftValue));
-          if (action) {
-            metrics.appendChild(createPartnerAction(action, "=", "mini-sync", `同步 ${leftLabel} / ${rightLabel}`));
-          } else {
-            const spacer = document.createElement("div");
-            spacer.className = "metric-spacer";
-            metrics.appendChild(spacer);
-          }
-          metrics.appendChild(createPartnerField(rightLabel, rightField, rightValue));
-          row.appendChild(metrics);
-        };
-
-        appendMetricRow(
-          "WB TEU", "wbTeus", carrierInputText(carrier.wbTeus, 0),
-          "syncTeu",
-          "EB TEU", "ebTeus", carrierInputText(carrier.ebTeus, 0)
-        );
-        appendMetricRow(
-          "WB MT", "wbMt", carrierInputText(carrier.wbMt, 0),
-          "",
-          "EB MT", "ebMt", carrierInputText(carrier.ebMt, 0)
-        );
-        appendMetricRow(
-          "WB RF", "wbRf", carrierInputText(carrier.wbRf, 0),
-          "syncRf",
-          "EB RF", "ebRf", carrierInputText(carrier.ebRf, 0)
-        );
+        row.appendChild(createPartnerField("Partner", "code", carrier.code, "text"));
+        row.appendChild(createPartnerField("Ton/TEU", "tonPerTeu", carrierInputText(carrier.tonPerTeu, 4)));
+        row.appendChild(createPartnerField("WB TEU", "wbTeus", carrierInputText(carrier.wbTeus, 0)));
+        row.appendChild(createPartnerField("WB Weight", "wbMt", carrierInputText(carrier.wbMt, 0)));
+        row.appendChild(createPartnerField("WB RF", "wbRf", carrierInputText(carrier.wbRf, 0)));
+        row.appendChild(createPartnerAction("syncAll", "=", "mini-sync", "将 WB TEU、Weight、RF 全部同步到 EB"));
+        row.appendChild(createPartnerField("EB TEU", "ebTeus", carrierInputText(carrier.ebTeus, 0)));
+        row.appendChild(createPartnerField("EB Weight", "ebMt", carrierInputText(carrier.ebMt, 0)));
+        row.appendChild(createPartnerField("EB RF", "ebRf", carrierInputText(carrier.ebRf, 0)));
+        row.appendChild(createPartnerAction("remove", "×", "remove-carrier", `删除 ${carrier.code || "Partner"}`));
         body.appendChild(row);
       });
       syncLegacyInputsFromCarriers();
@@ -2731,6 +2752,17 @@
       const right = blankNumberToNull(rightInput.value);
       if (left !== null) writeCarrierNumber(rightInput, left, 0);
       else if (right !== null) writeCarrierNumber(leftInput, right, 0);
+    }
+
+    function syncCarrierToEb(row) {
+      [["wbTeus", "ebTeus"], ["wbMt", "ebMt"], ["wbRf", "ebRf"]].forEach(([wbField, ebField]) => {
+        const wbInput = row.querySelector(`[data-field="${wbField}"]`);
+        const ebInput = row.querySelector(`[data-field="${ebField}"]`);
+        if (!wbInput || !ebInput) return;
+        const value = blankNumberToNull(wbInput.value);
+        if (value === null) ebInput.value = "";
+        else writeCarrierNumber(ebInput, value, 0);
+      });
     }
 
     function tonPerTeuValue() {
@@ -4881,11 +4913,8 @@
       if (!button) return;
       const row = button.closest("[data-carrier-row]");
       if (!row) return;
-      if (button.dataset.action === "syncTeu") {
-        syncCarrierPair(row, "wbTeus", "ebTeus");
-        updateCarrierWeights(row);
-      } else if (button.dataset.action === "syncRf") {
-        syncCarrierPair(row, "wbRf", "ebRf");
+      if (button.dataset.action === "syncAll") {
+        syncCarrierToEb(row);
       } else if (button.dataset.action === "remove") {
         const carriers = readCarrierRows();
         const rows = [...$("carrierRows").querySelectorAll("[data-carrier-row]")];
