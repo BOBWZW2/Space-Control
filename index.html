@@ -3410,6 +3410,11 @@
       const ws = workbook.addWorksheet(sheetName, {
         views: [{ showGridLines: false, state: "frozen", ySplit: 5 }]
       });
+      if (/^WB(?:_|$)/i.test(sheetName)) {
+        ws.properties.tabColor = { argb: "FF5B9BD5" };
+      } else if (/^EB(?:_|$)/i.test(sheetName)) {
+        ws.properties.tabColor = { argb: "FFED7D31" };
+      }
       ws.properties.defaultColWidth = 9;
 
       const n = model.sheet.pods.length;
