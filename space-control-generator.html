@@ -1454,6 +1454,59 @@
       return `${mm}/${dd}`;
     }
 
+    function dateValueKey(value) {
+      const text = normalizeText(value);
+      if (!text || text.toUpperCase() === "SKIP") return "";
+      const parsed = parseDateValue(value);
+      if (!parsed) return text.toUpperCase();
+      const year = parsed.getFullYear();
+      const month = String(parsed.getMonth() + 1).padStart(2, "0");
+      const day = String(parsed.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    function podCallDate(pod) {
+      return pod?.eta || pod?.etd || pod?.etb || "";
+    }
+
+    function blockCallDate(block) {
+      return block?.etd || block?.eta || block?.etb || "";
+    }
+
+    function portOccurrenceCount(pods, port) {
+      const target = normalizePort(port);
+      return pods.filter((pod) => normalizePort(pod.port) === target).length;
+    }
+
+    function findPodIndexByCall(pods, target, options = {}) {
+      const targetPort = normalizePort(target?.port);
+      if (!targetPort) return -1;
+      const candidates = pods
+        .map((pod, index) => ({ pod, index }))
+        .filter(({ pod }) => normalizePort(pod.port) === targetPort);
+      if (!candidates.length) return -1;
+
+      const targetDate = dateValueKey(podCallDate(target));
+      if (targetDate) {
+        const exact = candidates.find(({ pod }) => dateValueKey(podCallDate(pod)) === targetDate);
+        if (exact) return exact.index;
+      }
+
+      const targetPortCount = options.targetPortCount ?? 1;
+      if (options.uniquePortFallback && candidates.length === 1 && targetPortCount === 1) {
+        return candidates[0].index;
+      }
+      return -1;
+    }
+
+    function findDischargePodIndex(pods, block) {
+      return findPodIndexByCall(
+        pods,
+        { port: block?.port, eta: blockCallDate(block) },
+        { uniquePortFallback: true }
+      );
+    }
+
     function formatGeneratedDate(date = new Date()) {
       const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       return `${String(date.getDate()).padStart(2, "0")}-${months[date.getMonth()]}-${date.getFullYear()}`;
@@ -2461,11 +2514,6 @@
     }
 
     function recalcRobMetrics(table, model) {
-      const podByName = new Map();
-      model.sheet.pods.forEach((pod, index) => {
-        if (!podByName.has(pod.port)) podByName.set(pod.port, index);
-      });
-
       const totalBlockIndex = model.blocks.length - 1;
       const allocation = model.sheet.allocation;
       let prevAll = 0;
@@ -2485,8 +2533,8 @@
         let dischargeRf = 0;
 
         if (b > 0) {
-          const podIndex = podByName.get(block.port);
-          if (podIndex !== undefined) {
+          const podIndex = findDischargePodIndex(model.sheet.pods, block);
+          if (podIndex >= 0) {
             for (let r = 0; r < 6; r += 1) {
               const cell = model.rows[totalBlockIndex][r].cells[podIndex];
               const teu = cell.left + cell.right * 2;
@@ -3268,10 +3316,6 @@
         });
       });
 
-      const podIndexByName = new Map();
-      model.sheet.pods.forEach((pod, index) => {
-        if (!podIndexByName.has(pod.port)) podIndexByName.set(pod.port, index);
-      });
       blockStarts.slice(0, totalBlockIndex).forEach((start, blockIndex) => {
         const loadAll = `SUM(${excelCell(summary.ttl, start)}:${excelCell(summary.ttl, start + 5)})`;
         const loadLd = `SUM(${excelCell(summary.ttl, start)}:${excelCell(summary.ttl, start + 4)})`;
@@ -3282,8 +3326,8 @@
         let dischargeWeight = "0";
         let dischargeRf = "0";
         if (blockIndex > 0) {
-          const podIndex = podIndexByName.get(model.blocks[blockIndex].port);
-          if (podIndex !== undefined) {
+          const podIndex = findDischargePodIndex(model.sheet.pods, model.blocks[blockIndex]);
+          if (podIndex >= 0) {
             const left = podLeftCols[podIndex];
             const right = podRightCols[podIndex];
             dischargeTeu = sumFormula(Array.from({ length: 6 }, (_, offset) => `${excelCell(left, totalStart + offset)}+${excelCell(right, totalStart + offset)}*2`));
@@ -3519,22 +3563,14 @@
       cell.numFmt = numFmt;
     }
 
-    function callMatchesPod(sourcePod, targetPod) {
-      if (!sourcePod || !targetPod) return false;
-      if (sourcePod.port !== targetPod.port) return false;
-      const sourceDate = normalizeText(sourcePod.eta);
-      const targetDate = normalizeText(targetPod.eta);
-      return !sourceDate || !targetDate || sourceDate === targetDate;
-    }
-
     function applyEbRobCarryover(wbMeta, ebMeta) {
       const wbPods = wbMeta?.model?.sheet?.pods || [];
       const ebPods = ebMeta?.model?.sheet?.pods || [];
       ebPods.forEach((ebPod, ebPodIndex) => {
-        let wbPodIndex = wbPods.findIndex((pod) => callMatchesPod(pod, ebPod));
-        if (wbPodIndex < 0) {
-          wbPodIndex = wbPods.findIndex((pod) => pod.port === ebPod.port);
-        }
+        const wbPodIndex = findPodIndexByCall(wbPods, ebPod, {
+          uniquePortFallback: true,
+          targetPortCount: portOccurrenceCount(ebPods, ebPod.port)
+        });
         if (wbPodIndex < 0) return;
 
         const ebLeft = ebMeta.podLeftCols[ebPodIndex];
