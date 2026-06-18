@@ -3432,14 +3432,21 @@
       const ws = workbook.addWorksheet(name, {
         views: [{ showGridLines: false, state: "frozen", ySplit: 5 }]
       });
+      if (options.tabColor) {
+        ws.properties.tabColor = { argb: options.tabColor };
+      }
       const lastCol = 3 + pods.length * 2;
       const copyLabels = cargoLabels.slice(0, 7);
       const finalRow = 5 + copyLabels.length;
-      const headerFill = "FF99CCFF";
+      const headerFill = options.headerFill || "FF99CCFF";
+      const noteFill = options.noteFill || "FFFFFFFF";
+      const blockFill = options.blockFill || noteFill;
       const whiteFill = "FFFFFFFF";
       const headerFont = { name: "Carlito", size: 11, bold: true, color: { argb: "FF000000" } };
       const headerStyle = { fill: headerFill, font: headerFont };
       const baseStyle = { fill: whiteFill, font: headerFont };
+      const noteStyle = { fill: noteFill, font: headerFont };
+      const blockStyle = { fill: blockFill, font: headerFont };
       const valueStyle = { fill: whiteFill };
 
       for (let col = 1; col <= lastCol; col += 1) {
@@ -3456,7 +3463,7 @@
       safeMerge(ws, 1, 1, 1, lastCol);
       safeMerge(ws, 2, 1, 2, lastCol);
       setCell(ws, 1, 1, options.title || name, headerStyle);
-      setCell(ws, 2, 1, options.note || "", baseStyle);
+      setCell(ws, 2, 1, options.note || "", noteStyle);
       safeMerge(ws, 3, 1, 3, 3);
       safeMerge(ws, 4, 1, 4, 3);
       safeMerge(ws, 5, 1, 5, 3);
@@ -3476,7 +3483,7 @@
       });
 
       safeMerge(ws, 6, 1, 11, 2);
-      setCell(ws, 6, 1, options.blockLabel || name, { ...baseStyle, alignment: { horizontal: "center", vertical: "middle" } });
+      setCell(ws, 6, 1, options.blockLabel || name, { ...blockStyle, alignment: { horizontal: "center", vertical: "middle" } });
 
       copyLabels.forEach((label, offset) => {
         const row = 6 + offset;
@@ -3536,7 +3543,11 @@
       return addRobTransferSheet(workbook, "ROB_INPUT", pods, {
         title: "ROB_INPUT - paste previous ROB_OUTPUT values here",
         note: "Paste previous workbook ROB_OUTPUT D6 through the Weight row into D6. WB ROB reads this sheet automatically.",
-        blockLabel: "WB ROB INPUT"
+        blockLabel: "WB ROB INPUT",
+        headerFill: "FFB6D7A8",
+        noteFill: "FFE2F0D9",
+        blockFill: "FFD9EAD3",
+        tabColor: "FF6AA84F"
       });
     }
 
@@ -3549,6 +3560,10 @@
         title: "ROB_OUTPUT - EB TOTAL to next cycle ROB_INPUT",
         note: "Copy D6 through the Weight row, then paste values to next workbook ROB_INPUT!D6. This copy area has no merged cells.",
         blockLabel: "EB TOTAL",
+        headerFill: "FFF9CB9C",
+        noteFill: "FFFCE4D6",
+        blockFill: "FFF4CCCC",
+        tabColor: "FFE69138",
         valueFormula: ({ offset, podIndex, side }) => {
           const ebLeft = ebMeta.podLeftCols[podIndex];
           const ebRight = ebMeta.podRightCols[podIndex];
