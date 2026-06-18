@@ -3036,6 +3036,11 @@
       return value || null;
     }
 
+    function robInputFormula(cellRef) {
+      const ref = `${excelSheetRef("ROB_INPUT")}!${cellRef}`;
+      return `IF(${ref}="","",${ref})`;
+    }
+
     function buildExcelSheet(workbook, input, sheetName) {
       const model = makeTableModel(input, sheetName);
       const ws = workbook.addWorksheet(sheetName, {
@@ -3197,7 +3202,12 @@
                   { ...computedStyle, numFmt: weightFmt }
                 );
               } else {
-                setCell(ws, row, left, entryNumberValue(sheetName, blockIndex, offset, podIndex, "weight"), { ...baseStyle, numFmt: weightFmt });
+                const manualWeight = entryNumberValue(sheetName, blockIndex, offset, podIndex, "weight");
+                if (sheetName === "WB" && block.type === "ROB" && manualWeight === null) {
+                  setFormulaCell(ws, row, left, robInputFormula(excelCell(left, row)), { ...baseStyle, numFmt: weightFmt });
+                } else {
+                  setCell(ws, row, left, manualWeight, { ...baseStyle, numFmt: weightFmt });
+                }
               }
               return;
             }
@@ -3220,8 +3230,18 @@
               setFormulaCell(ws, row, left, `SUM(${excelCell(left, start)}:${excelCell(left, start + 5)})`, { ...computedStyle, numFmt: countFmt });
               setFormulaCell(ws, row, right, `SUM(${excelCell(right, start)}:${excelCell(right, start + 5)})`, { ...computedStyle, numFmt: countFmt });
             } else {
-              setCell(ws, row, left, entryNumberValue(sheetName, blockIndex, offset, podIndex, "left"), { ...baseStyle, numFmt: countFmt });
-              setCell(ws, row, right, entryNumberValue(sheetName, blockIndex, offset, podIndex, "right"), { ...baseStyle, numFmt: countFmt });
+              const manualLeft = entryNumberValue(sheetName, blockIndex, offset, podIndex, "left");
+              const manualRight = entryNumberValue(sheetName, blockIndex, offset, podIndex, "right");
+              if (sheetName === "WB" && block.type === "ROB" && manualLeft === null) {
+                setFormulaCell(ws, row, left, robInputFormula(excelCell(left, row)), { ...baseStyle, numFmt: countFmt });
+              } else {
+                setCell(ws, row, left, manualLeft, { ...baseStyle, numFmt: countFmt });
+              }
+              if (sheetName === "WB" && block.type === "ROB" && manualRight === null) {
+                setFormulaCell(ws, row, right, robInputFormula(excelCell(right, row)), { ...baseStyle, numFmt: countFmt });
+              } else {
+                setCell(ws, row, right, manualRight, { ...baseStyle, numFmt: countFmt });
+              }
             }
           });
 
@@ -3356,22 +3376,17 @@
       };
     }
 
-    function addRobCopySheet(workbook, ebMeta) {
-      const pods = ebMeta?.model?.sheet?.pods || [];
+    function addRobTransferSheet(workbook, name, pods, options = {}) {
       if (!pods.length) return null;
-      const ws = workbook.addWorksheet("ROB_COPY", {
+      const ws = workbook.addWorksheet(name, {
         views: [{ showGridLines: false, state: "frozen", ySplit: 5 }]
       });
-      const sourceSheet = excelSheetRef(ebMeta.ws.name);
-      const totalStart = ebMeta.totalStart;
       const lastCol = 3 + pods.length * 2;
       const copyLabels = cargoLabels.slice(0, 7);
       const finalRow = 5 + copyLabels.length;
       const headerFill = "FF99CCFF";
       const whiteFill = "FFFFFFFF";
       const headerFont = { name: "Carlito", size: 11, bold: true, color: { argb: "FF000000" } };
-      const countFmt = '0;-0;;@';
-      const weightFmt = '0.0;-0.0;;@';
       const headerStyle = { fill: headerFill, font: headerFont };
       const baseStyle = { fill: whiteFill, font: headerFont };
       const valueStyle = { fill: whiteFill };
@@ -3389,8 +3404,8 @@
 
       safeMerge(ws, 1, 1, 1, lastCol);
       safeMerge(ws, 2, 1, 2, lastCol);
-      setCell(ws, 1, 1, "ROB COPY - EB TOTAL to next cycle WB ROB", headerStyle);
-      setCell(ws, 2, 1, "Copy D6 through the Weight row, then paste values to next workbook WB!D6. TTL is not copied.", baseStyle);
+      setCell(ws, 1, 1, options.title || name, headerStyle);
+      setCell(ws, 2, 1, options.note || "", baseStyle);
       safeMerge(ws, 3, 1, 3, 3);
       safeMerge(ws, 4, 1, 4, 3);
       safeMerge(ws, 5, 1, 5, 3);
@@ -3410,7 +3425,7 @@
       });
 
       safeMerge(ws, 6, 1, 11, 2);
-      setCell(ws, 6, 1, "EB TOTAL", { ...baseStyle, alignment: { horizontal: "center", vertical: "middle" } });
+      setCell(ws, 6, 1, options.blockLabel || name, { ...baseStyle, alignment: { horizontal: "center", vertical: "middle" } });
 
       copyLabels.forEach((label, offset) => {
         const row = 6 + offset;
@@ -3418,14 +3433,19 @@
         pods.forEach((_pod, podIndex) => {
           const left = 4 + podIndex * 2;
           const right = left + 1;
-          const ebLeft = ebMeta.podLeftCols[podIndex];
-          const ebRight = ebMeta.podRightCols[podIndex];
-          if (offset === 6) {
-            safeMerge(ws, row, left, row, right);
-            setFormulaCell(ws, row, left, `${sourceSheet}!${excelCell(ebLeft, totalStart + offset)}`, { ...valueStyle, numFmt: weightFmt });
+          const leftFormula = options.valueFormula?.({ left, right, row, offset, podIndex, side: "left" });
+          const rightFormula = options.valueFormula?.({ left, right, row, offset, podIndex, side: "right" });
+          if (leftFormula) {
+            setFormulaCell(ws, row, left, leftFormula, { ...valueStyle, numFmt: offset === 6 ? "0.0;-0.0;;@" : "0;-0;;@" });
           } else {
-            setFormulaCell(ws, row, left, `${sourceSheet}!${excelCell(ebLeft, totalStart + offset)}`, { ...valueStyle, numFmt: countFmt });
-            setFormulaCell(ws, row, right, `${sourceSheet}!${excelCell(ebRight, totalStart + offset)}`, { ...valueStyle, numFmt: countFmt });
+            setCell(ws, row, left, null, { ...valueStyle, numFmt: offset === 6 ? "0.0;-0.0;;@" : "0;-0;;@" });
+          }
+          if (offset === 6) {
+            setCell(ws, row, right, null, { ...valueStyle, numFmt: "0.0;-0.0;;@" });
+          } else if (rightFormula) {
+            setFormulaCell(ws, row, right, rightFormula, { ...valueStyle, numFmt: "0;-0;;@" });
+          } else {
+            setCell(ws, row, right, null, { ...valueStyle, numFmt: "0;-0;;@" });
           }
         });
       });
@@ -3458,6 +3478,33 @@
         }
       });
       return ws;
+    }
+
+    function addRobInputSheet(workbook, wbMeta) {
+      const pods = wbMeta?.model?.sheet?.pods || [];
+      return addRobTransferSheet(workbook, "ROB_INPUT", pods, {
+        title: "ROB INPUT - paste previous ROB_COPY values here",
+        note: "Paste previous workbook ROB_COPY D6 through the Weight row into D6. WB ROB reads this sheet automatically.",
+        blockLabel: "WB ROB INPUT"
+      });
+    }
+
+    function addRobCopySheet(workbook, ebMeta) {
+      const pods = ebMeta?.model?.sheet?.pods || [];
+      if (!pods.length) return null;
+      const sourceSheet = excelSheetRef(ebMeta.ws.name);
+      const totalStart = ebMeta.totalStart;
+      return addRobTransferSheet(workbook, "ROB_COPY", pods, {
+        title: "ROB COPY - EB TOTAL to next cycle ROB_INPUT",
+        note: "Copy D6 through the Weight row, then paste values to next workbook ROB_INPUT!D6. This copy area has no merged cells.",
+        blockLabel: "EB TOTAL",
+        valueFormula: ({ offset, podIndex, side }) => {
+          const ebLeft = ebMeta.podLeftCols[podIndex];
+          const ebRight = ebMeta.podRightCols[podIndex];
+          if (offset === 6) return side === "left" ? `${sourceSheet}!${excelCell(ebLeft, totalStart + offset)}` : "";
+          return `${sourceSheet}!${excelCell(side === "left" ? ebLeft : ebRight, totalStart + offset)}`;
+        }
+      });
     }
 
     function setFormulaOnly(cell, formula, numFmt = "0;-0;;@") {
@@ -3523,6 +3570,7 @@
       const wbMeta = buildExcelSheet(workbook, input, "WB");
       const ebMeta = buildExcelSheet(workbook, input, "EB");
       applyEbRobCarryover(wbMeta, ebMeta);
+      addRobInputSheet(workbook, wbMeta);
       addRobCopySheet(workbook, ebMeta);
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
