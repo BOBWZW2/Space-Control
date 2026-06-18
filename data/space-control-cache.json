@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-06-18T03:15:35.809Z",
+  "updatedAt": "2026-06-18T13:09:28.005Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -58,6 +58,63 @@
         "THLCH::2026-07-05 23:00:00",
         "SGSIN::2026-07-10 03:00:00",
         "MYPKG::2026-07-12 09:00:00"
+      ],
+      "selectedWbPodPorts": [
+        "THLCH",
+        "SGSIN",
+        "MYPKG"
+      ]
+    },
+    "ZGNJ2632WE": {
+      "vvd": "ZGNJ2632WE",
+      "lane": "HLX",
+      "vesselName": "ZHONG GU NAN JING",
+      "updatedAt": "2026-06-18T13:09:27.370Z",
+      "carriers": [
+        {
+          "code": "CUL",
+          "tonPerTeu": 14,
+          "wbTeus": 1000,
+          "wbMt": 14000,
+          "wbRf": 50,
+          "ebTeus": 1000,
+          "ebMt": 14000,
+          "ebRf": 50
+        },
+        {
+          "code": "XPF",
+          "tonPerTeu": 14,
+          "wbTeus": 200,
+          "wbMt": 2800,
+          "wbRf": 10,
+          "ebTeus": 200,
+          "ebMt": 2800,
+          "ebRf": 10
+        },
+        {
+          "code": "TSL",
+          "tonPerTeu": 14,
+          "wbTeus": 300,
+          "wbMt": 4200,
+          "wbRf": 15,
+          "ebTeus": 300,
+          "ebMt": 4200,
+          "ebRf": 15
+        }
+      ],
+      "allocation": {
+        "wbTeus": 1000,
+        "ebTeus": 1000,
+        "tonPerTeu": 14,
+        "wbMt": 14000,
+        "ebMt": 14000,
+        "wbRf": 50,
+        "ebRf": 50
+      },
+      "selectedWbPodKeys": [
+        "THLCH::2026-08-09 17:00:00",
+        "SGSIN::2026-08-13 21:00:00",
+        "MYPKG::2026-08-16 03:00:00"
       ],
       "selectedWbPodPorts": [
         "THLCH",
