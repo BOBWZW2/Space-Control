@@ -2745,6 +2745,13 @@
       return clean.length ? clean.join("+") : "0";
     }
 
+    function safeExcelFormula(formula) {
+      const raw = String(formula || "0").trim();
+      const body = raw.startsWith("=") ? raw.slice(1) : raw;
+      if (/^IFERROR\(/i.test(body)) return body;
+      return `IFERROR(${body},0)`;
+    }
+
     function nRef(cellRef) {
       return `N(${cellRef})`;
     }
@@ -3007,7 +3014,7 @@
 
     function setFormulaCell(ws, row, col, formula, style = {}) {
       const cell = ws.getCell(row, col);
-      cell.value = { formula, result: 0 };
+      cell.value = { formula: safeExcelFormula(formula), result: 0 };
       applyExcelStyle(cell, style);
       return cell;
     }
@@ -3038,7 +3045,7 @@
 
     function robInputFormula(cellRef) {
       const ref = `${excelSheetRef("ROB_INPUT")}!${cellRef}`;
-      return `IF(${ref}="","",${ref})`;
+      return `N(${ref})`;
     }
 
     function buildExcelSheet(workbook, input, sheetName) {
@@ -3483,19 +3490,19 @@
     function addRobInputSheet(workbook, wbMeta) {
       const pods = wbMeta?.model?.sheet?.pods || [];
       return addRobTransferSheet(workbook, "ROB_INPUT", pods, {
-        title: "ROB INPUT - paste previous ROB_COPY values here",
-        note: "Paste previous workbook ROB_COPY D6 through the Weight row into D6. WB ROB reads this sheet automatically.",
+        title: "ROB_INPUT - paste previous ROB_OUTPUT values here",
+        note: "Paste previous workbook ROB_OUTPUT D6 through the Weight row into D6. WB ROB reads this sheet automatically.",
         blockLabel: "WB ROB INPUT"
       });
     }
 
-    function addRobCopySheet(workbook, ebMeta) {
+    function addRobOutputSheet(workbook, ebMeta) {
       const pods = ebMeta?.model?.sheet?.pods || [];
       if (!pods.length) return null;
       const sourceSheet = excelSheetRef(ebMeta.ws.name);
       const totalStart = ebMeta.totalStart;
-      return addRobTransferSheet(workbook, "ROB_COPY", pods, {
-        title: "ROB COPY - EB TOTAL to next cycle ROB_INPUT",
+      return addRobTransferSheet(workbook, "ROB_OUTPUT", pods, {
+        title: "ROB_OUTPUT - EB TOTAL to next cycle ROB_INPUT",
         note: "Copy D6 through the Weight row, then paste values to next workbook ROB_INPUT!D6. This copy area has no merged cells.",
         blockLabel: "EB TOTAL",
         valueFormula: ({ offset, podIndex, side }) => {
@@ -3508,7 +3515,7 @@
     }
 
     function setFormulaOnly(cell, formula, numFmt = "0;-0;;@") {
-      cell.value = { formula, result: 0 };
+      cell.value = { formula: safeExcelFormula(formula), result: 0 };
       cell.numFmt = numFmt;
     }
 
@@ -3571,7 +3578,7 @@
       const ebMeta = buildExcelSheet(workbook, input, "EB");
       applyEbRobCarryover(wbMeta, ebMeta);
       addRobInputSheet(workbook, wbMeta);
-      addRobCopySheet(workbook, ebMeta);
+      addRobOutputSheet(workbook, ebMeta);
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
