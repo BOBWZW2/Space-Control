@@ -195,8 +195,11 @@
     }
 
     .history-delete {
-      min-width: 42px;
-      padding: 0 8px;
+      min-width: 28px;
+      min-height: 28px;
+      padding: 0;
+      font-size: 18px;
+      line-height: 1;
     }
 
     .section {
@@ -1191,7 +1194,7 @@
           seen.add(key);
           compact.push(item);
         });
-      saveStorageJson(LOCAL_HISTORY_KEY, compact.slice(0, 80));
+      saveStorageJson(LOCAL_HISTORY_KEY, compact.slice(0, 10));
       renderHistory();
     }
 
@@ -1199,20 +1202,14 @@
       const key = historyKey(record);
       const remaining = getLocalHistory().filter((item) => historyKey(item) !== key);
       saveStorageJson(LOCAL_HISTORY_KEY, remaining);
-      clearLocalDraft(record?.vvd);
     }
 
     function clearLocalHistoryRecords() {
       saveStorageJson(LOCAL_HISTORY_KEY, []);
-      saveStorageJson(LOCAL_DRAFTS_KEY, {});
-    }
-
-    function sharedHistoryRecords() {
-      return Object.values(state.sharedCache?.records || {}).map((record) => normalizeHistoryRecord(record, "synced"));
     }
 
     function combinedHistoryRecords() {
-      const records = [...getLocalHistory(), ...sharedHistoryRecords()];
+      const records = getLocalHistory();
       const byKey = new Map();
       records.forEach((record) => {
         const normalized = normalizeHistoryRecord(record, record.source || "local");
@@ -1221,7 +1218,7 @@
         const existing = byKey.get(key);
         if (!existing || recordTime(normalized) > recordTime(existing)) byKey.set(key, normalized);
       });
-      return [...byKey.values()].sort((a, b) => recordTime(b) - recordTime(a));
+      return [...byKey.values()].sort((a, b) => recordTime(b) - recordTime(a)).slice(0, 10);
     }
 
     function historyDisplay(record) {
@@ -1242,14 +1239,14 @@
       if (!list || !options) return;
       const query = $("historySearch")?.value || "";
       const records = combinedHistoryRecords();
-      options.replaceChildren(...records.slice(0, 80).map((record) => {
+      options.replaceChildren(...records.map((record) => {
         const option = document.createElement("option");
         option.value = historyDisplay(record);
         option.label = record.updatedAt ? new Date(record.updatedAt).toLocaleString() : "";
         return option;
       }));
 
-      const visible = records.filter((record) => historyMatches(record, query)).slice(0, 8);
+      const visible = records.filter((record) => historyMatches(record, query));
       list.replaceChildren();
       if (!visible.length) {
         const empty = document.createElement("div");
@@ -1268,14 +1265,15 @@
         title.textContent = `${record.vvd} · ${record.lane || "-"}`;
         const meta = document.createElement("span");
         const dateText = record.updatedAt ? new Date(record.updatedAt).toLocaleString() : "";
-        meta.textContent = `${record.vesselName || "-"}${dateText ? ` · ${dateText}` : ""}`;
+        const actionText = record.source === "exported" ? "已导出" : "已查询";
+        meta.textContent = `${record.vesselName || "-"} · ${actionText}${dateText ? ` · ${dateText}` : ""}`;
         button.appendChild(title);
         button.appendChild(meta);
         button.addEventListener("click", () => loadHistoryRecord(record));
         const deleteButton = document.createElement("button");
         deleteButton.type = "button";
         deleteButton.className = "history-delete";
-        deleteButton.textContent = "删除";
+        deleteButton.textContent = "×";
         deleteButton.title = `删除 ${record.vvd}`;
         deleteButton.addEventListener("click", () => deleteHistoryRecord(record));
         row.appendChild(button);
@@ -1534,79 +1532,26 @@
       });
     }
 
-    function useTypedGithubToken() {
-      const typedToken = $("githubToken").value.trim();
-      if (typedToken) setGithubToken(typedToken);
-      return getGithubToken();
-    }
-
-    function setHistoryBusy(disabled) {
-      document.querySelectorAll(".history-delete, #clearHistory").forEach((button) => {
-        button.disabled = disabled;
-      });
-    }
-
-    async function deleteHistoryRecord(record) {
+    function deleteHistoryRecord(record) {
       const vvd = cleanVvd(record?.vvd);
       if (!vvd) return;
-      if (!window.confirm(`删除 ${vvd} 的历史记录？已同步的输入数据也会同时删除。`)) return;
-      const shared = await loadSharedCache();
-      const hasSharedRecord = Boolean(shared.records[vvd]);
-      const token = useTypedGithubToken();
-      if (hasSharedRecord && !token) {
-        $("status").textContent = "该记录已同步，请先填写 GitHub Token 后再删除";
-        return;
-      }
-      setHistoryBusy(true);
-      try {
-        if (hasSharedRecord) {
-          await updateGithubCache(token, `Delete space control cache ${vvd}`, (cache) => {
-            delete cache.records[vvd];
-          });
-        }
-        removeLocalHistoryRecord(record);
-        if (historyMatches(record, $("historySearch").value)) $("historySearch").value = "";
-        renderHistory();
-        $("status").textContent = `已删除 ${vvd} 的历史记录`;
-      } catch (error) {
-        console.error(error);
-        $("status").textContent = `删除失败：${error.message || error}`;
-      } finally {
-        setHistoryBusy(false);
-      }
+      removeLocalHistoryRecord(record);
+      if (historyMatches(record, $("historySearch").value)) $("historySearch").value = "";
+      renderHistory();
+      $("status").textContent = `已从本机历史删除 ${vvd}`;
     }
 
-    async function clearAllHistoryRecords() {
-      const shared = await loadSharedCache();
+    function clearAllHistoryRecords() {
       const records = combinedHistoryRecords();
       if (!records.length) {
         $("status").textContent = "暂无历史记录";
         return;
       }
-      if (!window.confirm("清空全部历史记录？所有已同步输入数据也会从 GitHub 删除，且无法恢复。")) return;
-      const hasSharedRecords = Object.keys(shared.records).length > 0;
-      const token = useTypedGithubToken();
-      if (hasSharedRecords && !token) {
-        $("status").textContent = "存在已同步记录，请先填写 GitHub Token 后再清空";
-        return;
-      }
-      setHistoryBusy(true);
-      try {
-        if (hasSharedRecords) {
-          await updateGithubCache(token, "Clear space control cache history", (cache) => {
-            cache.records = {};
-          });
-        }
-        clearLocalHistoryRecords();
-        $("historySearch").value = "";
-        renderHistory();
-        $("status").textContent = "历史记录已清空";
-      } catch (error) {
-        console.error(error);
-        $("status").textContent = `清空失败：${error.message || error}`;
-      } finally {
-        setHistoryBusy(false);
-      }
+      if (!window.confirm("清空当前浏览器的全部历史记录？")) return;
+      clearLocalHistoryRecords();
+      $("historySearch").value = "";
+      renderHistory();
+      $("status").textContent = "本机历史记录已清空";
     }
 
     async function saveAndSyncCurrentVvd() {
@@ -1620,7 +1565,6 @@
         return;
       }
       saveLocalDraftRecord(record);
-      saveHistoryRecord(record, "draft");
       const typedToken = $("githubToken").value.trim();
       if (typedToken) setGithubToken(typedToken);
       const token = getGithubToken();
@@ -1634,7 +1578,6 @@
         await pushRecordToGithub(record, token);
         clearLocalDraft(record.vvd);
         await loadSharedCache(true);
-        saveHistoryRecord(record, "synced");
         $("status").textContent = `已保存并同步 ${record.vvd}`;
       } catch (error) {
         console.error(error);
@@ -4477,6 +4420,12 @@
         link.click();
         link.remove();
         URL.revokeObjectURL(link.href);
+        saveHistoryRecord({
+          vvd: input.vvd,
+          lane: input.serviceLane,
+          vesselName: input.vesselName,
+          updatedAt: new Date().toISOString()
+        }, "exported");
         exported = true;
         setExportProgress(100, "Excel 已导出", true);
         $("status").textContent = "Excel 已导出";
