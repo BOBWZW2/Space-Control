@@ -40,7 +40,7 @@
     .app {
       min-height: 100vh;
       display: grid;
-      grid-template-columns: minmax(330px, 420px) minmax(0, 1fr);
+      grid-template-columns: minmax(360px, 440px) minmax(0, 1fr);
     }
 
     .sidebar {
@@ -148,9 +148,31 @@
 
     .history-tools {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-columns: minmax(0, 1fr) auto;
       gap: 8px;
       align-items: end;
+    }
+
+    .history-panel {
+      padding-top: 0;
+    }
+
+    .history-panel summary {
+      cursor: pointer;
+      padding: 14px 0;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .history-panel[open] summary {
+      padding-bottom: 10px;
+    }
+
+    .history-count {
+      margin-left: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 400;
     }
 
     .history-list {
@@ -200,6 +222,19 @@
       padding: 0;
       font-size: 18px;
       line-height: 1;
+    }
+
+    .schedule-input-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 0.7fr) minmax(0, 1fr);
+      gap: 10px;
+    }
+
+    .schedule-inline {
+      margin-top: 10px;
+      padding: 9px 10px;
+      border-left: 3px solid var(--blue-dark);
+      background: #f8fafc;
     }
 
     .section {
@@ -333,64 +368,79 @@
       padding: 0;
     }
 
-    .carrier-tools {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-      margin-bottom: 8px;
+    .carrier-table-wrap {
+      overflow: visible;
     }
 
-    .carrier-table-wrap {
-      overflow-x: auto;
+    .partner-editor {
+      display: grid;
+      gap: 10px;
+    }
+
+    .partner-row {
       border: 1px solid var(--line);
       border-radius: 6px;
+      padding: 10px;
       background: #ffffff;
     }
 
-    table.carrier-table {
-      width: 100%;
-      min-width: 760px;
-      border-collapse: collapse;
-      table-layout: fixed;
-      font-size: 12px;
+    .partner-row-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 112px 28px;
+      gap: 8px;
+      align-items: end;
+      margin-bottom: 9px;
     }
 
-    .carrier-table th,
-    .carrier-table td {
-      border: 1px solid var(--line);
-      padding: 5px;
-      text-align: center;
-      vertical-align: middle;
+    .partner-metrics {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 32px minmax(0, 1fr);
+      gap: 8px;
+      align-items: end;
     }
 
-    .carrier-table th {
-      background: #e8f3fb;
+    .partner-metrics + .partner-metrics {
+      margin-top: 7px;
+    }
+
+    .partner-field {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .partner-field span {
+      color: var(--muted);
+      font-size: 10px;
       font-weight: 700;
-      color: #111827;
+      line-height: 1.1;
     }
 
-    .carrier-table input {
+    .partner-field input {
       min-height: 30px;
       padding: 5px 6px;
       border-radius: 4px;
       font-size: 12px;
-      text-align: center;
     }
 
-    .carrier-table input[data-field="code"] {
+    .partner-field input[data-field="code"] {
       font-weight: 700;
       text-transform: uppercase;
     }
 
-    .carrier-table .mini-sync {
-      min-width: 26px;
-      min-height: 28px;
+    .partner-row .mini-sync {
+      min-width: 32px;
+      min-height: 30px;
       padding: 0;
       font-size: 13px;
       font-weight: 700;
     }
 
-    .carrier-table .remove-carrier {
+    .partner-row .metric-spacer {
+      min-height: 30px;
+    }
+
+    .partner-row .remove-carrier {
       min-width: 28px;
       min-height: 28px;
       padding: 0;
@@ -474,7 +524,7 @@
     }
 
     .schedule-view {
-      min-width: 880px;
+      min-width: 760px;
       padding: 16px;
       background: #ffffff;
     }
@@ -502,9 +552,46 @@
 
     .allocation-strip {
       display: grid;
-      grid-template-columns: repeat(7, minmax(76px, 1fr));
+      grid-template-columns: repeat(6, minmax(76px, 1fr));
       gap: 8px;
       margin-bottom: 14px;
+    }
+
+    .preview-section-title {
+      margin: 14px 0 7px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    table.partner-summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      margin-bottom: 14px;
+      font-size: 12px;
+    }
+
+    .partner-summary-table th,
+    .partner-summary-table td {
+      border: 1px solid var(--line);
+      padding: 7px 8px;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .partner-summary-table th {
+      background: #eef4f8;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .partner-summary-table th:first-child,
+    .partner-summary-table td:first-child {
+      width: 110px;
+      text-align: left;
+      font-weight: 700;
     }
 
     .metric-box {
@@ -764,6 +851,20 @@
       .toolbar {
         justify-content: flex-start;
       }
+
+      .schedule-view {
+        min-width: 720px;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .schedule-input-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .partner-row-head {
+        grid-template-columns: minmax(0, 1fr) 96px 28px;
+      }
     }
 
     @media print {
@@ -801,100 +902,45 @@
           <h2>生成条件</h2>
           <button id="clearInputs" class="small-button" type="button">清除</button>
         </div>
-        <div class="grid">
-          <div class="field wide">
+        <div class="schedule-input-grid">
+          <div class="field">
             <label for="serviceLane">LANE</label>
             <input id="serviceLane" list="laneOptions" value="">
             <datalist id="laneOptions"></datalist>
           </div>
-          <div class="field wide">
+          <div class="field">
             <label for="vvd">VVD</label>
             <input id="vvd" list="vvdOptions" value="">
             <datalist id="vvdOptions"></datalist>
           </div>
-          <div class="field wide">
-            <div class="section-heading" style="margin-bottom:8px">
-              <h2>主体 / BSA</h2>
-              <button id="addCarrier" class="small-button" type="button">新增主体</button>
-            </div>
-            <div class="carrier-table-wrap">
-              <table class="carrier-table">
-                <thead>
-                  <tr>
-                    <th>主体</th>
-                    <th>WB TEU</th>
-                    <th>=</th>
-                    <th>EB TEU</th>
-                    <th>Ton/TEU</th>
-                    <th>WB MT</th>
-                    <th>EB MT</th>
-                    <th>WB RF</th>
-                    <th>=</th>
-                    <th>EB RF</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody id="carrierRows"></tbody>
-              </table>
-            </div>
-          </div>
-          <div class="pair-row hidden">
-            <div class="field">
-              <label for="wbTeus">WB TEU</label>
-              <input id="wbTeus" type="number" min="0" step="1" value="">
-            </div>
-            <button id="syncTeus" class="sync-button" type="button" title="同步 WB / EB TEU">=</button>
-            <div class="field">
-              <label for="ebTeus">EB TEU</label>
-              <input id="ebTeus" type="number" min="0" step="1" value="">
-            </div>
-          </div>
-          <div class="field wide hidden">
-            <label for="tonPerTeu">Ton/Teu</label>
-            <input id="tonPerTeu" type="number" min="0" step="0.01" value="14">
-          </div>
-          <div class="field hidden">
-            <label for="wbMt">WB BSA Weight (MT)</label>
-            <input id="wbMt" type="number" min="0" step="1" value="">
-          </div>
-          <div class="field hidden">
-            <label for="ebMt">EB BSA Weight (MT)</label>
-            <input id="ebMt" type="number" min="0" step="1" value="">
-          </div>
-          <div class="pair-row hidden">
-            <div class="field">
-              <label for="wbRf">WB RF Plug</label>
-              <input id="wbRf" type="number" min="0" step="1" value="">
-            </div>
-            <button id="syncRf" class="sync-button" type="button" title="同步 WB / EB RF Plug">=</button>
-            <div class="field">
-              <label for="ebRf">EB RF Plug</label>
-              <input id="ebRf" type="number" min="0" step="1" value="">
-            </div>
-          </div>
         </div>
         <div class="subtle" id="scheduleNote" style="margin-top:10px">
-          船期来源：GitHub schedule_latest.xlsx。生成时会按 VVD 自动匹配 WB/EB 港序和时间。
+          船期来源：GitHub schedule_latest.xlsx
         </div>
+        <div class="subtle schedule-inline" id="scheduleSummary">尚未读取船期</div>
       </div>
 
-      <div class="section">
-        <h2>当前船期</h2>
-        <div class="subtle" id="scheduleSummary">尚未读取船期</div>
-      </div>
-
-      <div class="section">
-        <h2>历史记录</h2>
+      <details class="section history-panel" id="historyPanel">
+        <summary>历史记录 <span class="history-count" id="historyCount">0</span></summary>
         <div class="history-tools">
           <div class="field">
             <label for="historySearch">VVD / LANE / 船名</label>
             <input id="historySearch" list="historyOptions" value="">
             <datalist id="historyOptions"></datalist>
           </div>
-          <button id="loadHistory" type="button">载入</button>
-          <button id="clearHistory" type="button" class="history-clear">清空</button>
+          <button id="historyAction" type="button" class="history-clear">清空历史</button>
         </div>
         <div class="history-list" id="historyList"></div>
+      </details>
+
+      <div class="section">
+        <div class="section-heading">
+          <h2>Partner / BSA</h2>
+          <button id="addCarrier" class="small-button" type="button">新增 Partner</button>
+        </div>
+        <div class="carrier-table-wrap">
+          <div class="partner-editor" id="carrierRows"></div>
+        </div>
       </div>
 
       <div class="section">
@@ -908,9 +954,8 @@
         <div class="action-grid">
           <button id="exportXls" type="button" class="primary wide-action export-button">导出 Excel</button>
           <button id="saveSync" type="button" class="wide-action sync-save">保存并同步</button>
-          <button id="generate" type="button">刷新船期</button>
+          <button id="generate" type="button">刷新 GitHub 船期</button>
           <button id="copyTable" type="button">复制预览</button>
-          <button id="printPage" type="button">打印</button>
           <span class="status wide-action" id="status">Ready</span>
         </div>
         <div class="export-progress hidden" id="exportProgressWrap" role="status" aria-live="polite">
@@ -933,6 +978,15 @@
         <input id="vesselName" value="">
         <input id="selection" value="">
         <input id="copyAlloc" value="跟随 WB" disabled>
+        <input id="wbTeus" type="number" value="">
+        <input id="ebTeus" type="number" value="">
+        <input id="tonPerTeu" type="number" value="14">
+        <input id="wbMt" type="number" value="">
+        <input id="ebMt" type="number" value="">
+        <input id="wbRf" type="number" value="">
+        <input id="ebRf" type="number" value="">
+        <button id="syncTeus" type="button"></button>
+        <button id="syncRf" type="button"></button>
         <textarea id="bulkText"></textarea>
         <textarea id="wbPods"></textarea>
         <textarea id="wbPols"></textarea>
@@ -956,7 +1010,6 @@
           </div>
           <button id="copyTable" type="button">复制表格</button>
           <button id="exportXls" type="button">导出 Excel</button>
-          <button id="printPage" type="button">打印</button>
           <button id="generate" type="button" class="primary">生成</button>
           <span class="status" id="status">Ready</span>
         </div>
@@ -1233,12 +1286,24 @@
       return [record.vvd, record.lane, record.vesselName].some((value) => normalizeText(value).toUpperCase().includes(q));
     }
 
+    function updateHistoryActionButton(recordCount = combinedHistoryRecords().length) {
+      const button = $("historyAction");
+      if (!button) return;
+      const hasQuery = Boolean(normalizeText($("historySearch")?.value));
+      button.textContent = hasQuery ? "清除" : "清空历史";
+      button.title = hasQuery ? "清除搜索内容" : "清空当前浏览器历史";
+      button.classList.toggle("history-clear", !hasQuery);
+      button.disabled = !hasQuery && recordCount === 0;
+    }
+
     function renderHistory() {
       const list = $("historyList");
       const options = $("historyOptions");
       if (!list || !options) return;
       const query = $("historySearch")?.value || "";
       const records = combinedHistoryRecords();
+      if ($("historyCount")) $("historyCount").textContent = String(records.length);
+      updateHistoryActionButton(records.length);
       options.replaceChildren(...records.map((record) => {
         const option = document.createElement("option");
         option.value = historyDisplay(record);
@@ -1282,15 +1347,7 @@
       });
     }
 
-    function selectedHistoryRecord() {
-      const query = $("historySearch").value;
-      const records = combinedHistoryRecords();
-      const exact = records.find((record) => historyDisplay(record) === query);
-      if (exact) return exact;
-      return records.find((record) => historyMatches(record, query)) || null;
-    }
-
-    function loadHistoryRecord(record = selectedHistoryRecord()) {
+    function loadHistoryRecord(record) {
       if (!record) {
         $("status").textContent = "没有可载入的历史记录";
         return;
@@ -1298,6 +1355,7 @@
       $("vvd").value = record.vvd;
       $("serviceLane").value = record.lane || "";
       $("historySearch").value = historyDisplay(record);
+      renderHistory();
       generateFromSchedule();
     }
 
@@ -1554,6 +1612,16 @@
       $("status").textContent = "本机历史记录已清空";
     }
 
+    function handleHistoryAction() {
+      if (normalizeText($("historySearch").value)) {
+        $("historySearch").value = "";
+        renderHistory();
+        $("status").textContent = "历史搜索已清除";
+        return;
+      }
+      clearAllHistoryRecords();
+    }
+
     async function saveAndSyncCurrentVvd() {
       if (!state.currentLookup) {
         await generateFromSchedule();
@@ -1705,7 +1773,18 @@
       return `${String(date.getDate()).padStart(2, "0")}-${months[date.getMonth()]}-${date.getFullYear()}`;
     }
 
-    async function loadScheduleRows() {
+    async function loadScheduleRows(force = false) {
+      if (force) {
+        if (state.scheduleRowsPromise) {
+          try {
+            await state.scheduleRowsPromise;
+          } catch {
+            // The forced refresh below will retry the download.
+          }
+        }
+        state.scheduleRows = null;
+        state.scheduleRowsPromise = null;
+      }
       if (state.scheduleRows) return state.scheduleRows;
       if (state.scheduleRowsPromise) return state.scheduleRowsPromise;
       if (!window.XLSX) {
@@ -1993,8 +2072,8 @@
       return { code, name: mapping[code] || code };
     }
 
-    async function lookupSchedule(vvd, laneInput = "") {
-      const [rows, mapping] = await Promise.all([loadScheduleRows(), loadVesselMapping()]);
+    async function lookupSchedule(vvd, laneInput = "", forceSchedule = false) {
+      const [rows, mapping] = await Promise.all([loadScheduleRows(forceSchedule), loadVesselMapping()]);
       const current = currentDirectionVvds(vvd);
       const vvds = [current.w, current.e].filter(Boolean);
       const lane = resolveLane(rows, vvds, laneInput);
@@ -2116,7 +2195,7 @@
         `EB ${lookup.currentEVvd || "-"} (${lookup.ebCalls.length} calls)`;
     }
 
-    async function generateFromSchedule() {
+    async function generateFromSchedule(options = {}) {
       const vvd = cleanVvd($("vvd").value);
       if (!vvd) {
         $("status").textContent = "请输入 VVD";
@@ -2125,10 +2204,11 @@
       const lane = normalizeLane($("serviceLane").value);
       $("vvd").value = vvd;
       $("serviceLane").value = lane;
-      $("status").textContent = "正在读取 GitHub 船期...";
+      const forceSchedule = options?.forceSchedule === true;
+      $("status").textContent = forceSchedule ? "正在重新下载 GitHub 船期..." : "正在读取船期...";
       $("generate").disabled = true;
       try {
-        const lookup = await lookupSchedule(vvd, lane);
+        const lookup = await lookupSchedule(vvd, lane, forceSchedule);
         applyLookup(lookup);
         const cacheMessage = await applySavedRecordForVvd(lookup.inputVvd);
         render();
@@ -2139,8 +2219,8 @@
           updatedAt: new Date().toISOString()
         }, "generated");
         $("status").textContent = cacheMessage
-          ? `船期已刷新 · ${lookup.lane} · ${cacheMessage}`
-          : `船期已刷新 · ${lookup.lane}`;
+          ? `${forceSchedule ? "GitHub 船期已更新" : "船期已读取"} · ${lookup.lane} · ${cacheMessage}`
+          : `${forceSchedule ? "GitHub 船期已更新" : "船期已读取"} · ${lookup.lane}`;
       } catch (error) {
         console.error(error);
         $("status").textContent = "船期读取失败";
@@ -2282,7 +2362,7 @@
     }
 
     function readCarrierRows() {
-      const rows = [...($("carrierRows")?.querySelectorAll("tr[data-carrier-row]") || [])];
+      const rows = [...($("carrierRows")?.querySelectorAll("[data-carrier-row]") || [])];
       const carriers = rows.map((row, index) => {
         const value = (field) => row.querySelector(`[data-field="${field}"]`)?.value;
         return normalizeCarrier({
@@ -2343,41 +2423,70 @@
       return input;
     }
 
+    function createPartnerField(label, field, value, type = "number") {
+      const wrapper = document.createElement("label");
+      wrapper.className = "partner-field";
+      appendText(wrapper, "span", label);
+      wrapper.appendChild(createCarrierInput(field, value, type));
+      return wrapper;
+    }
+
+    function createPartnerAction(action, text, className, title) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = text;
+      button.dataset.action = action;
+      button.className = className;
+      button.title = title;
+      return button;
+    }
+
     function renderCarrierRows(carriers = [defaultCarrier()]) {
       const body = $("carrierRows");
       if (!body) return;
       const normalized = uniqueCarriers(carriers.length ? carriers : [defaultCarrier()]);
       body.replaceChildren();
       normalized.forEach((carrier) => {
-        const row = document.createElement("tr");
+        const row = document.createElement("div");
+        row.className = "partner-row";
         row.dataset.carrierRow = "1";
-        const fields = [
-          ["code", carrier.code, "text"],
-          ["wbTeus", carrierInputText(carrier.wbTeus, 0), "number"],
-          ["syncTeu", "=", "button"],
-          ["ebTeus", carrierInputText(carrier.ebTeus, 0), "number"],
-          ["tonPerTeu", carrierInputText(carrier.tonPerTeu, 4), "number"],
-          ["wbMt", carrierInputText(carrier.wbMt, 0), "number"],
-          ["ebMt", carrierInputText(carrier.ebMt, 0), "number"],
-          ["wbRf", carrierInputText(carrier.wbRf, 0), "number"],
-          ["syncRf", "=", "button"],
-          ["ebRf", carrierInputText(carrier.ebRf, 0), "number"],
-          ["remove", "×", "button"]
-        ];
-        fields.forEach(([field, value, type]) => {
-          const cell = document.createElement("td");
-          if (type === "button") {
-            const button = document.createElement("button");
-            button.type = "button";
-            button.textContent = value;
-            button.dataset.action = field;
-            button.className = field === "remove" ? "remove-carrier" : "mini-sync";
-            cell.appendChild(button);
+        const head = document.createElement("div");
+        head.className = "partner-row-head";
+        head.appendChild(createPartnerField("Partner", "code", carrier.code, "text"));
+        head.appendChild(createPartnerField("Ton/TEU", "tonPerTeu", carrierInputText(carrier.tonPerTeu, 4)));
+        head.appendChild(createPartnerAction("remove", "×", "remove-carrier", `删除 ${carrier.code || "Partner"}`));
+        row.appendChild(head);
+
+        const appendMetricRow = (leftLabel, leftField, leftValue, action, rightLabel, rightField, rightValue) => {
+          const metrics = document.createElement("div");
+          metrics.className = "partner-metrics";
+          metrics.appendChild(createPartnerField(leftLabel, leftField, leftValue));
+          if (action) {
+            metrics.appendChild(createPartnerAction(action, "=", "mini-sync", `同步 ${leftLabel} / ${rightLabel}`));
           } else {
-            cell.appendChild(createCarrierInput(field, value, type));
+            const spacer = document.createElement("div");
+            spacer.className = "metric-spacer";
+            metrics.appendChild(spacer);
           }
-          row.appendChild(cell);
-        });
+          metrics.appendChild(createPartnerField(rightLabel, rightField, rightValue));
+          row.appendChild(metrics);
+        };
+
+        appendMetricRow(
+          "WB TEU", "wbTeus", carrierInputText(carrier.wbTeus, 0),
+          "syncTeu",
+          "EB TEU", "ebTeus", carrierInputText(carrier.ebTeus, 0)
+        );
+        appendMetricRow(
+          "WB MT", "wbMt", carrierInputText(carrier.wbMt, 0),
+          "",
+          "EB MT", "ebMt", carrierInputText(carrier.ebMt, 0)
+        );
+        appendMetricRow(
+          "WB RF", "wbRf", carrierInputText(carrier.wbRf, 0),
+          "syncRf",
+          "EB RF", "ebRf", carrierInputText(carrier.ebRf, 0)
+        );
         body.appendChild(row);
       });
       syncLegacyInputsFromCarriers();
@@ -3022,6 +3131,29 @@
       appendText(box, "div", previewNumber(value, decimals), "metric-value");
     }
 
+    function addPartnerSummary(parent, carriers) {
+      appendText(parent, "div", `Partner BSA (${carriers.length})`, "preview-section-title");
+      const table = document.createElement("table");
+      table.className = "partner-summary-table";
+      const header = table.createTHead().insertRow();
+      ["Partner", "WB TEU", "EB TEU", "Ton/TEU", "WB MT", "EB MT", "WB RF", "EB RF"].forEach((text) => {
+        appendText(header, "th", text);
+      });
+      const body = table.createTBody();
+      carriers.forEach((carrier) => {
+        const row = body.insertRow();
+        appendText(row, "td", carrier.code || "-");
+        appendText(row, "td", previewNumber(carrier.wbTeus));
+        appendText(row, "td", previewNumber(carrier.ebTeus));
+        appendText(row, "td", previewNumber(carrier.tonPerTeu, 2));
+        appendText(row, "td", previewNumber(carrier.wbMt));
+        appendText(row, "td", previewNumber(carrier.ebMt));
+        appendText(row, "td", previewNumber(carrier.wbRf));
+        appendText(row, "td", previewNumber(carrier.ebRf));
+      });
+      parent.appendChild(table);
+    }
+
     function routeLabelFor(direction) {
       const lookup = state.currentLookup;
       if (!lookup) return direction;
@@ -3067,7 +3199,7 @@
         `Lane ${input.serviceLane || "-"} · Report ${input.reportDate || "-"}`,
         "schedule-meta"
       );
-      appendText(head, "div", `Ton/Teu ${previewNumber(input.tonPerTeu, 2)}`, "status");
+      appendText(head, "div", `${input.carriers.length} Partner${input.carriers.length === 1 ? "" : "s"}`, "status");
 
       const metrics = appendText(wrap, "div", "", "allocation-strip");
       addMetricBox(metrics, "WB TEU", input.WB.allocation.teus);
@@ -3076,7 +3208,9 @@
       addMetricBox(metrics, "EB MT", input.EB.allocation.mt);
       addMetricBox(metrics, "WB RF", input.WB.allocation.rf);
       addMetricBox(metrics, "EB RF", input.EB.allocation.rf);
-      addMetricBox(metrics, "Ton/Teu", input.tonPerTeu, 2);
+
+      addPartnerSummary(wrap, input.carriers);
+      appendText(wrap, "div", "Port Rotation", "preview-section-title");
 
       const table = document.createElement("table");
       table.className = "schedule-table";
@@ -4486,7 +4620,7 @@
     document.querySelector(".topbar .toolbar")?.remove();
     updateTokenUi();
 
-    $("generate").addEventListener("click", generateFromSchedule);
+    $("generate").addEventListener("click", () => generateFromSchedule({ forceSchedule: true }));
     $("clearInputs").addEventListener("click", clearCurrentInputs);
     $("loadSample").addEventListener("click", () => {
       setSample();
@@ -4501,8 +4635,6 @@
       setGithubToken("");
       $("status").textContent = "GitHub Token 已清除";
     });
-    $("printPage").addEventListener("click", () => window.print());
-
     document.querySelectorAll(".tab").forEach((button) => {
       button.addEventListener("click", () => {
         state.activeSheet = button.dataset.sheet;
@@ -4536,7 +4668,7 @@
     $("carrierRows").addEventListener("input", (event) => {
       const input = event.target.closest("input[data-field]");
       if (!input) return;
-      const row = input.closest("tr[data-carrier-row]");
+      const row = input.closest("[data-carrier-row]");
       if (!row) return;
       const field = input.dataset.field;
       if (field === "code") input.value = carrierCode(input.value, "");
@@ -4549,7 +4681,7 @@
     $("carrierRows").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-action]");
       if (!button) return;
-      const row = button.closest("tr[data-carrier-row]");
+      const row = button.closest("[data-carrier-row]");
       if (!row) return;
       if (button.dataset.action === "syncTeu") {
         syncCarrierPair(row, "wbTeus", "ebTeus");
@@ -4558,7 +4690,7 @@
         syncCarrierPair(row, "wbRf", "ebRf");
       } else if (button.dataset.action === "remove") {
         const carriers = readCarrierRows();
-        const rows = [...$("carrierRows").querySelectorAll("tr[data-carrier-row]")];
+        const rows = [...$("carrierRows").querySelectorAll("[data-carrier-row]")];
         const index = rows.indexOf(row);
         if (carriers.length > 1 && index >= 0) carriers.splice(index, 1);
         renderCarrierRows(carriers.length ? carriers : [defaultCarrier()]);
@@ -4572,8 +4704,7 @@
     $("vvd").addEventListener("change", generateFromSchedule);
     $("historySearch").addEventListener("input", renderHistory);
     $("historySearch").addEventListener("change", renderHistory);
-    $("loadHistory").addEventListener("click", () => loadHistoryRecord());
-    $("clearHistory").addEventListener("click", clearAllHistoryRecords);
+    $("historyAction").addEventListener("click", handleHistoryAction);
 
     renderCarrierRows([defaultCarrier()]);
     initializePage();
