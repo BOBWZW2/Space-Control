@@ -146,6 +146,42 @@
       margin: 0;
     }
 
+    .history-tools {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: end;
+    }
+
+    .history-list {
+      display: grid;
+      gap: 7px;
+      margin-top: 10px;
+    }
+
+    .history-item {
+      width: 100%;
+      text-align: left;
+      line-height: 1.25;
+      padding: 8px 9px;
+      min-height: 0;
+    }
+
+    .history-item strong,
+    .history-item span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .history-item span {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 400;
+    }
+
     .section {
       border-top: 1px solid var(--line);
       padding-top: 15px;
@@ -156,6 +192,24 @@
       border-top: 0;
       margin-top: 0;
       padding-top: 0;
+    }
+
+    .section-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 0 0 12px;
+    }
+
+    .section-heading h2 {
+      margin: 0;
+    }
+
+    .small-button {
+      min-height: 28px;
+      padding: 5px 8px;
+      font-size: 12px;
     }
 
     h2 {
@@ -634,7 +688,10 @@
   <div class="app">
     <aside class="sidebar">
       <div class="section">
-        <h2>生成条件</h2>
+        <div class="section-heading">
+          <h2>生成条件</h2>
+          <button id="clearInputs" class="small-button" type="button">清除</button>
+        </div>
         <div class="grid">
           <div class="field wide">
             <label for="serviceLane">LANE</label>
@@ -643,7 +700,7 @@
           </div>
           <div class="field wide">
             <label for="vvd">VVD</label>
-            <input id="vvd" list="vvdOptions" value="XPBL2625WE">
+            <input id="vvd" list="vvdOptions" value="">
             <datalist id="vvdOptions"></datalist>
           </div>
           <div class="pair-row">
@@ -689,6 +746,19 @@
       <div class="section">
         <h2>当前船期</h2>
         <div class="subtle" id="scheduleSummary">尚未读取船期</div>
+      </div>
+
+      <div class="section">
+        <h2>历史记录</h2>
+        <div class="history-tools">
+          <div class="field">
+            <label for="historySearch">VVD / LANE / 船名</label>
+            <input id="historySearch" list="historyOptions" value="">
+            <datalist id="historyOptions"></datalist>
+          </div>
+          <button id="loadHistory" type="button">载入</button>
+        </div>
+        <div class="history-list" id="historyList"></div>
       </div>
 
       <div class="section">
@@ -769,6 +839,7 @@
     const GITHUB_CACHE_API_URL = "https://api.github.com/repos/BOBWZW2/Space-Control/contents/data/space-control-cache.json";
     const GITHUB_CACHE_BRANCH = "main";
     const LOCAL_DRAFTS_KEY = "spaceControl.cacheDrafts";
+    const LOCAL_HISTORY_KEY = "spaceControl.inputHistory";
     const GITHUB_TOKEN_KEY = "spaceControl.githubToken";
     const PORT_ALIASES = { CNNSA: "CNNAS" };
 
@@ -835,7 +906,8 @@
       lookupSignature: "",
       sharedCache: null,
       sharedCachePromise: null,
-      applyingCache: false
+      applyingCache: false,
+      initialized: false
     };
 
     const syncSource = {
@@ -942,6 +1014,129 @@
       saveStorageJson(LOCAL_DRAFTS_KEY, drafts);
     }
 
+    function getLocalHistory() {
+      const history = loadStorageJson(LOCAL_HISTORY_KEY, []);
+      return Array.isArray(history) ? history.filter((record) => cleanVvd(record?.vvd)) : [];
+    }
+
+    function historyKey(record) {
+      return `${cleanVvd(record?.vvd)}::${normalizeLane(record?.lane || "")}`;
+    }
+
+    function normalizeHistoryRecord(record, source = "local") {
+      return {
+        vvd: cleanVvd(record?.vvd),
+        lane: normalizeLane(record?.lane || ""),
+        vesselName: normalizeText(record?.vesselName || ""),
+        updatedAt: normalizeText(record?.updatedAt) || new Date().toISOString(),
+        source
+      };
+    }
+
+    function saveHistoryRecord(record, source = "generated") {
+      const normalized = normalizeHistoryRecord(record, source);
+      if (!normalized.vvd) return;
+      const records = [normalized, ...getLocalHistory()];
+      const seen = new Set();
+      const compact = [];
+      records
+        .sort((a, b) => recordTime(b) - recordTime(a))
+        .forEach((item) => {
+          const key = historyKey(item);
+          if (!key || seen.has(key)) return;
+          seen.add(key);
+          compact.push(item);
+        });
+      saveStorageJson(LOCAL_HISTORY_KEY, compact.slice(0, 80));
+      renderHistory();
+    }
+
+    function sharedHistoryRecords() {
+      return Object.values(state.sharedCache?.records || {}).map((record) => normalizeHistoryRecord(record, "synced"));
+    }
+
+    function combinedHistoryRecords() {
+      const records = [...getLocalHistory(), ...sharedHistoryRecords()];
+      const byKey = new Map();
+      records.forEach((record) => {
+        const normalized = normalizeHistoryRecord(record, record.source || "local");
+        if (!normalized.vvd) return;
+        const key = historyKey(normalized);
+        const existing = byKey.get(key);
+        if (!existing || recordTime(normalized) > recordTime(existing)) byKey.set(key, normalized);
+      });
+      return [...byKey.values()].sort((a, b) => recordTime(b) - recordTime(a));
+    }
+
+    function historyDisplay(record) {
+      const lane = record.lane || "-";
+      const vessel = record.vesselName || "-";
+      return `${record.vvd} · ${lane} · ${vessel}`;
+    }
+
+    function historyMatches(record, query) {
+      const q = normalizeText(query).toUpperCase();
+      if (!q) return true;
+      return [record.vvd, record.lane, record.vesselName].some((value) => normalizeText(value).toUpperCase().includes(q));
+    }
+
+    function renderHistory() {
+      const list = $("historyList");
+      const options = $("historyOptions");
+      if (!list || !options) return;
+      const query = $("historySearch")?.value || "";
+      const records = combinedHistoryRecords();
+      options.replaceChildren(...records.slice(0, 80).map((record) => {
+        const option = document.createElement("option");
+        option.value = historyDisplay(record);
+        option.label = record.updatedAt ? new Date(record.updatedAt).toLocaleString() : "";
+        return option;
+      }));
+
+      const visible = records.filter((record) => historyMatches(record, query)).slice(0, 8);
+      list.replaceChildren();
+      if (!visible.length) {
+        const empty = document.createElement("div");
+        empty.className = "subtle";
+        empty.textContent = query ? "没有匹配记录" : "暂无历史记录";
+        list.appendChild(empty);
+        return;
+      }
+      visible.forEach((record) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "history-item";
+        const title = document.createElement("strong");
+        title.textContent = `${record.vvd} · ${record.lane || "-"}`;
+        const meta = document.createElement("span");
+        const dateText = record.updatedAt ? new Date(record.updatedAt).toLocaleString() : "";
+        meta.textContent = `${record.vesselName || "-"}${dateText ? ` · ${dateText}` : ""}`;
+        button.appendChild(title);
+        button.appendChild(meta);
+        button.addEventListener("click", () => loadHistoryRecord(record));
+        list.appendChild(button);
+      });
+    }
+
+    function selectedHistoryRecord() {
+      const query = $("historySearch").value;
+      const records = combinedHistoryRecords();
+      const exact = records.find((record) => historyDisplay(record) === query);
+      if (exact) return exact;
+      return records.find((record) => historyMatches(record, query)) || null;
+    }
+
+    function loadHistoryRecord(record = selectedHistoryRecord()) {
+      if (!record) {
+        $("status").textContent = "没有可载入的历史记录";
+        return;
+      }
+      $("vvd").value = record.vvd;
+      $("serviceLane").value = record.lane || "";
+      $("historySearch").value = historyDisplay(record);
+      generateFromSchedule();
+    }
+
     function recordTime(record) {
       const timestamp = Date.parse(record?.updatedAt || "");
       return Number.isFinite(timestamp) ? timestamp : 0;
@@ -1034,6 +1229,28 @@
       if (!record) return "";
       applyCacheRecord(record);
       return useLocal ? "已载入本机未同步草稿" : "已载入已同步数据";
+    }
+
+    function clearCurrentInputs() {
+      state.currentLookup = null;
+      state.lookupSignature = "";
+      state.entries = { WB: {}, EB: {} };
+      state.tableData = { WB: null, EB: null };
+      ["serviceLane", "vvd", "vesselName", "reportDate", "selection", "wbTeus", "wbMt", "wbRf", "ebTeus", "ebMt", "ebRf"].forEach((id) => {
+        $(id).value = "";
+      });
+      $("historySearch").value = "";
+      $("tonPerTeu").value = "14";
+      ["bulkText", "wbPods", "wbPols", "ebPods", "ebPols"].forEach((id) => {
+        $(id).value = "";
+      });
+      $("wbPodOptions").replaceChildren();
+      $("scheduleSummary").textContent = "尚未读取船期";
+      $("summaryLine").textContent = "Schedule preview";
+      $("sheetWrap").replaceChildren();
+      $("status").textContent = "已清除";
+      refreshScheduleFieldOptions();
+      renderHistory();
     }
 
     function getGithubToken() {
@@ -1155,6 +1372,7 @@
         return;
       }
       saveLocalDraftRecord(record);
+      saveHistoryRecord(record, "draft");
       const typedToken = $("githubToken").value.trim();
       if (typedToken) setGithubToken(typedToken);
       const token = getGithubToken();
@@ -1168,6 +1386,7 @@
         await pushRecordToGithub(record, token);
         clearLocalDraft(record.vvd);
         await loadSharedCache(true);
+        saveHistoryRecord(record, "synced");
         $("status").textContent = `已保存并同步 ${record.vvd}`;
       } catch (error) {
         console.error(error);
@@ -1667,6 +1886,12 @@
         applyLookup(lookup);
         const cacheMessage = await applySavedRecordForVvd(lookup.inputVvd);
         render();
+        saveHistoryRecord({
+          vvd: lookup.inputVvd,
+          lane: lookup.lane,
+          vesselName: lookup.vesselName,
+          updatedAt: new Date().toISOString()
+        }, "generated");
         $("status").textContent = cacheMessage
           ? `船期已刷新 · ${lookup.lane} · ${cacheMessage}`
           : `船期已刷新 · ${lookup.lane}`;
@@ -2511,6 +2736,10 @@
       return `${excelCol(col)}${row}`;
     }
 
+    function excelSheetRef(name) {
+      return `'${String(name).replace(/'/g, "''")}'`;
+    }
+
     function sumFormula(terms) {
       const clean = terms.filter(Boolean);
       return clean.length ? clean.join("+") : "0";
@@ -3126,6 +3355,106 @@
       };
     }
 
+    function addRobCopySheet(workbook, ebMeta) {
+      const pods = ebMeta?.model?.sheet?.pods || [];
+      if (!pods.length) return null;
+      const ws = workbook.addWorksheet("ROB_COPY", {
+        views: [{ showGridLines: false, state: "frozen", ySplit: 5 }]
+      });
+      const sourceSheet = excelSheetRef(ebMeta.ws.name);
+      const totalStart = ebMeta.totalStart;
+      const lastCol = 3 + pods.length * 2;
+      const headerFill = "FF99CCFF";
+      const whiteFill = "FFFFFFFF";
+      const headerFont = { name: "Carlito", size: 11, bold: true, color: { argb: "FF000000" } };
+      const countFmt = '0;-0;;@';
+      const weightFmt = '0.0;-0.0;;@';
+      const headerStyle = { fill: headerFill, font: headerFont };
+      const baseStyle = { fill: whiteFill, font: headerFont };
+      const valueStyle = { fill: whiteFill };
+
+      for (let col = 1; col <= lastCol; col += 1) {
+        let width = 7.5;
+        if (col === 1) width = 8;
+        else if (col === 2) width = 9;
+        else if (col === 3) width = 11;
+        ws.getColumn(col).width = width;
+      }
+      for (let row = 1; row <= 13; row += 1) {
+        ws.getRow(row).height = row <= 5 ? 20 : 18;
+      }
+
+      safeMerge(ws, 1, 1, 1, lastCol);
+      safeMerge(ws, 2, 1, 2, lastCol);
+      setCell(ws, 1, 1, "ROB COPY - copy D6 onward, paste to next WB ROB D6", headerStyle);
+      setCell(ws, 2, 1, "Source: EB TOTAL by POD. Main WB/EB sheets are unchanged.", baseStyle);
+      safeMerge(ws, 3, 1, 3, 3);
+      safeMerge(ws, 4, 1, 4, 3);
+      safeMerge(ws, 5, 1, 5, 3);
+      setCell(ws, 3, 1, "POD", headerStyle);
+      setCell(ws, 4, 1, "ETA", headerStyle);
+      setCell(ws, 5, 1, "POL", headerStyle);
+
+      pods.forEach((pod, podIndex) => {
+        const left = 4 + podIndex * 2;
+        const right = left + 1;
+        safeMerge(ws, 3, left, 3, right);
+        safeMerge(ws, 4, left, 4, right);
+        setCell(ws, 3, left, pod.port, headerStyle);
+        setCell(ws, 4, left, pod.eta, headerStyle);
+        setCell(ws, 5, left, "20'", headerStyle);
+        setCell(ws, 5, right, "40'", headerStyle);
+      });
+
+      cargoLabels.forEach((label, offset) => {
+        const row = 6 + offset;
+        setCell(ws, row, 3, label, { ...baseStyle, alignment: { horizontal: "left", vertical: "middle" } });
+        pods.forEach((_pod, podIndex) => {
+          const left = 4 + podIndex * 2;
+          const right = left + 1;
+          const ebLeft = ebMeta.podLeftCols[podIndex];
+          const ebRight = ebMeta.podRightCols[podIndex];
+          if (offset === 6) {
+            safeMerge(ws, row, left, row, right);
+            setFormulaCell(ws, row, left, `${sourceSheet}!${excelCell(ebLeft, totalStart + offset)}`, { ...valueStyle, numFmt: weightFmt });
+          } else {
+            const numFmt = offset === 6 ? weightFmt : countFmt;
+            setFormulaCell(ws, row, left, `${sourceSheet}!${excelCell(ebLeft, totalStart + offset)}`, { ...valueStyle, numFmt });
+            setFormulaCell(ws, row, right, `${sourceSheet}!${excelCell(ebRight, totalStart + offset)}`, { ...valueStyle, numFmt });
+          }
+        });
+      });
+
+      for (let row = 1; row <= 13; row += 1) {
+        for (let col = 1; col <= lastCol; col += 1) {
+          const cell = ws.getCell(row, col);
+          cell.border = cell.border || fullBorder("thin");
+          cell.alignment = cell.alignment || { horizontal: "center", vertical: "middle" };
+          cell.font = cell.font || { name: "Calibri", size: 11, color: { argb: "FF000000" } };
+        }
+      }
+      for (let col = 1; col <= lastCol; col += 1) {
+        const top = ws.getCell(1, col);
+        top.border = { ...(top.border || fullBorder("thin")), top: excelBorder("medium") };
+        const headerBottom = ws.getCell(5, col);
+        headerBottom.border = { ...(headerBottom.border || fullBorder("thin")), bottom: excelBorder("medium") };
+        const bottom = ws.getCell(13, col);
+        bottom.border = { ...(bottom.border || fullBorder("thin")), bottom: excelBorder("medium") };
+      }
+      for (let row = 1; row <= 13; row += 1) {
+        ws.getCell(row, 1).border = { ...(ws.getCell(row, 1).border || fullBorder("thin")), left: excelBorder("medium") };
+        ws.getCell(row, 3).border = { ...(ws.getCell(row, 3).border || fullBorder("thin")), right: excelBorder("medium") };
+        ws.getCell(row, lastCol).border = { ...(ws.getCell(row, lastCol).border || fullBorder("thin")), right: excelBorder("medium") };
+      }
+      pods.forEach((_pod, podIndex) => {
+        const left = 4 + podIndex * 2;
+        for (let row = 3; row <= 13; row += 1) {
+          ws.getCell(row, left).border = { ...(ws.getCell(row, left).border || fullBorder("thin")), left: excelBorder("medium") };
+        }
+      });
+      return ws;
+    }
+
     function setFormulaOnly(cell, formula, numFmt = "0;-0;;@") {
       cell.value = { formula, result: 0 };
       cell.numFmt = numFmt;
@@ -3189,6 +3518,7 @@
       const wbMeta = buildExcelSheet(workbook, input, "WB");
       const ebMeta = buildExcelSheet(workbook, input, "EB");
       applyEbRobCarryover(wbMeta, ebMeta);
+      addRobCopySheet(workbook, ebMeta);
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -3229,10 +3559,30 @@
       }
     }
 
+    async function initializePage() {
+      state.initialized = true;
+      $("status").textContent = "Ready";
+      $("scheduleSummary").textContent = "尚未读取船期";
+      $("summaryLine").textContent = "Schedule preview";
+      renderHistory();
+      try {
+        await Promise.all([
+          loadScheduleRows(),
+          loadSharedCache(true)
+        ]);
+        renderHistory();
+        $("status").textContent = "Ready";
+      } catch (error) {
+        console.warn(error);
+        $("status").textContent = "船期或历史读取失败";
+      }
+    }
+
     document.querySelector(".topbar .toolbar")?.remove();
     updateTokenUi();
 
     $("generate").addEventListener("click", generateFromSchedule);
+    $("clearInputs").addEventListener("click", clearCurrentInputs);
     $("loadSample").addEventListener("click", () => {
       setSample();
       render();
@@ -3276,8 +3626,11 @@
     $("serviceLane").addEventListener("change", handleLaneInput);
     $("vvd").addEventListener("input", handleVvdInput);
     $("vvd").addEventListener("change", generateFromSchedule);
+    $("historySearch").addEventListener("input", renderHistory);
+    $("historySearch").addEventListener("change", renderHistory);
+    $("loadHistory").addEventListener("click", () => loadHistoryRecord());
 
-    generateFromSchedule();
+    initializePage();
   </script>
 </body>
 </html>
