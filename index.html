@@ -289,6 +289,71 @@
       padding: 0;
     }
 
+    .carrier-tools {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .carrier-table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #ffffff;
+    }
+
+    table.carrier-table {
+      width: 100%;
+      min-width: 760px;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 12px;
+    }
+
+    .carrier-table th,
+    .carrier-table td {
+      border: 1px solid var(--line);
+      padding: 5px;
+      text-align: center;
+      vertical-align: middle;
+    }
+
+    .carrier-table th {
+      background: #e8f3fb;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .carrier-table input {
+      min-height: 30px;
+      padding: 5px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .carrier-table input[data-field="code"] {
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .carrier-table .mini-sync {
+      min-width: 26px;
+      min-height: 28px;
+      padding: 0;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .carrier-table .remove-carrier {
+      min-width: 28px;
+      min-height: 28px;
+      padding: 0;
+      color: var(--danger);
+      font-weight: 700;
+    }
+
     input,
     textarea {
       width: 100%;
@@ -703,7 +768,33 @@
             <input id="vvd" list="vvdOptions" value="">
             <datalist id="vvdOptions"></datalist>
           </div>
-          <div class="pair-row">
+          <div class="field wide">
+            <div class="section-heading" style="margin-bottom:8px">
+              <h2>主体 / BSA</h2>
+              <button id="addCarrier" class="small-button" type="button">新增主体</button>
+            </div>
+            <div class="carrier-table-wrap">
+              <table class="carrier-table">
+                <thead>
+                  <tr>
+                    <th>主体</th>
+                    <th>WB TEU</th>
+                    <th>=</th>
+                    <th>EB TEU</th>
+                    <th>Ton/TEU</th>
+                    <th>WB MT</th>
+                    <th>EB MT</th>
+                    <th>WB RF</th>
+                    <th>=</th>
+                    <th>EB RF</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="carrierRows"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="pair-row hidden">
             <div class="field">
               <label for="wbTeus">WB TEU</label>
               <input id="wbTeus" type="number" min="0" step="1" value="">
@@ -714,19 +805,19 @@
               <input id="ebTeus" type="number" min="0" step="1" value="">
             </div>
           </div>
-          <div class="field wide">
+          <div class="field wide hidden">
             <label for="tonPerTeu">Ton/Teu</label>
             <input id="tonPerTeu" type="number" min="0" step="0.01" value="14">
           </div>
-          <div class="field">
+          <div class="field hidden">
             <label for="wbMt">WB BSA Weight (MT)</label>
             <input id="wbMt" type="number" min="0" step="1" value="">
           </div>
-          <div class="field">
+          <div class="field hidden">
             <label for="ebMt">EB BSA Weight (MT)</label>
             <input id="ebMt" type="number" min="0" step="1" value="">
           </div>
-          <div class="pair-row">
+          <div class="pair-row hidden">
             <div class="field">
               <label for="wbRf">WB RF Plug</label>
               <input id="wbRf" type="number" min="0" step="1" value="">
@@ -842,6 +933,9 @@
     const LOCAL_HISTORY_KEY = "spaceControl.inputHistory";
     const GITHUB_TOKEN_KEY = "spaceControl.githubToken";
     const PORT_ALIASES = { CNNSA: "CNNAS" };
+    const DEFAULT_CARRIER_CODE = "CUL";
+    const DEFAULT_TON_PER_TEU = 14;
+    const ROB_TRANSFER_SECTION_STEP = 10;
 
     const sample = {
       vesselName: "EXPRESS BERLIN",
@@ -856,6 +950,9 @@
       ebTeus: 0,
       ebMt: 0,
       ebRf: 0,
+      carriers: [
+        { code: "CUL", tonPerTeu: 14, wbTeus: 0, wbMt: 0, wbRf: 0, ebTeus: 0, ebMt: 0, ebRf: 0 }
+      ],
       wbPods: [
         ["CNTAO", "06/29"],
         ["CNSHA", "07/03"],
@@ -1150,19 +1247,22 @@
     function buildCacheRecord() {
       const vvd = cleanVvd($("vvd").value);
       const selectedWbPodKeys = getSelectedWbPodKeys();
+      const carriers = readCarrierRows();
+      const primary = carriers[0] || defaultCarrier();
       return {
         vvd,
         lane: state.currentLookup?.lane || normalizeLane($("serviceLane").value),
         vesselName: $("vesselName").value.trim(),
         updatedAt: new Date().toISOString(),
+        carriers,
         allocation: {
-          wbTeus: inputNumberOrNull("wbTeus"),
-          ebTeus: inputNumberOrNull("ebTeus"),
-          tonPerTeu: inputNumberOrNull("tonPerTeu"),
-          wbMt: inputNumberOrNull("wbMt"),
-          ebMt: inputNumberOrNull("ebMt"),
-          wbRf: inputNumberOrNull("wbRf"),
-          ebRf: inputNumberOrNull("ebRf")
+          wbTeus: primary.wbTeus,
+          ebTeus: primary.ebTeus,
+          tonPerTeu: primary.tonPerTeu,
+          wbMt: primary.wbMt,
+          ebMt: primary.ebMt,
+          wbRf: primary.wbRf,
+          ebRf: primary.ebRf
         },
         selectedWbPodKeys,
         selectedWbPodPorts: selectedWbPodKeys.map((key) => key.split("::")[0]).filter(Boolean)
@@ -1189,13 +1289,10 @@
       state.applyingCache = true;
       try {
         const allocation = record.allocation || {};
-        setOptionalNumberInput("wbTeus", allocation.wbTeus, 0);
-        setOptionalNumberInput("ebTeus", allocation.ebTeus, 0);
-        setOptionalNumberInput("tonPerTeu", allocation.tonPerTeu, 4);
-        setOptionalNumberInput("wbMt", allocation.wbMt, 0);
-        setOptionalNumberInput("ebMt", allocation.ebMt, 0);
-        setOptionalNumberInput("wbRf", allocation.wbRf, 0);
-        setOptionalNumberInput("ebRf", allocation.ebRf, 0);
+        const carriers = Array.isArray(record.carriers) && record.carriers.length
+          ? record.carriers
+          : [legacyCarrierFromAllocation(allocation)];
+        renderCarrierRows(carriers);
 
         if (Array.isArray(record.selectedWbPodKeys)) {
           const selectedKeys = new Set(record.selectedWbPodKeys);
@@ -1236,6 +1333,7 @@
       state.lookupSignature = "";
       state.entries = { WB: {}, EB: {} };
       state.tableData = { WB: null, EB: null };
+      renderCarrierRows([defaultCarrier()]);
       ["serviceLane", "vvd", "vesselName", "reportDate", "selection", "wbTeus", "wbMt", "wbRf", "ebTeus", "ebMt", "ebRf"].forEach((id) => {
         $(id).value = "";
       });
@@ -1983,6 +2081,7 @@
       $("ebTeus").value = sample.ebTeus;
       $("ebMt").value = sample.ebMt;
       $("ebRf").value = sample.ebRf;
+      renderCarrierRows(sample.carriers || [legacyCarrierFromAllocation(sample)]);
       $("wbPods").value = rowsToText(sample.wbPods);
       $("wbPols").value = rowsToText(sample.wbPols);
       $("ebPods").value = rowsToText(sample.ebPods);
@@ -2015,6 +2114,215 @@
     function setNumberInput(id, value, decimals = 0) {
       const text = formatInputNumber(value, decimals);
       if (text !== "") $(id).value = text;
+    }
+
+    function blankNumberToNull(value) {
+      const text = normalizeText(value);
+      if (!text) return null;
+      const numeric = Number(text);
+      return Number.isFinite(numeric) ? numeric : null;
+    }
+
+    function carrierCode(value, fallback = DEFAULT_CARRIER_CODE) {
+      const code = normalizeText(value).replace(/[^A-Za-z0-9_-]/g, "").toUpperCase();
+      return code || fallback;
+    }
+
+    function defaultCarrier(code = DEFAULT_CARRIER_CODE) {
+      return {
+        code: carrierCode(code),
+        tonPerTeu: DEFAULT_TON_PER_TEU,
+        wbTeus: null,
+        wbMt: null,
+        wbRf: null,
+        ebTeus: null,
+        ebMt: null,
+        ebRf: null
+      };
+    }
+
+    function normalizeCarrier(record = {}, index = 0) {
+      const fallback = index === 0 ? DEFAULT_CARRIER_CODE : `P${index + 1}`;
+      const ton = blankNumberToNull(record.tonPerTeu);
+      return {
+        code: carrierCode(record.code, fallback),
+        tonPerTeu: ton === null ? DEFAULT_TON_PER_TEU : ton,
+        wbTeus: blankNumberToNull(record.wbTeus),
+        wbMt: blankNumberToNull(record.wbMt),
+        wbRf: blankNumberToNull(record.wbRf),
+        ebTeus: blankNumberToNull(record.ebTeus),
+        ebMt: blankNumberToNull(record.ebMt),
+        ebRf: blankNumberToNull(record.ebRf)
+      };
+    }
+
+    function legacyCarrierFromAllocation(allocation = {}) {
+      return normalizeCarrier({
+        code: DEFAULT_CARRIER_CODE,
+        tonPerTeu: allocation.tonPerTeu ?? inputNumberOrNull("tonPerTeu") ?? DEFAULT_TON_PER_TEU,
+        wbTeus: allocation.wbTeus,
+        wbMt: allocation.wbMt,
+        wbRf: allocation.wbRf,
+        ebTeus: allocation.ebTeus,
+        ebMt: allocation.ebMt,
+        ebRf: allocation.ebRf
+      });
+    }
+
+    function uniqueCarriers(carriers) {
+      const seen = new Map();
+      return carriers.map((carrier, index) => {
+        const normalized = normalizeCarrier(carrier, index);
+        const base = normalized.code || (index === 0 ? DEFAULT_CARRIER_CODE : `P${index + 1}`);
+        const count = seen.get(base) || 0;
+        seen.set(base, count + 1);
+        return { ...normalized, code: count ? `${base}${count + 1}` : base };
+      });
+    }
+
+    function readCarrierRows() {
+      const rows = [...($("carrierRows")?.querySelectorAll("tr[data-carrier-row]") || [])];
+      const carriers = rows.map((row, index) => {
+        const value = (field) => row.querySelector(`[data-field="${field}"]`)?.value;
+        return normalizeCarrier({
+          code: value("code"),
+          wbTeus: value("wbTeus"),
+          ebTeus: value("ebTeus"),
+          tonPerTeu: value("tonPerTeu"),
+          wbMt: value("wbMt"),
+          ebMt: value("ebMt"),
+          wbRf: value("wbRf"),
+          ebRf: value("ebRf")
+        }, index);
+      });
+      return uniqueCarriers(carriers.length ? carriers : [defaultCarrier()]);
+    }
+
+    function carrierAllocation(carrier, direction) {
+      const prefix = direction.toLowerCase();
+      return {
+        teus: Math.round(Number(carrier[`${prefix}Teus`]) || 0),
+        mt: Math.round(Number(carrier[`${prefix}Mt`]) || 0),
+        rf: Math.round(Number(carrier[`${prefix}Rf`]) || 0)
+      };
+    }
+
+    function totalCarrierAllocation(carriers, direction) {
+      return carriers.reduce((total, carrier) => {
+        const allocation = carrierAllocation(carrier, direction);
+        total.teus += allocation.teus;
+        total.mt += allocation.mt;
+        total.rf += allocation.rf;
+        return total;
+      }, { teus: 0, mt: 0, rf: 0 });
+    }
+
+    function writeCarrierNumber(input, value, decimals = 0) {
+      const text = formatInputNumber(value, decimals);
+      input.value = text;
+    }
+
+    function carrierInputText(value, decimals = 0) {
+      if (value === null || value === undefined || value === "") return "";
+      return formatInputNumber(value, decimals);
+    }
+
+    function createCarrierInput(field, value, type = "number") {
+      const input = document.createElement("input");
+      input.dataset.field = field;
+      input.value = value ?? "";
+      if (type === "number") {
+        input.type = "number";
+        input.min = "0";
+        input.step = field === "tonPerTeu" ? "0.01" : "1";
+      } else {
+        input.type = "text";
+        input.maxLength = 12;
+      }
+      return input;
+    }
+
+    function renderCarrierRows(carriers = [defaultCarrier()]) {
+      const body = $("carrierRows");
+      if (!body) return;
+      const normalized = uniqueCarriers(carriers.length ? carriers : [defaultCarrier()]);
+      body.replaceChildren();
+      normalized.forEach((carrier) => {
+        const row = document.createElement("tr");
+        row.dataset.carrierRow = "1";
+        const fields = [
+          ["code", carrier.code, "text"],
+          ["wbTeus", carrierInputText(carrier.wbTeus, 0), "number"],
+          ["syncTeu", "=", "button"],
+          ["ebTeus", carrierInputText(carrier.ebTeus, 0), "number"],
+          ["tonPerTeu", carrierInputText(carrier.tonPerTeu, 4), "number"],
+          ["wbMt", carrierInputText(carrier.wbMt, 0), "number"],
+          ["ebMt", carrierInputText(carrier.ebMt, 0), "number"],
+          ["wbRf", carrierInputText(carrier.wbRf, 0), "number"],
+          ["syncRf", "=", "button"],
+          ["ebRf", carrierInputText(carrier.ebRf, 0), "number"],
+          ["remove", "×", "button"]
+        ];
+        fields.forEach(([field, value, type]) => {
+          const cell = document.createElement("td");
+          if (type === "button") {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = value;
+            button.dataset.action = field;
+            button.className = field === "remove" ? "remove-carrier" : "mini-sync";
+            cell.appendChild(button);
+          } else {
+            cell.appendChild(createCarrierInput(field, value, type));
+          }
+          row.appendChild(cell);
+        });
+        body.appendChild(row);
+      });
+      syncLegacyInputsFromCarriers();
+    }
+
+    function syncLegacyInputsFromCarriers() {
+      const carriers = readCarrierRows();
+      const first = carriers[0] || defaultCarrier();
+      setOptionalNumberInput("wbTeus", first.wbTeus, 0);
+      setOptionalNumberInput("ebTeus", first.ebTeus, 0);
+      setOptionalNumberInput("tonPerTeu", first.tonPerTeu, 4);
+      setOptionalNumberInput("wbMt", first.wbMt, 0);
+      setOptionalNumberInput("ebMt", first.ebMt, 0);
+      setOptionalNumberInput("wbRf", first.wbRf, 0);
+      setOptionalNumberInput("ebRf", first.ebRf, 0);
+    }
+
+    function updateCarrierWeights(row) {
+      const ratio = blankNumberToNull(row.querySelector('[data-field="tonPerTeu"]')?.value) ?? DEFAULT_TON_PER_TEU;
+      [["wbTeus", "wbMt"], ["ebTeus", "ebMt"]].forEach(([teuField, mtField]) => {
+        const teu = blankNumberToNull(row.querySelector(`[data-field="${teuField}"]`)?.value);
+        const mtInput = row.querySelector(`[data-field="${mtField}"]`);
+        if (!mtInput) return;
+        if (teu === null) mtInput.value = "";
+        else writeCarrierNumber(mtInput, teu * ratio, 0);
+      });
+    }
+
+    function updateCarrierRatioFromWeight(row, mtField, teuField) {
+      const mt = blankNumberToNull(row.querySelector(`[data-field="${mtField}"]`)?.value);
+      const teu = blankNumberToNull(row.querySelector(`[data-field="${teuField}"]`)?.value);
+      const ratioInput = row.querySelector('[data-field="tonPerTeu"]');
+      if (mt !== null && teu !== null && teu > 0 && ratioInput) {
+        writeCarrierNumber(ratioInput, mt / teu, 4);
+        updateCarrierWeights(row);
+      }
+    }
+
+    function syncCarrierPair(row, leftField, rightField) {
+      const leftInput = row.querySelector(`[data-field="${leftField}"]`);
+      const rightInput = row.querySelector(`[data-field="${rightField}"]`);
+      if (!leftInput || !rightInput) return;
+      const left = blankNumberToNull(leftInput.value);
+      const right = blankNumberToNull(rightInput.value);
+      if (left !== null) writeCarrierNumber(rightInput, left, 0);
+      else if (right !== null) writeCarrierNumber(leftInput, right, 0);
     }
 
     function tonPerTeuValue() {
@@ -2101,31 +2409,26 @@
     }
 
     function readInputs() {
-      const wbAlloc = {
-        teus: integerValue("wbTeus"),
-        mt: integerValue("wbMt"),
-        rf: integerValue("wbRf")
-      };
-      const ebAlloc = {
-        teus: integerValue("ebTeus"),
-        mt: integerValue("ebMt"),
-        rf: integerValue("ebRf")
-      };
+      const carriers = readCarrierRows();
+      syncLegacyInputsFromCarriers();
+      const wbAlloc = totalCarrierAllocation(carriers, "WB");
+      const ebAlloc = totalCarrierAllocation(carriers, "EB");
       return {
         vesselName: $("vesselName").value.trim() || "VESSEL",
         vvd: $("vvd").value.trim().toUpperCase() || "VVD",
         serviceLane: $("serviceLane").value.trim() || "",
         reportDate: $("reportDate").value.trim() || "",
         selection: $("selection").value.trim() || "",
-        tonPerTeu: tonPerTeuValue(),
+        tonPerTeu: carriers[0]?.tonPerTeu ?? DEFAULT_TON_PER_TEU,
+        carriers,
         WB: {
-          allocationLabel: "WB ALLOCATION",
+          allocationLabel: carriers.length > 1 ? "WB TOTAL" : "WB ALLOCATION",
           allocation: wbAlloc,
           pods: textToRows($("wbPods").value, 2).map(([port, eta]) => ({ port: port.toUpperCase(), eta })),
           pols: textToRows($("wbPols").value, 3).map(([port, etb, etd]) => ({ port: port.toUpperCase(), etb, etd }))
         },
         EB: {
-          allocationLabel: "EB ALLOCATION",
+          allocationLabel: carriers.length > 1 ? "EB TOTAL" : "EB ALLOCATION",
           allocation: ebAlloc,
           pods: textToRows($("ebPods").value, 2).map(([port, eta]) => ({ port: port.toUpperCase(), eta })),
           pols: textToRows($("ebPols").value, 3).map(([port, etb, etd]) => ({ port: port.toUpperCase(), etb, etd }))
@@ -3091,8 +3394,8 @@
       return value || null;
     }
 
-    function robInputFormula(cellRef) {
-      const ref = `${excelSheetRef("ROB_INPUT")}!${cellRef}`;
+    function robInputFormula(col, row, rowShift = 0) {
+      const ref = `${excelSheetRef("ROB_INPUT")}!${excelCell(col, row + rowShift)}`;
       return `N(${ref})`;
     }
 
@@ -3227,6 +3530,8 @@
       const allocTeuValue = nRef(allocTeuCell);
       const allocWeightValue = nRef(allocWeightCell);
       const allocRfValue = nRef(allocRfCell);
+      const robInputRowShift = Number(input.robInputRowShift) || 0;
+      const isWbSheet = sheetName === "WB" || model.sheet.direction === "WB";
 
       model.blocks.forEach((block, blockIndex) => {
         const start = blockStarts[blockIndex];
@@ -3258,8 +3563,8 @@
                 );
               } else {
                 const manualWeight = entryNumberValue(sheetName, blockIndex, offset, podIndex, "weight");
-                if (sheetName === "WB" && block.type === "ROB" && manualWeight === null) {
-                  setFormulaCell(ws, row, left, robInputFormula(excelCell(left, row)), { ...baseStyle, numFmt: weightFmt });
+                if (isWbSheet && block.type === "ROB" && manualWeight === null) {
+                  setFormulaCell(ws, row, left, robInputFormula(left, row, robInputRowShift), { ...baseStyle, numFmt: weightFmt });
                 } else {
                   setCell(ws, row, left, manualWeight, { ...baseStyle, numFmt: weightFmt });
                 }
@@ -3287,13 +3592,13 @@
             } else {
               const manualLeft = entryNumberValue(sheetName, blockIndex, offset, podIndex, "left");
               const manualRight = entryNumberValue(sheetName, blockIndex, offset, podIndex, "right");
-              if (sheetName === "WB" && block.type === "ROB" && manualLeft === null) {
-                setFormulaCell(ws, row, left, robInputFormula(excelCell(left, row)), { ...baseStyle, numFmt: countFmt });
+              if (isWbSheet && block.type === "ROB" && manualLeft === null) {
+                setFormulaCell(ws, row, left, robInputFormula(left, row, robInputRowShift), { ...baseStyle, numFmt: countFmt });
               } else {
                 setCell(ws, row, left, manualLeft, { ...baseStyle, numFmt: countFmt });
               }
-              if (sheetName === "WB" && block.type === "ROB" && manualRight === null) {
-                setFormulaCell(ws, row, right, robInputFormula(excelCell(right, row)), { ...baseStyle, numFmt: countFmt });
+              if (isWbSheet && block.type === "ROB" && manualRight === null) {
+                setFormulaCell(ws, row, right, robInputFormula(right, row, robInputRowShift), { ...baseStyle, numFmt: countFmt });
               } else {
                 setCell(ws, row, right, manualRight, { ...baseStyle, numFmt: countFmt });
               }
@@ -3427,6 +3732,99 @@
       };
     }
 
+    function excelSafeSheetName(name) {
+      return normalizeText(name).replace(/[\[\]\*\/\\\?:]/g, "-").slice(0, 31) || "Sheet";
+    }
+
+    function carrierSheetName(direction, carrier, isMultiCarrier) {
+      if (!isMultiCarrier && carrier.code === DEFAULT_CARRIER_CODE) return direction;
+      return excelSafeSheetName(`${direction}_${carrier.code}`);
+    }
+
+    function totalSheetName(direction) {
+      return `${direction}_TOTAL`;
+    }
+
+    function sheetDataForCarrier(baseInput, direction, carrier, isMultiCarrier) {
+      return {
+        ...baseInput[direction],
+        direction,
+        allocationLabel: isMultiCarrier || carrier.code !== DEFAULT_CARRIER_CODE
+          ? `${direction} ${carrier.code}`
+          : baseInput[direction].allocationLabel,
+        allocation: carrierAllocation(carrier, direction)
+      };
+    }
+
+    function sheetDataForTotal(baseInput, direction, carriers) {
+      return {
+        ...baseInput[direction],
+        direction,
+        allocationLabel: `${direction} TOTAL`,
+        allocation: totalCarrierAllocation(carriers, direction)
+      };
+    }
+
+    function inputForSheet(baseInput, direction, sheetName, sheetData, robInputRowShift = 0) {
+      return {
+        ...baseInput,
+        robInputRowShift,
+        [sheetName]: sheetData
+      };
+    }
+
+    function sumSheetCellFormula(sheetNames, cellRef) {
+      return sumFormula(sheetNames.map((name) => `${excelSheetRef(name)}!${cellRef}`));
+    }
+
+    function applyTotalSheetFormulas(totalMeta, carrierMetas) {
+      if (!totalMeta || !carrierMetas.length) return;
+      const sheetNames = carrierMetas.map((meta) => meta.ws.name);
+      const totalBlockIndex = totalMeta.model.blocks.length - 1;
+      const blockStarts = totalMeta.model.blocks.map((_, index) => 6 + index * 8);
+      blockStarts.forEach((start) => {
+        cargoLabels.forEach((_label, offset) => {
+          const row = start + offset;
+          totalMeta.podLeftCols.forEach((left, podIndex) => {
+            const right = totalMeta.podRightCols[podIndex];
+            if (offset === 6) {
+              setFormulaCell(
+                totalMeta.ws,
+                row,
+                left,
+                sumSheetCellFormula(sheetNames, excelCell(left, row)),
+                { fill: "FFFFFFFF", numFmt: "0.0;-0.0;;@" }
+              );
+            } else if (offset < 6 || offset === 7) {
+              setFormulaCell(
+                totalMeta.ws,
+                row,
+                left,
+                sumSheetCellFormula(sheetNames, excelCell(left, row)),
+                { fill: "FFFFFFFF", numFmt: "0;-0;;@" }
+              );
+              setFormulaCell(
+                totalMeta.ws,
+                row,
+                right,
+                sumSheetCellFormula(sheetNames, excelCell(right, row)),
+                { fill: "FFFFFFFF", numFmt: "0;-0;;@" }
+              );
+            }
+          });
+        });
+      });
+      applyTemplateBorders(
+        totalMeta.ws,
+        totalMeta.summary,
+        totalMeta.podLeftCols,
+        blockStarts,
+        totalMeta.totalStart,
+        totalMeta.finalRow,
+        totalMeta.moveSheetRow - 4
+      );
+    }
+
     function addRobTransferSheet(workbook, name, pods, options = {}) {
       if (!pods.length) return null;
       const ws = workbook.addWorksheet(name, {
@@ -3538,6 +3936,124 @@
       return ws;
     }
 
+    function addMultiCarrierRobTransferSheet(workbook, name, sections, options = {}) {
+      if (!sections.length) return null;
+      const pods = sections[0].pods || [];
+      if (!pods.length) return null;
+      const ws = workbook.addWorksheet(name, {
+        views: [{ showGridLines: false, state: "frozen", ySplit: 5 }]
+      });
+      if (options.tabColor) ws.properties.tabColor = { argb: options.tabColor };
+      const lastCol = 3 + pods.length * 2;
+      const copyLabels = cargoLabels.slice(0, 7);
+      const finalRow = 5 + copyLabels.length + (sections.length - 1) * ROB_TRANSFER_SECTION_STEP;
+      const headerFill = options.headerFill || "FF99CCFF";
+      const noteFill = options.noteFill || "FFFFFFFF";
+      const blockFill = options.blockFill || noteFill;
+      const whiteFill = "FFFFFFFF";
+      const headerFont = { name: "Carlito", size: 11, bold: true, color: { argb: "FF000000" } };
+      const headerStyle = { fill: headerFill, font: headerFont };
+      const noteStyle = { fill: noteFill, font: headerFont };
+      const blockStyle = { fill: blockFill, font: headerFont };
+      const valueStyle = { fill: whiteFill };
+
+      for (let col = 1; col <= lastCol; col += 1) {
+        let width = 7.5;
+        if (col === 1) width = 8;
+        else if (col === 2) width = 9;
+        else if (col === 3) width = 11;
+        ws.getColumn(col).width = width;
+      }
+      for (let row = 1; row <= finalRow; row += 1) {
+        ws.getRow(row).height = row <= 5 ? 20 : 18;
+      }
+
+      safeMerge(ws, 1, 1, 1, lastCol);
+      safeMerge(ws, 2, 1, 2, lastCol);
+      setCell(ws, 1, 1, options.title || name, headerStyle);
+      setCell(ws, 2, 1, options.note || "", noteStyle);
+
+      sections.forEach((section, sectionIndex) => {
+        const headerStart = 3 + sectionIndex * ROB_TRANSFER_SECTION_STEP;
+        const dataStart = 6 + sectionIndex * ROB_TRANSFER_SECTION_STEP;
+        const sectionPods = section.pods || pods;
+        safeMerge(ws, headerStart, 1, headerStart, 3);
+        safeMerge(ws, headerStart + 1, 1, headerStart + 1, 3);
+        safeMerge(ws, headerStart + 2, 1, headerStart + 2, 3);
+        setCell(ws, headerStart, 1, "POD", headerStyle);
+        setCell(ws, headerStart + 1, 1, "ETA", headerStyle);
+        setCell(ws, headerStart + 2, 1, "POL", headerStyle);
+        sectionPods.forEach((pod, podIndex) => {
+          const left = 4 + podIndex * 2;
+          const right = left + 1;
+          safeMerge(ws, headerStart, left, headerStart, right);
+          safeMerge(ws, headerStart + 1, left, headerStart + 1, right);
+          setCell(ws, headerStart, left, pod.port, headerStyle);
+          setCell(ws, headerStart + 1, left, pod.eta, headerStyle);
+          setCell(ws, headerStart + 2, left, "20'", headerStyle);
+          setCell(ws, headerStart + 2, right, "40'", headerStyle);
+        });
+
+        safeMerge(ws, dataStart, 1, dataStart + 5, 2);
+        setCell(ws, dataStart, 1, section.blockLabel || section.code || name, {
+          ...blockStyle,
+          alignment: { horizontal: "center", vertical: "middle" }
+        });
+
+        copyLabels.forEach((label, offset) => {
+          const row = dataStart + offset;
+          setCell(ws, row, 3, label, { ...blockStyle, alignment: { horizontal: "left", vertical: "middle" } });
+          sectionPods.forEach((_pod, podIndex) => {
+            const left = 4 + podIndex * 2;
+            const right = left + 1;
+            const leftFormula = section.valueFormula?.({ left, right, row, offset, podIndex, side: "left" });
+            const rightFormula = section.valueFormula?.({ left, right, row, offset, podIndex, side: "right" });
+            if (leftFormula) {
+              setFormulaCell(ws, row, left, leftFormula, { ...valueStyle, numFmt: offset === 6 ? "0.0;-0.0;;@" : "0;-0;;@" });
+            } else {
+              setCell(ws, row, left, null, { ...valueStyle, numFmt: offset === 6 ? "0.0;-0.0;;@" : "0;-0;;@" });
+            }
+            if (offset === 6) {
+              setCell(ws, row, right, null, { ...valueStyle, numFmt: "0.0;-0.0;;@" });
+            } else if (rightFormula) {
+              setFormulaCell(ws, row, right, rightFormula, { ...valueStyle, numFmt: "0;-0;;@" });
+            } else {
+              setCell(ws, row, right, null, { ...valueStyle, numFmt: "0;-0;;@" });
+            }
+          });
+        });
+      });
+
+      for (let row = 1; row <= finalRow; row += 1) {
+        for (let col = 1; col <= lastCol; col += 1) {
+          const cell = ws.getCell(row, col);
+          cell.border = cell.border || fullBorder("thin");
+          cell.alignment = cell.alignment || { horizontal: "center", vertical: "middle" };
+          cell.font = cell.font || { name: "Calibri", size: 11, color: { argb: "FF000000" } };
+        }
+      }
+      sections.forEach((_section, sectionIndex) => {
+        const headerStart = 3 + sectionIndex * ROB_TRANSFER_SECTION_STEP;
+        const dataStart = 6 + sectionIndex * ROB_TRANSFER_SECTION_STEP;
+        for (let col = 1; col <= lastCol; col += 1) {
+          ws.getCell(headerStart + 2, col).border = { ...(ws.getCell(headerStart + 2, col).border || fullBorder("thin")), bottom: excelBorder("medium") };
+          ws.getCell(dataStart + 6, col).border = { ...(ws.getCell(dataStart + 6, col).border || fullBorder("thin")), bottom: excelBorder("medium") };
+        }
+        for (let row = headerStart; row <= dataStart + 6; row += 1) {
+          ws.getCell(row, 1).border = { ...(ws.getCell(row, 1).border || fullBorder("thin")), left: excelBorder("medium") };
+          ws.getCell(row, 3).border = { ...(ws.getCell(row, 3).border || fullBorder("thin")), right: excelBorder("medium") };
+          ws.getCell(row, lastCol).border = { ...(ws.getCell(row, lastCol).border || fullBorder("thin")), right: excelBorder("medium") };
+        }
+        pods.forEach((_pod, podIndex) => {
+          const left = 4 + podIndex * 2;
+          for (let row = headerStart; row <= dataStart + 6; row += 1) {
+            ws.getCell(row, left).border = { ...(ws.getCell(row, left).border || fullBorder("thin")), left: excelBorder("medium") };
+          }
+        });
+      });
+      return ws;
+    }
+
     function addRobInputSheet(workbook, wbMeta) {
       const pods = wbMeta?.model?.sheet?.pods || [];
       return addRobTransferSheet(workbook, "ROB_INPUT", pods, {
@@ -3570,6 +4086,48 @@
           if (offset === 6) return side === "left" ? `${sourceSheet}!${excelCell(ebLeft, totalStart + offset)}` : "";
           return `${sourceSheet}!${excelCell(side === "left" ? ebLeft : ebRight, totalStart + offset)}`;
         }
+      });
+    }
+
+    function addMultiCarrierRobInputSheet(workbook, wbMetas) {
+      const sections = wbMetas.map(({ carrier, meta }) => ({
+        code: carrier.code,
+        pods: meta?.model?.sheet?.pods || [],
+        blockLabel: `${carrier.code} ROB INPUT`
+      }));
+      return addMultiCarrierRobTransferSheet(workbook, "ROB_INPUT", sections, {
+        title: "ROB_INPUT - paste previous ROB_OUTPUT values here",
+        note: "Paste each carrier section from previous ROB_OUTPUT into the matching carrier section here.",
+        headerFill: "FFB6D7A8",
+        noteFill: "FFE2F0D9",
+        blockFill: "FFD9EAD3",
+        tabColor: "FF6AA84F"
+      });
+    }
+
+    function addMultiCarrierRobOutputSheet(workbook, ebMetas) {
+      const sections = ebMetas.map(({ carrier, meta }) => {
+        const sourceSheet = excelSheetRef(meta.ws.name);
+        const totalStart = meta.totalStart;
+        return {
+          code: carrier.code,
+          pods: meta?.model?.sheet?.pods || [],
+          blockLabel: `${carrier.code} EB TOTAL`,
+          valueFormula: ({ offset, podIndex, side }) => {
+            const ebLeft = meta.podLeftCols[podIndex];
+            const ebRight = meta.podRightCols[podIndex];
+            if (offset === 6) return side === "left" ? `${sourceSheet}!${excelCell(ebLeft, totalStart + offset)}` : "";
+            return `${sourceSheet}!${excelCell(side === "left" ? ebLeft : ebRight, totalStart + offset)}`;
+          }
+        };
+      });
+      return addMultiCarrierRobTransferSheet(workbook, "ROB_OUTPUT", sections, {
+        title: "ROB_OUTPUT - EB TOTAL to next cycle ROB_INPUT",
+        note: "Copy each carrier section through the Weight row, then paste values to next workbook ROB_INPUT.",
+        headerFill: "FFF9CB9C",
+        noteFill: "FFFCE4D6",
+        blockFill: "FFF4CCCC",
+        tabColor: "FFE69138"
       });
     }
 
@@ -3625,11 +4183,74 @@
       workbook.calcProperties = workbook.calcProperties || {};
       workbook.calcProperties.fullCalcOnLoad = true;
       workbook.calcProperties.forceFullCalc = true;
-      const wbMeta = buildExcelSheet(workbook, input, "WB");
-      const ebMeta = buildExcelSheet(workbook, input, "EB");
-      applyEbRobCarryover(wbMeta, ebMeta);
-      addRobInputSheet(workbook, wbMeta);
-      addRobOutputSheet(workbook, ebMeta);
+      const carriers = input.carriers?.length ? input.carriers : [defaultCarrier()];
+      const isMultiCarrier = carriers.length > 1;
+      if (!isMultiCarrier) {
+        const carrier = carriers[0];
+        const wbName = carrierSheetName("WB", carrier, false);
+        const ebName = carrierSheetName("EB", carrier, false);
+        const wbMeta = buildExcelSheet(
+          workbook,
+          inputForSheet(input, "WB", wbName, sheetDataForCarrier(input, "WB", carrier, false), 0),
+          wbName
+        );
+        const ebMeta = buildExcelSheet(
+          workbook,
+          inputForSheet(input, "EB", ebName, sheetDataForCarrier(input, "EB", carrier, false), 0),
+          ebName
+        );
+        applyEbRobCarryover(wbMeta, ebMeta);
+        addRobInputSheet(workbook, wbMeta);
+        addRobOutputSheet(workbook, ebMeta);
+      } else {
+        const wbTotalMeta = buildExcelSheet(
+          workbook,
+          inputForSheet(input, "WB", totalSheetName("WB"), sheetDataForTotal(input, "WB", carriers), 0),
+          totalSheetName("WB")
+        );
+        const wbCarrierMetas = carriers.map((carrier, index) => {
+          const sheetName = carrierSheetName("WB", carrier, true);
+          const meta = buildExcelSheet(
+            workbook,
+            inputForSheet(
+              input,
+              "WB",
+              sheetName,
+              sheetDataForCarrier(input, "WB", carrier, true),
+              index * ROB_TRANSFER_SECTION_STEP
+            ),
+            sheetName
+          );
+          return { carrier, meta };
+        });
+        const ebTotalMeta = buildExcelSheet(
+          workbook,
+          inputForSheet(input, "EB", totalSheetName("EB"), sheetDataForTotal(input, "EB", carriers), 0),
+          totalSheetName("EB")
+        );
+        const ebCarrierMetas = carriers.map((carrier, index) => {
+          const sheetName = carrierSheetName("EB", carrier, true);
+          const meta = buildExcelSheet(
+            workbook,
+            inputForSheet(
+              input,
+              "EB",
+              sheetName,
+              sheetDataForCarrier(input, "EB", carrier, true),
+              index * ROB_TRANSFER_SECTION_STEP
+            ),
+            sheetName
+          );
+          return { carrier, meta };
+        });
+        wbCarrierMetas.forEach((item, index) => {
+          applyEbRobCarryover(item.meta, ebCarrierMetas[index].meta);
+        });
+        applyTotalSheetFormulas(wbTotalMeta, wbCarrierMetas.map((item) => item.meta));
+        applyTotalSheetFormulas(ebTotalMeta, ebCarrierMetas.map((item) => item.meta));
+        addMultiCarrierRobInputSheet(workbook, wbCarrierMetas);
+        addMultiCarrierRobOutputSheet(workbook, ebCarrierMetas);
+      }
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -3733,6 +4354,45 @@
     $("wbRf").addEventListener("input", () => handleRfInput("wbRf"));
     $("ebRf").addEventListener("input", () => handleRfInput("ebRf"));
     $("tonPerTeu").addEventListener("input", handleTonPerTeuInput);
+    $("addCarrier").addEventListener("click", () => {
+      const carriers = readCarrierRows();
+      carriers.push(defaultCarrier(`P${carriers.length + 1}`));
+      renderCarrierRows(carriers);
+      rerenderIfScheduleReady();
+    });
+    $("carrierRows").addEventListener("input", (event) => {
+      const input = event.target.closest("input[data-field]");
+      if (!input) return;
+      const row = input.closest("tr[data-carrier-row]");
+      if (!row) return;
+      const field = input.dataset.field;
+      if (field === "code") input.value = carrierCode(input.value, "");
+      if (field === "wbTeus" || field === "ebTeus" || field === "tonPerTeu") updateCarrierWeights(row);
+      if (field === "wbMt") updateCarrierRatioFromWeight(row, "wbMt", "wbTeus");
+      if (field === "ebMt") updateCarrierRatioFromWeight(row, "ebMt", "ebTeus");
+      syncLegacyInputsFromCarriers();
+      rerenderIfScheduleReady();
+    });
+    $("carrierRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+      const row = button.closest("tr[data-carrier-row]");
+      if (!row) return;
+      if (button.dataset.action === "syncTeu") {
+        syncCarrierPair(row, "wbTeus", "ebTeus");
+        updateCarrierWeights(row);
+      } else if (button.dataset.action === "syncRf") {
+        syncCarrierPair(row, "wbRf", "ebRf");
+      } else if (button.dataset.action === "remove") {
+        const carriers = readCarrierRows();
+        const rows = [...$("carrierRows").querySelectorAll("tr[data-carrier-row]")];
+        const index = rows.indexOf(row);
+        if (carriers.length > 1 && index >= 0) carriers.splice(index, 1);
+        renderCarrierRows(carriers.length ? carriers : [defaultCarrier()]);
+      }
+      syncLegacyInputsFromCarriers();
+      rerenderIfScheduleReady();
+    });
     $("serviceLane").addEventListener("input", handleLaneInput);
     $("serviceLane").addEventListener("change", handleLaneInput);
     $("vvd").addEventListener("input", handleVvdInput);
@@ -3741,6 +4401,7 @@
     $("historySearch").addEventListener("change", renderHistory);
     $("loadHistory").addEventListener("click", () => loadHistoryRecord());
 
+    renderCarrierRows([defaultCarrier()]);
     initializePage();
   </script>
 </body>
