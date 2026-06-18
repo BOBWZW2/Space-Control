@@ -2130,7 +2130,7 @@
 
     function defaultCarrier(code = DEFAULT_CARRIER_CODE) {
       return {
-        code: carrierCode(code),
+        code: normalizeText(code) ? carrierCode(code, "") : "",
         tonPerTeu: DEFAULT_TON_PER_TEU,
         wbTeus: null,
         wbMt: null,
@@ -2142,7 +2142,7 @@
     }
 
     function normalizeCarrier(record = {}, index = 0) {
-      const fallback = index === 0 ? DEFAULT_CARRIER_CODE : `P${index + 1}`;
+      const fallback = index === 0 ? DEFAULT_CARRIER_CODE : "";
       const ton = blankNumberToNull(record.tonPerTeu);
       return {
         code: carrierCode(record.code, fallback),
@@ -2173,11 +2173,17 @@
       const seen = new Map();
       return carriers.map((carrier, index) => {
         const normalized = normalizeCarrier(carrier, index);
-        const base = normalized.code || (index === 0 ? DEFAULT_CARRIER_CODE : `P${index + 1}`);
+        if (!normalized.code) return normalized;
+        const base = normalized.code;
         const count = seen.get(base) || 0;
         seen.set(base, count + 1);
         return { ...normalized, code: count ? `${base}${count + 1}` : base };
       });
+    }
+
+    function activeCarriers(carriers) {
+      const named = uniqueCarriers(carriers || []).filter((carrier) => normalizeText(carrier.code));
+      return named.length ? named : [defaultCarrier()];
     }
 
     function readCarrierRows() {
@@ -2409,7 +2415,7 @@
     }
 
     function readInputs() {
-      const carriers = readCarrierRows();
+      const carriers = activeCarriers(readCarrierRows());
       syncLegacyInputsFromCarriers();
       const wbAlloc = totalCarrierAllocation(carriers, "WB");
       const ebAlloc = totalCarrierAllocation(carriers, "EB");
@@ -4139,6 +4145,7 @@
     function applyEbRobCarryover(wbMeta, ebMeta) {
       const wbPods = wbMeta?.model?.sheet?.pods || [];
       const ebPods = ebMeta?.model?.sheet?.pods || [];
+      const wbSheetRef = excelSheetRef(wbMeta.ws.name);
       ebPods.forEach((ebPod, ebPodIndex) => {
         const wbPodIndex = findPodIndexByCall(wbPods, ebPod, {
           uniquePortFallback: true,
@@ -4155,16 +4162,16 @@
           const row = 6 + offset;
           setFormulaOnly(
             ebMeta.ws.getCell(row, ebLeft),
-            `WB!${excelCell(wbLeft, wbMeta.totalStart + offset)}`
+            `${wbSheetRef}!${excelCell(wbLeft, wbMeta.totalStart + offset)}`
           );
           setFormulaOnly(
             ebMeta.ws.getCell(row, ebRight),
-            `WB!${excelCell(wbRight, wbMeta.totalStart + offset)}`
+            `${wbSheetRef}!${excelCell(wbRight, wbMeta.totalStart + offset)}`
           );
         }
         setFormulaOnly(
           ebMeta.ws.getCell(12, ebLeft),
-          `WB!${excelCell(wbLeft, wbMeta.totalStart + 6)}`,
+          `${wbSheetRef}!${excelCell(wbLeft, wbMeta.totalStart + 6)}`,
           "0.0;-0.0;;@"
         );
       });
@@ -4208,6 +4215,11 @@
           inputForSheet(input, "WB", totalSheetName("WB"), sheetDataForTotal(input, "WB", carriers), 0),
           totalSheetName("WB")
         );
+        const ebTotalMeta = buildExcelSheet(
+          workbook,
+          inputForSheet(input, "EB", totalSheetName("EB"), sheetDataForTotal(input, "EB", carriers), 0),
+          totalSheetName("EB")
+        );
         const wbCarrierMetas = carriers.map((carrier, index) => {
           const sheetName = carrierSheetName("WB", carrier, true);
           const meta = buildExcelSheet(
@@ -4223,11 +4235,6 @@
           );
           return { carrier, meta };
         });
-        const ebTotalMeta = buildExcelSheet(
-          workbook,
-          inputForSheet(input, "EB", totalSheetName("EB"), sheetDataForTotal(input, "EB", carriers), 0),
-          totalSheetName("EB")
-        );
         const ebCarrierMetas = carriers.map((carrier, index) => {
           const sheetName = carrierSheetName("EB", carrier, true);
           const meta = buildExcelSheet(
@@ -4356,7 +4363,7 @@
     $("tonPerTeu").addEventListener("input", handleTonPerTeuInput);
     $("addCarrier").addEventListener("click", () => {
       const carriers = readCarrierRows();
-      carriers.push(defaultCarrier(`P${carriers.length + 1}`));
+      carriers.push(defaultCarrier(""));
       renderCarrierRows(carriers);
       rerenderIfScheduleReady();
     });
