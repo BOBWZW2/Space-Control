@@ -4005,10 +4005,11 @@
       }
       ws.properties.defaultColWidth = 9;
 
-      const n = model.sheet.pods.length;
-      const podLeftCols = Array.from({ length: n }, (_, i) => 4 + i * 2);
+      const podCount = model.sheet.pods.length;
+      const layoutPodCount = Math.max(podCount, 2);
+      const podLeftCols = Array.from({ length: podCount }, (_, i) => 4 + i * 2);
       const podRightCols = podLeftCols.map((col) => col + 1);
-      const podEnd = 3 + n * 2;
+      const podEnd = 3 + layoutPodCount * 2;
       const spacerCol = podEnd + 1;
       const summaryStart = spacerCol + 1;
       const summary = {
@@ -4060,7 +4061,10 @@
       }
 
       const totalCols = summary.last;
-      const titleEnd = Math.min(7, totalCols);
+      // Keep the title inside the schedule area. For a direction with fewer than
+      // two calls, the summary starts before column H and would otherwise overlap
+      // this merge (ExcelJS rejects overlapping merged ranges).
+      const titleEnd = Math.min(7, spacerCol - 1);
       safeMerge(ws, 1, 1, 1, titleEnd);
       if (spacerCol - 1 >= 8) safeMerge(ws, 1, 8, 1, spacerCol - 1);
       safeMerge(ws, 1, summaryStart, 1, summary.last);
