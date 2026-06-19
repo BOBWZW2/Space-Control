@@ -64,10 +64,42 @@
     .title-row {
       display: flex;
       align-items: center;
+      justify-content: space-between;
+      gap: 12px;
       min-height: 42px;
       padding: 8px 18px;
       background: #ffffff;
       border-bottom: 1px solid #dbe4ee;
+    }
+
+    .icon-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      min-width: 30px;
+      height: 30px;
+      min-height: 30px;
+      padding: 0;
+      color: #344054;
+    }
+
+    .icon-button svg {
+      width: 16px;
+      height: 16px;
+      stroke-width: 2;
+    }
+
+    .settings-fallback:empty::before {
+      content: "\2699";
+      font-style: normal;
+      font-size: 16px;
+    }
+
+    .close-fallback:empty::before {
+      content: "\00d7";
+      font-style: normal;
+      font-size: 20px;
     }
 
     .generation-controls {
@@ -164,13 +196,13 @@
     }
 
     .history-panel.control-panel {
-      grid-column: span 4;
+      grid-column: span 5;
       background: #eef5fb;
       border-top-color: #5a9bd6 !important;
     }
 
     .pod-panel {
-      grid-column: span 5;
+      grid-column: span 7;
       background: #fff9e8;
       border-top-color: #d3ad43 !important;
     }
@@ -179,6 +211,57 @@
       grid-column: span 3;
       background: #f5f6f8;
       border-top-color: #98a2b3 !important;
+    }
+
+    dialog.settings-dialog {
+      width: min(460px, calc(100vw - 24px));
+      max-width: none;
+      margin: auto;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      color: var(--text);
+      box-shadow: 0 20px 48px rgba(16, 24, 40, 0.22);
+    }
+
+    .settings-dialog::backdrop {
+      background: rgba(16, 24, 40, 0.42);
+    }
+
+    .settings-dialog-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 11px 14px;
+      background: #e8f3fb;
+      border-bottom: 1px solid #c6d9ea;
+    }
+
+    .settings-dialog-head h2 {
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .settings-dialog-body {
+      padding: 14px;
+    }
+
+    .settings-group h3 {
+      margin: 0 0 5px;
+      font-size: 13px;
+    }
+
+    .settings-group .sync-settings {
+      margin-top: 12px;
+    }
+
+    .settings-status {
+      min-height: 18px;
+      margin-top: 9px;
+      color: var(--muted);
+      font-size: 12px;
     }
 
     .brand {
@@ -1074,6 +1157,14 @@
         grid-column: 1;
       }
 
+      .settings-dialog .sync-settings {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .settings-dialog .sync-settings .field {
+        grid-column: 1 / -1;
+      }
+
       .partner-row {
         grid-template-columns: minmax(0, 1fr) minmax(0, 0.78fr);
       }
@@ -1154,6 +1245,9 @@
           <div class="brand">
             <h1>控舱表生成器</h1>
           </div>
+          <button id="settingsButton" class="icon-button" type="button" aria-label="设置" aria-controls="settingsDialog" title="设置">
+            <i data-lucide="settings" class="settings-fallback" aria-hidden="true"></i>
+          </button>
         </div>
         <div class="generation-controls">
           <div class="generation-fields">
@@ -1219,8 +1313,20 @@
           <div class="port-options" id="wbPodOptions"></div>
         </div>
 
-        <details class="section control-panel history-panel sync-panel">
-          <summary>GitHub 同步设置</summary>
+      </div>
+    </header>
+
+    <dialog id="settingsDialog" class="settings-dialog" aria-labelledby="settingsTitle">
+      <div class="settings-dialog-head">
+        <h2 id="settingsTitle">设置</h2>
+        <button id="settingsClose" class="icon-button" type="button" aria-label="关闭设置" title="关闭">
+          <i data-lucide="x" class="close-fallback" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="settings-dialog-body">
+        <section class="settings-group">
+          <h3>GitHub 同步</h3>
+          <div class="subtle">Token 仅保存在当前浏览器，用于“保存并同步”。</div>
           <div class="sync-settings">
             <div class="field">
               <label for="githubToken">GitHub Token</label>
@@ -1229,9 +1335,10 @@
             <button id="saveToken" type="button">保存</button>
             <button id="clearToken" type="button">清除</button>
           </div>
-        </details>
+          <div class="settings-status" id="settingsStatus" aria-live="polite"></div>
+        </section>
       </div>
-    </header>
+    </dialog>
 
     <main class="workspace">
       <div class="preview-heading">
@@ -1267,6 +1374,7 @@
     </main>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
   <script>
@@ -1745,16 +1853,37 @@
       if (!input) return;
       input.value = "";
       input.placeholder = getGithubToken() ? "已保存到本机浏览器" : "首次同步时填写";
+      updateSettingsStatus();
+    }
+
+    function updateSettingsStatus(message = "") {
+      const status = $("settingsStatus");
+      if (!status) return;
+      status.textContent = message || (getGithubToken() ? "当前浏览器已保存 GitHub Token" : "当前浏览器尚未保存 GitHub Token");
+    }
+
+    function openSettings() {
+      const dialog = $("settingsDialog");
+      if (!dialog || dialog.open) return;
+      updateTokenUi();
+      dialog.showModal();
+    }
+
+    function closeSettings() {
+      const dialog = $("settingsDialog");
+      if (dialog?.open) dialog.close();
     }
 
     function saveGithubTokenFromInput() {
       const token = $("githubToken").value.trim();
       if (!token) {
         $("status").textContent = "请先填写 GitHub Token";
+        updateSettingsStatus("请先填写 GitHub Token");
         return "";
       }
       setGithubToken(token);
       $("status").textContent = "GitHub Token 已保存到本机浏览器";
+      updateSettingsStatus("GitHub Token 已保存到当前浏览器");
       return token;
     }
 
@@ -4860,10 +4989,16 @@
     $("copyTable").addEventListener("click", copyTable);
     $("exportXls").addEventListener("click", exportXls);
     $("saveSync").addEventListener("click", saveAndSyncCurrentVvd);
+    $("settingsButton").addEventListener("click", openSettings);
+    $("settingsClose").addEventListener("click", closeSettings);
+    $("settingsDialog").addEventListener("click", (event) => {
+      if (event.target === $("settingsDialog")) closeSettings();
+    });
     $("saveToken").addEventListener("click", saveGithubTokenFromInput);
     $("clearToken").addEventListener("click", () => {
       setGithubToken("");
       $("status").textContent = "GitHub Token 已清除";
+      updateSettingsStatus("GitHub Token 已从当前浏览器清除");
     });
     document.querySelectorAll(".tab").forEach((button) => {
       button.addEventListener("click", () => {
@@ -4935,6 +5070,7 @@
 
     renderCarrierRows([defaultCarrier()]);
     initializePage();
+    if (window.lucide) window.lucide.createIcons();
   </script>
 </body>
 </html>
