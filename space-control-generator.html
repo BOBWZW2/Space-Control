@@ -1421,13 +1421,9 @@
             </div>
           </div>
           <div class="generation-actions">
-            <div class="tabs" id="directionTabs" aria-label="选择航向">
-              <button class="tab active" type="button" data-sheet="WB">WB · W航向</button>
-              <button class="tab" type="button" data-sheet="EB">EB · E航向</button>
-            </div>
             <button id="clearInputs" type="button">清除</button>
             <button id="generate" type="button">刷新船期</button>
-            <button id="fetchTdr" type="button" class="tdr-button">更新 WB TDR</button>
+            <button id="fetchTdr" type="button" class="tdr-button">更新 TDR</button>
             <button id="saveSync" type="button" class="sync-save">保存并同步</button>
             <button id="copyTable" type="button">复制预览</button>
             <button id="exportXls" type="button" class="primary export-button">导出 Excel</button>
@@ -1512,6 +1508,10 @@
       </div>
       <div class="settings-dialog-body">
         <div class="tdr-controls">
+          <div class="tabs" id="tdrDirectionTabs" aria-label="选择 TDR 航向">
+            <button class="tab active" type="button" data-sheet="WB">WB · W航向</button>
+            <button class="tab" type="button" data-sheet="EB">EB · E航向</button>
+          </div>
           <div id="tdrScope" class="tdr-scope">查询当前方向全部 POL</div>
           <button id="tdrQuery" type="button" class="primary">后台查询整个方向</button>
         </div>
@@ -2594,17 +2594,13 @@
     }
 
     function updateDirectionUi() {
-      document.querySelectorAll(".tab[data-sheet]").forEach((button) => {
+      document.querySelectorAll("#tdrDirectionTabs .tab[data-sheet]").forEach((button) => {
         const direction = button.dataset.sheet;
         const calls = directionCalls(direction);
         button.classList.toggle("active", direction === state.activeSheet);
         button.disabled = Boolean(state.currentLookup) && calls.length === 0;
         button.textContent = `${direction} · ${direction === "WB" ? "W" : "E"}航向${state.currentLookup ? ` (${calls.length})` : ""}`;
       });
-      if ($("fetchTdr")) {
-        $("fetchTdr").textContent = `更新 ${state.activeSheet} TDR`;
-        $("fetchTdr").title = `${directionVvd(state.activeSheet)} · 仅更新 ${state.activeSheet} 航向`;
-      }
     }
 
     function inferLane(rows, vvds) {
@@ -4375,9 +4371,9 @@
       state.tableData.WB = makeTableModel(input, "WB");
       state.tableData.EB = makeTableModel(input, "EB");
       updateDirectionUi();
-      $("summaryLine").textContent = `当前操作：${state.activeSheet} · ${directionVvd(state.activeSheet)} · ${input.vesselName} / ${input.vvd} · ${input.serviceLane || "-"}`;
+      $("summaryLine").textContent = `WB + EB · ${input.vesselName} / ${input.vvd} · ${input.serviceLane || "-"}`;
       $("sheetWrap").replaceChildren(buildSchedulePreview(input));
-      $("status").textContent = `当前 ${state.activeSheet} · WB ${previewCalls("WB", input).length} ports · EB ${previewCalls("EB", input).length} ports`;
+      $("status").textContent = `WB + EB · WB ${previewCalls("WB", input).length} ports · EB ${previewCalls("EB", input).length} ports`;
       return;
       $("status").textContent = `WB ${input.WB.pods.length} ports · EB ${input.EB.pods.length} ports`;
     }
@@ -5859,12 +5855,12 @@
       $("status").textContent = "GitHub Token 已清除";
       updateSettingsStatus("GitHub Token 已从当前浏览器清除");
     });
-    document.querySelectorAll(".tab").forEach((button) => {
+    document.querySelectorAll("#tdrDirectionTabs .tab").forEach((button) => {
       button.addEventListener("click", () => {
         if (button.disabled) return;
         state.activeSheet = button.dataset.sheet;
         updateDirectionUi();
-        rerenderIfScheduleReady();
+        if ($("tdrDialog")?.open) openTdrDialog();
       });
     });
 
