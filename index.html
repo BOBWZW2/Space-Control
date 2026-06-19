@@ -861,7 +861,7 @@
     }
 
     .tabs {
-      display: none;
+      display: inline-flex;
       align-items: center;
       border: 1px solid var(--line);
       border-radius: 6px;
@@ -872,7 +872,7 @@
     .tab {
       border: 0;
       border-radius: 0;
-      min-width: 64px;
+      min-width: 96px;
       background: #ffffff;
     }
 
@@ -880,6 +880,12 @@
       background: var(--accent);
       color: #ffffff;
       font-weight: 700;
+    }
+
+    .tab:disabled {
+      cursor: not-allowed;
+      color: #98a2b3;
+      background: #f2f4f7;
     }
 
     .status {
@@ -1415,9 +1421,13 @@
             </div>
           </div>
           <div class="generation-actions">
+            <div class="tabs" id="directionTabs" aria-label="选择航向">
+              <button class="tab active" type="button" data-sheet="WB">WB · W航向</button>
+              <button class="tab" type="button" data-sheet="EB">EB · E航向</button>
+            </div>
             <button id="clearInputs" type="button">清除</button>
             <button id="generate" type="button">刷新船期</button>
-            <button id="fetchTdr" type="button" class="tdr-button">更新 TDR</button>
+            <button id="fetchTdr" type="button" class="tdr-button">更新 WB TDR</button>
             <button id="saveSync" type="button" class="sync-save">保存并同步</button>
             <button id="copyTable" type="button">复制预览</button>
             <button id="exportXls" type="button" class="primary export-button">导出 Excel</button>
@@ -2569,6 +2579,34 @@
       };
     }
 
+    function directionVvd(direction) {
+      if (!state.currentLookup) return direction;
+      return direction === "EB"
+        ? (state.currentLookup.currentEVvd || "EB")
+        : (state.currentLookup.currentWVvd || "WB");
+    }
+
+    function directionCalls(direction) {
+      if (!state.currentLookup) return [];
+      return direction === "EB"
+        ? (state.currentLookup.ebCalls || [])
+        : (state.currentLookup.wbCalls || []);
+    }
+
+    function updateDirectionUi() {
+      document.querySelectorAll(".tab[data-sheet]").forEach((button) => {
+        const direction = button.dataset.sheet;
+        const calls = directionCalls(direction);
+        button.classList.toggle("active", direction === state.activeSheet);
+        button.disabled = Boolean(state.currentLookup) && calls.length === 0;
+        button.textContent = `${direction} · ${direction === "WB" ? "W" : "E"}航向${state.currentLookup ? ` (${calls.length})` : ""}`;
+      });
+      if ($("fetchTdr")) {
+        $("fetchTdr").textContent = `更新 ${state.activeSheet} TDR`;
+        $("fetchTdr").title = `${directionVvd(state.activeSheet)} · 仅更新 ${state.activeSheet} 航向`;
+      }
+    }
+
     function inferLane(rows, vvds) {
       const lanes = rows
         .filter((row) => vvds.includes(row.vvd))
@@ -2769,6 +2807,8 @@
       }
       state.lookupSignature = signature;
       state.currentLookup = lookup;
+      if (!lookup.wbCalls.length && lookup.ebCalls.length) state.activeSheet = "EB";
+      else if (lookup.wbCalls.length && !lookup.ebCalls.length) state.activeSheet = "WB";
       $("serviceLane").value = lookup.lane;
       refreshScheduleFieldOptions();
       $("vesselName").value = lookup.vesselName;
@@ -2776,6 +2816,7 @@
       $("selection").value = "";
       renderWbPodOptions(lookup);
       updateScheduleTextareasFromLookup();
+      updateDirectionUi();
       $("scheduleSummary").textContent =
         `${lookup.vesselName} / ${lookup.inputVvd} · ${lookup.lane} · ` +
         `WB ${lookup.currentWVvd || "-"} (${lookup.wbCalls.length} calls), ` +
@@ -3435,7 +3476,7 @@
       $("tdrStatusGrid").replaceChildren();
       $("tdrIssues").replaceChildren();
       $("tdrApply").disabled = true;
-      $("tdrScope").textContent = `${state.activeSheet} · ${choices.length} 个 POL · 整个方向`;
+      $("tdrScope").textContent = `${state.activeSheet} · ${directionVvd(state.activeSheet)} · ${choices.length} 个 POL · 整个方向`;
       setTdrProgress(0, choices.length ? "将按离港日期检查当前方向全部 POL。" : "当前方向没有可查询的 POL。", false);
       $("tdrQuery").disabled = !choices.length;
       const dialog = $("tdrDialog");
@@ -4333,9 +4374,10 @@
       const input = readInputs();
       state.tableData.WB = makeTableModel(input, "WB");
       state.tableData.EB = makeTableModel(input, "EB");
-      $("summaryLine").textContent = `Schedule preview · ${input.vesselName} / ${input.vvd} · ${input.serviceLane || "-"}`;
+      updateDirectionUi();
+      $("summaryLine").textContent = `当前操作：${state.activeSheet} · ${directionVvd(state.activeSheet)} · ${input.vesselName} / ${input.vvd} · ${input.serviceLane || "-"}`;
       $("sheetWrap").replaceChildren(buildSchedulePreview(input));
-      $("status").textContent = `WB ${previewCalls("WB", input).length} ports · EB ${previewCalls("EB", input).length} ports`;
+      $("status").textContent = `当前 ${state.activeSheet} · WB ${previewCalls("WB", input).length} ports · EB ${previewCalls("EB", input).length} ports`;
       return;
       $("status").textContent = `WB ${input.WB.pods.length} ports · EB ${input.EB.pods.length} ports`;
     }
@@ -5819,8 +5861,9 @@
     });
     document.querySelectorAll(".tab").forEach((button) => {
       button.addEventListener("click", () => {
+        if (button.disabled) return;
         state.activeSheet = button.dataset.sheet;
-        document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab === button));
+        updateDirectionUi();
         rerenderIfScheduleReady();
       });
     });
@@ -5886,6 +5929,7 @@
     $("historyAction").addEventListener("click", handleHistoryAction);
 
     renderCarrierRows([defaultCarrier()]);
+    updateDirectionUi();
     initializePage();
     if (window.lucide) window.lucide.createIcons();
   </script>
