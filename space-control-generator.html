@@ -157,20 +157,75 @@
       font-weight: 700;
     }
 
-    dialog.tdr-dialog {
-      width: min(920px, calc(100vw - 24px));
+    dialog.settings-dialog.tdr-dialog {
+      width: min(1240px, calc(100vw - 24px));
     }
 
     .tdr-controls {
-      display: grid;
-      grid-template-columns: minmax(180px, 1fr) auto;
+      display: flex;
+      justify-content: space-between;
       gap: 10px;
-      align-items: end;
+      align-items: center;
       margin-bottom: 12px;
     }
 
-    .tdr-controls select {
+    .tdr-scope {
+      color: #344054;
+      font-weight: 700;
+    }
+
+    .tdr-progress {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) 48px;
+      gap: 8px;
+      align-items: center;
+      margin: 8px 0;
+    }
+
+    .tdr-progress progress {
       width: 100%;
+      height: 14px;
+    }
+
+    .tdr-progress span {
+      color: #0b4f75;
+      font-weight: 800;
+      text-align: right;
+    }
+
+    .tdr-status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px;
+      margin: 8px 0 12px;
+    }
+
+    .tdr-status-card {
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #f8fafc;
+    }
+
+    .tdr-status-card strong,
+    .tdr-status-card span {
+      display: block;
+    }
+
+    .tdr-status-card span {
+      margin-top: 3px;
+      color: #667085;
+      font-size: 12px;
+    }
+
+    .tdr-status-card.error {
+      border-color: #fda29b;
+      background: #fff4f2;
+    }
+
+    .tdr-status-card.pending {
+      border-color: #fedf89;
+      background: #fffaeb;
     }
 
     .tdr-message {
@@ -208,6 +263,32 @@
 
     .tdr-preview-table select {
       min-width: 120px;
+    }
+
+    .tdr-issues {
+      display: grid;
+      gap: 8px;
+      margin: 10px 0;
+    }
+
+    .tdr-issue {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(180px, 260px);
+      gap: 12px;
+      align-items: center;
+      padding: 9px 10px;
+      border: 1px solid #fedf89;
+      border-radius: 6px;
+      background: #fffaeb;
+    }
+
+    .tdr-issue.error {
+      border-color: #fda29b;
+      background: #fff4f2;
+    }
+
+    .tdr-issue select {
+      width: 100%;
     }
 
     .tdr-unmatched {
@@ -1421,23 +1502,34 @@
       </div>
       <div class="settings-dialog-body">
         <div class="tdr-controls">
-          <div class="field">
-            <label for="tdrPolSelect">起运港 / 航次</label>
-            <select id="tdrPolSelect"></select>
-          </div>
-          <button id="tdrQuery" type="button" class="primary">后台查询</button>
+          <div id="tdrScope" class="tdr-scope">查询当前方向全部 POL</div>
+          <button id="tdrQuery" type="button" class="primary">后台查询整个方向</button>
         </div>
-        <div id="tdrMessage" class="tdr-message" aria-live="polite">请选择已离港的 POL。</div>
+        <div id="tdrProgressWrap" class="tdr-progress hidden" role="status" aria-live="polite">
+          <progress id="tdrProgress" max="100" value="0"></progress>
+          <span id="tdrProgressPercent">0%</span>
+        </div>
+        <div id="tdrMessage" class="tdr-message" aria-live="polite">将按离港日期检查当前方向全部 POL。</div>
+        <div id="tdrStatusGrid" class="tdr-status-grid"></div>
+        <div id="tdrIssues" class="tdr-issues"></div>
         <div id="tdrPreviewWrap" class="tdr-preview-wrap hidden">
           <table class="tdr-preview-table">
             <thead>
               <tr>
+                <th>POL</th>
                 <th>来源</th>
+                <th>SO</th>
+                <th>CO</th>
                 <th>TDR POD</th>
                 <th>写入 POD</th>
                 <th>货类</th>
+                <th>Partner</th>
                 <th>20'</th>
                 <th>40'</th>
+                <th>MT 20'</th>
+                <th>MT 40'</th>
+                <th>RF 20'</th>
+                <th>RF 40'</th>
                 <th>重量</th>
               </tr>
             </thead>
@@ -1446,7 +1538,7 @@
         </div>
         <div class="tdr-dialog-actions">
           <button id="tdrCancel" type="button">取消</button>
-          <button id="tdrApply" type="button" class="primary" disabled>确认写入</button>
+          <button id="tdrApply" type="button" class="primary" disabled>确认并写入可用 POL</button>
         </div>
       </div>
     </dialog>
@@ -1490,6 +1582,8 @@
   <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
   <script>
     const cargoLabels = ["LILIAN", "SUL", "T/S", "SOC", "RF", "MT", "Weight", "TTL"];
+    const totalCargoLabels = ["LILIAN", "SUL", "T/S", "SOC", "Partner", "RF", "MT", "Weight", "TTL"];
+    const NORMAL_CUL_CO = new Set(["CUL", "CUS", "CUM"]);
     const TDR_API_BASE = ["127.0.0.1", "localhost"].includes(window.location.hostname) && window.location.port === "4318"
       ? ""
       : "http://127.0.0.1:4318";
@@ -1576,6 +1670,7 @@
       sharedCachePromise: null,
       applyingCache: false,
       tdrPreview: null,
+      tdrAudit: {},
       initialized: false
     };
 
@@ -1858,6 +1953,8 @@
           wbRf: primary.wbRf,
           ebRf: primary.ebRf
         },
+        entries: state.entries,
+        tdrAudit: state.tdrAudit,
         selectedWbPodKeys,
         selectedWbPodPorts: selectedWbPodKeys.map((key) => key.split("::")[0]).filter(Boolean)
       };
@@ -1887,6 +1984,12 @@
           ? record.carriers
           : [legacyCarrierFromAllocation(allocation)];
         renderCarrierRows(carriers);
+        if (record.entries && typeof record.entries === "object") {
+          state.entries = structuredClone(record.entries);
+        }
+        if (record.tdrAudit && typeof record.tdrAudit === "object") {
+          state.tdrAudit = structuredClone(record.tdrAudit);
+        }
 
         if (Array.isArray(record.selectedWbPodKeys)) {
           const selectedKeys = new Set(record.selectedWbPodKeys);
@@ -1926,6 +2029,7 @@
       state.currentLookup = null;
       state.lookupSignature = "";
       state.entries = { WB: {}, EB: {} };
+      state.tdrAudit = {};
       state.tableData = { WB: null, EB: null };
       renderCarrierRows([defaultCarrier()]);
       ["serviceLane", "vvd", "vesselName", "reportDate", "selection", "wbTeus", "wbMt", "wbRf", "ebTeus", "ebMt", "ebRf"].forEach((id) => {
@@ -2661,6 +2765,7 @@
       const signature = lookupSignature(lookup);
       if (state.lookupSignature && state.lookupSignature !== signature) {
         state.entries = { WB: {}, EB: {} };
+        state.tdrAudit = {};
       }
       state.lookupSignature = signature;
       state.currentLookup = lookup;
@@ -3122,6 +3227,7 @@
 
     function makeTableModel(input, sheetName) {
       const sheet = input[sheetName];
+      const labels = Array.isArray(sheet.cargoLabels) && sheet.cargoLabels.length ? sheet.cargoLabels : cargoLabels;
       const blocks = [
         { key: "ROB", port: "ROB", etb: "", etd: "", type: "ROB" },
         ...sheet.pols.map((pol, index) => ({ ...pol, key: `${pol.port}-${index}`, type: "POL" })),
@@ -3134,7 +3240,7 @@
         weight: 0
       }));
 
-      const blockRows = blocks.map((block) => cargoLabels.map((label, offset) => ({
+      const blockRows = blocks.map((block) => labels.map((label, offset) => ({
         block,
         label,
         offset,
@@ -3147,6 +3253,7 @@
         meta: input,
         sheetName,
         sheet,
+        labels,
         blocks,
         rows: blockRows,
         podTotals
@@ -3198,25 +3305,138 @@
       }));
     }
 
+    function scheduleDate(value) {
+      const match = normalizeText(value).match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+      if (!match) return null;
+      const now = new Date();
+      const month = Number(match[1]) - 1;
+      const day = Number(match[2]);
+      const explicit = match[3] ? Number(match[3]) + (Number(match[3]) < 100 ? 2000 : 0) : null;
+      const years = explicit ? [explicit] : [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
+      return years.map((year) => new Date(year, month, day, 23, 59, 59))
+        .filter((date) => date.getMonth() === month && date.getDate() === day)
+        .sort((a, b) => Math.abs(a - now) - Math.abs(b - now))[0] || null;
+    }
+
+    function departedAtLeastOneDay(etd) {
+      const date = scheduleDate(etd);
+      if (!date) return true;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return date < today;
+    }
+
+    function setTdrProgress(percent, text, visible = true) {
+      const value = Math.max(0, Math.min(100, Math.round(percent)));
+      $("tdrProgress").value = value;
+      $("tdrProgressPercent").textContent = `${value}%`;
+      $("tdrProgressWrap").classList.toggle("hidden", !visible);
+      if (text) $("tdrMessage").textContent = text;
+    }
+
+    function tdrIssue(key, type, message, options, value = "") {
+      return { key, type, message, options, value };
+    }
+
+    function issueByKey(key) {
+      return state.tdrPreview?.issues?.find((issue) => issue.key === key);
+    }
+
+    function issueValue(key) {
+      return issueByKey(key)?.value || "";
+    }
+
+    function tdrReadyToApply() {
+      const preview = state.tdrPreview;
+      return Boolean(preview && !preview.querying && preview.issues.every((issue) => issue.value));
+    }
+
+    function renderTdrIssues() {
+      const wrap = $("tdrIssues");
+      wrap.replaceChildren();
+      const preview = state.tdrPreview;
+      if (!preview) return;
+      preview.issues.forEach((issue) => {
+        const row = document.createElement("label");
+        row.className = `tdr-issue ${issue.type.includes("error") ? "error" : ""}`;
+        appendText(row, "span", issue.message);
+        const select = document.createElement("select");
+        const prompt = document.createElement("option");
+        prompt.value = "";
+        prompt.textContent = "请选择";
+        select.appendChild(prompt);
+        issue.options.forEach((item) => {
+          const option = document.createElement("option");
+          option.value = item.value;
+          option.textContent = item.label;
+          option.selected = item.value === issue.value;
+          select.appendChild(option);
+        });
+        select.addEventListener("change", () => {
+          issue.value = select.value;
+          renderTdrPreview();
+          $("tdrApply").disabled = !tdrReadyToApply();
+        });
+        row.appendChild(select);
+        wrap.appendChild(row);
+      });
+    }
+
+    function renderTdrStatuses() {
+      const grid = $("tdrStatusGrid");
+      grid.replaceChildren();
+      const preview = state.tdrPreview;
+      if (!preview) return;
+      preview.results.forEach((result) => {
+        const card = document.createElement("div");
+        const bad = ["error", "missing", "terminal"].includes(result.status);
+        card.className = `tdr-status-card ${bad ? "error" : result.status === "not-departed" ? "pending" : ""}`;
+        appendText(card, "strong", `${result.choice.port} · ${result.choice.vvd}`);
+        appendText(card, "span", result.message);
+        grid.appendChild(card);
+      });
+    }
+
+    function matchingTargetPod(preview, pod) {
+      const matched = preview.pods.find((item) => item.port === pod && String(item.eta).toUpperCase() !== "SKIP");
+      return matched?.port || issueValue(`pod:${pod}`);
+    }
+
+    function tdrClassification(preview, choice, row) {
+      const so = carrierCode(row.so, "");
+      const co = carrierCode(row.co, "");
+      const known = new Set(preview.carriers.map((carrier) => carrier.code));
+      let carrier = so;
+      let category = "LILIAN";
+      if (so === DEFAULT_CARRIER_CODE) {
+        carrier = DEFAULT_CARRIER_CODE;
+        category = NORMAL_CUL_CO.has(co) ? "LILIAN" : issueValue(`co:${choice.sheetName}:${choice.polIndex}:${co}`);
+      } else if (!known.has(so)) {
+        const decision = issueValue(`so:${so}`);
+        if (decision === "cul-soc") {
+          carrier = DEFAULT_CARRIER_CODE;
+          category = "SOC";
+        }
+      }
+      const targetPod = matchingTargetPod(preview, row.pod);
+      const direct = targetPod === row.pod && preview.pods.some((pod) => pod.port === row.pod && String(pod.eta).toUpperCase() !== "SKIP");
+      return { carrier: carrier || DEFAULT_CARRIER_CODE, category: direct ? category : "T/S", targetPod, direct };
+    }
+
     function openTdrDialog() {
       if (!state.currentLookup) {
         $("status").textContent = "请先刷新船期";
         return;
       }
       const choices = tdrPolChoices();
-      const select = $("tdrPolSelect");
-      select.replaceChildren();
-      choices.forEach((choice, index) => {
-        const option = document.createElement("option");
-        option.value = String(index);
-        option.textContent = `${choice.sheetName} · ${choice.port} · ${choice.vvd} · ETD ${choice.etd || "-"}`;
-        select.appendChild(option);
-      });
       state.tdrPreview = null;
       $("tdrPreviewBody").replaceChildren();
       $("tdrPreviewWrap").classList.add("hidden");
+      $("tdrStatusGrid").replaceChildren();
+      $("tdrIssues").replaceChildren();
       $("tdrApply").disabled = true;
-      $("tdrMessage").textContent = choices.length ? "请选择已离港的 POL，然后后台查询。" : "当前方向没有可查询的 POL。";
+      $("tdrScope").textContent = `${state.activeSheet} · ${choices.length} 个 POL · 整个方向`;
+      setTdrProgress(0, choices.length ? "将按离港日期检查当前方向全部 POL。" : "当前方向没有可查询的 POL。", false);
       $("tdrQuery").disabled = !choices.length;
       const dialog = $("tdrDialog");
       if (!dialog.open) dialog.showModal();
@@ -3227,101 +3447,178 @@
       if (dialog?.open) dialog.close();
     }
 
-    function tdrTargetOptions(pods, selected = "") {
-      const select = document.createElement("select");
-      const prompt = document.createElement("option");
-      prompt.value = "";
-      prompt.textContent = "确认中转港";
-      select.appendChild(prompt);
-      pods.forEach((pod) => {
-        const option = document.createElement("option");
-        option.value = pod.port;
-        option.textContent = `${pod.port}${String(pod.eta).toUpperCase() === "SKIP" ? " (SKIP)" : ""}`;
-        option.selected = pod.port === selected;
-        select.appendChild(option);
-      });
-      return select;
-    }
-
     function renderTdrPreview() {
       const preview = state.tdrPreview;
       const body = $("tdrPreviewBody");
       body.replaceChildren();
       if (!preview) return;
-      preview.rows.forEach((row, index) => {
+      preview.results.filter((result) => result.status === "ok").forEach((result) => result.rows.forEach((row) => {
+        const classification = tdrClassification(preview, result.choice, row);
+        const rf = result.specialByKey.get(`${row.so}|${row.co}|${row.pod}`) || { rf20: 0, rf40: 0 };
         const tr = document.createElement("tr");
-        if (row.requiresConfirmation) tr.className = "tdr-unmatched";
-        [row.source === "ocean" ? "Ocean" : "Inter-port", row.pod].forEach((value) => {
-          const td = document.createElement("td");
-          td.textContent = value;
-          tr.appendChild(td);
-        });
-        const targetCell = document.createElement("td");
-        if (row.requiresConfirmation) {
-          const select = tdrTargetOptions(preview.pods, row.targetPod);
-          select.dataset.tdrRow = String(index);
-          select.addEventListener("change", () => {
-            row.targetPod = select.value;
-            $("tdrApply").disabled = preview.rows.some((item) => item.requiresConfirmation && !item.targetPod);
-          });
-          targetCell.appendChild(select);
-        } else {
-          targetCell.textContent = row.targetPod;
-        }
-        tr.appendChild(targetCell);
-        [row.requiresConfirmation ? "T/S" : "LILIAN", cellText(row.qty20), cellText(row.qty40), cellText(row.weight, 1)].forEach((value) => {
+        if (!classification.targetPod || !classification.category) tr.className = "tdr-unmatched";
+        [
+          result.choice.port,
+          row.source === "ocean" ? "Ocean" : "Inter-port",
+          row.so,
+          row.co,
+          row.pod,
+          classification.targetPod || "待确认",
+          classification.category || "待确认",
+          classification.carrier,
+          cellText(Number(row.qty20) - Number(rf.rf20 || 0)),
+          cellText(Number(row.qty40) - Number(rf.rf40 || 0)),
+          cellText(row.empty20),
+          cellText(row.empty40),
+          cellText(rf.rf20),
+          cellText(rf.rf40),
+          cellText(row.weight, 1)
+        ].forEach((value) => {
           const td = document.createElement("td");
           td.textContent = value;
           tr.appendChild(td);
         });
         body.appendChild(tr);
-      });
+      }));
       $("tdrPreviewWrap").classList.remove("hidden");
-      $("tdrApply").disabled = preview.rows.some((row) => row.requiresConfirmation && !row.targetPod);
+      renderTdrIssues();
+      renderTdrStatuses();
+      $("tdrApply").disabled = !tdrReadyToApply();
+      if (!preview.querying) {
+        const writable = preview.results.filter((result) => result.status === "ok").length
+          + preview.results.filter((result) => result.status === "terminal" && issueValue(`pol:${result.choice.polIndex}`) === "zero").length;
+        const skipped = preview.results.filter((result) => ["missing", "terminal", "error"].includes(result.status) && issueValue(`pol:${result.choice.polIndex}`) === "skip").length;
+        const unresolved = preview.issues.filter((issue) => !issue.value).length;
+        $("tdrMessage").textContent = `查询完成：${writable} 个 POL 可写入${skipped ? ` · 跳过 ${skipped}` : ""}${unresolved ? ` · 待确认 ${unresolved}` : ""}`;
+      }
+    }
+
+    function validateRfRows(rows, special) {
+      const base = new Map();
+      rows.forEach((row) => base.set(`${row.so}|${row.co}|${row.pod}`, row));
+      for (const rf of special) {
+        const row = base.get(`${rf.so}|${rf.co}|${rf.pod}`);
+        if (!row || rf.rf20 > row.qty20 || rf.rf40 > row.qty40) {
+          return `RF 无法从对应整体货量扣减：${rf.so}/${rf.co}/${rf.pod}`;
+        }
+      }
+      return "";
+    }
+
+    function addDecisionIssues(preview, result) {
+      const issueKeys = new Set(preview.issues.map((issue) => issue.key));
+      const podOptions = preview.pods.filter((pod) => String(pod.eta).toUpperCase() !== "SKIP")
+        .map((pod) => ({ value: pod.port, label: `${pod.port} 做 T/S` }));
+      const rows = [...result.rows, ...result.special];
+      rows.forEach((row) => {
+        const matching = preview.pods.find((pod) => pod.port === row.pod && String(pod.eta).toUpperCase() !== "SKIP");
+        if (!matching && !issueKeys.has(`pod:${row.pod}`)) {
+          preview.issues.push(tdrIssue(`pod:${row.pod}`, "pod", `${row.pod} 跳港/未匹配：确认实际中转港`, podOptions));
+          issueKeys.add(`pod:${row.pod}`);
+        }
+        const so = carrierCode(row.so, "");
+        const known = preview.carriers.some((carrier) => carrier.code === so);
+        if (so && so !== DEFAULT_CARRIER_CODE && !known && !issueKeys.has(`so:${so}`)) {
+          preview.issues.push(tdrIssue(`so:${so}`, "so", `SO ${so} 未在 Partner / BSA 维护`, [
+            { value: "partner", label: `新增 ${so} Partner` },
+            { value: "cul-soc", label: "计入 CUL / SOC" }
+          ]));
+          issueKeys.add(`so:${so}`);
+        }
+        const co = carrierCode(row.co, "");
+        const coKey = `co:${result.choice.sheetName}:${result.choice.polIndex}:${co}`;
+        if (so === DEFAULT_CARRIER_CODE && co && !NORMAL_CUL_CO.has(co) && !issueKeys.has(coKey)) {
+          preview.issues.push(tdrIssue(coKey, "co", `${result.choice.port} · SO CUL / CO ${co}：本航次本港如何认定`, [
+            { value: "LILIAN", label: "计入 LILIAN" },
+            { value: "SOC", label: "计入 SOC" }
+          ]));
+          issueKeys.add(coKey);
+        }
+      });
     }
 
     async function queryTdr() {
       const choices = tdrPolChoices();
-      const choice = choices[Number($("tdrPolSelect").value || 0)];
-      if (!choice) return;
+      if (!choices.length) return;
       const input = readInputs();
-      const pods = input[choice.sheetName].pods;
+      const pods = input[state.activeSheet].pods;
       $("tdrQuery").disabled = true;
       $("tdrApply").disabled = true;
-      $("tdrMessage").textContent = `正在后台读取 ${choice.vvd} / ${choice.port}，通常需要 10–30 秒…`;
-      try {
-        const response = await fetch(`${TDR_API_BASE}/api/tdr`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ vvd: choice.vvd, pol: choice.port })
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.error || `TDR 查询失败 (${response.status})`);
-        const podMap = new Map(pods.map((pod) => [pod.port, pod]));
-        const rows = (payload.rows || []).map((row) => {
-          const matchingPod = podMap.get(row.pod);
-          const skipped = matchingPod && String(matchingPod.eta).toUpperCase() === "SKIP";
-          const requiresConfirmation = !matchingPod || skipped;
-          return {
-            ...row,
-            targetPod: requiresConfirmation ? "" : row.pod,
-            requiresConfirmation
-          };
-        });
-        state.tdrPreview = { choice, pods, rows, fetchedAt: payload.fetchedAt };
-        renderTdrPreview();
-        const unmatched = rows.filter((row) => row.requiresConfirmation).length;
-        $("tdrMessage").textContent = unmatched
-          ? `已取得 ${rows.length} 条。${unmatched} 条跳港/未匹配货量需要确认实际中转港。`
-          : `已取得 ${rows.length} 条，确认后写入控舱表。`;
-      } catch (error) {
-        console.error(error);
-        state.tdrPreview = null;
-        $("tdrPreviewWrap").classList.add("hidden");
-        $("tdrMessage").textContent = error.message || String(error);
-      } finally {
-        $("tdrQuery").disabled = false;
+      const preview = {
+        querying: true,
+        sheetName: state.activeSheet,
+        choices,
+        pods,
+        carriers: activeCarriers(input.carriers),
+        results: [],
+        issues: []
+      };
+      state.tdrPreview = preview;
+      setTdrProgress(0, `准备查询 ${choices.length} 个 POL`, true);
+      for (let index = 0; index < choices.length; index += 1) {
+        const choice = choices[index];
+        const before = Math.round(index / choices.length * 100);
+        setTdrProgress(before, `正在检查第 ${index + 1}/${choices.length} 个 POL：${choice.port}`, true);
+        if (!departedAtLeastOneDay(choice.etd)) {
+          preview.results.push({ choice, status: "not-departed", message: "未离港", rows: [], special: [], specialByKey: new Map() });
+          renderTdrStatuses();
+          continue;
+        }
+        try {
+          const response = await fetch(`${TDR_API_BASE}/api/tdr`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ vvd: choice.vvd, pol: choice.port })
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            if (payload.code === "TERMINAL_NOT_FOUND") {
+              const result = { choice, status: "terminal", message: "未找到 Terminal", rows: [], special: [], specialByKey: new Map() };
+              preview.results.push(result);
+              preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "terminal-error", `${choice.port} 未找到 Terminal`, [
+                { value: "zero", label: "确认该 POL 为 0 并导入" },
+                { value: "skip", label: "跳过该 POL，不导入" }
+              ]));
+              renderTdrStatuses();
+              continue;
+            }
+            throw new Error(payload.error || `TDR 查询失败 (${response.status})`);
+          }
+          const rows = payload.rows || [];
+          const special = payload.special || [];
+          const rfError = validateRfRows(rows, special);
+          if (!rows.length && !special.length) {
+            const result = { choice, status: "missing", message: "未导入TDR/船期未更新", rows, special, specialByKey: new Map() };
+            preview.results.push(result);
+            preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "pol-error", `${choice.port}：未导入TDR/船期未更新`, [
+              { value: "skip", label: "确认跳过该 POL，不导入" }
+            ]));
+          } else if (rfError) {
+            const result = { choice, status: "error", message: rfError, rows, special, specialByKey: new Map() };
+            preview.results.push(result);
+            preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "rf-error", `${choice.port}：${rfError}`, [
+              { value: "skip", label: "确认跳过该 POL，不导入" }
+            ]));
+          } else {
+            const specialByKey = new Map(special.map((row) => [`${row.so}|${row.co}|${row.pod}`, row]));
+            const result = { choice, status: "ok", message: `${rows.length} 条 · RF ${special.length} 条`, rows, special, specialByKey };
+            preview.results.push(result);
+            addDecisionIssues(preview, result);
+          }
+        } catch (error) {
+          console.error(error);
+          preview.results.push({ choice, status: "error", message: error.message || String(error), rows: [], special: [], specialByKey: new Map() });
+          preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "pol-error", `${choice.port}：${error.message || error}`, [
+            { value: "skip", label: "确认跳过该 POL，不导入" }
+          ]));
+        }
+        setTdrProgress(Math.round((index + 1) / choices.length * 100), `已完成 ${index + 1}/${choices.length} 个 POL`, true);
+        renderTdrStatuses();
       }
+      preview.querying = false;
+      setTdrProgress(100, `查询完成：${preview.results.filter((result) => result.status === "ok").length} 个 POL 可写入`, true);
+      renderTdrPreview();
+      $("tdrQuery").disabled = false;
     }
 
     function addTdrEntry(target, key, value) {
@@ -3330,31 +3627,176 @@
       target[key] = String(Math.round((current + Number(value)) * 10) / 10);
     }
 
+    function tdrEntryStore(direction, carrier, multiCarrier) {
+      return multiCarrier ? `${direction}_${carrier}` : direction;
+    }
+
+    function migrateDirectionEntries(direction, carriers) {
+      if (carriers.length <= 1) return;
+      const culKey = `${direction}_${DEFAULT_CARRIER_CODE}`;
+      const legacy = state.entries[direction] || {};
+      if (Object.keys(legacy).length && !Object.keys(state.entries[culKey] || {}).length) {
+        state.entries[culKey] = { ...legacy };
+      }
+      const legacyAudit = state.tdrAudit[direction] || {};
+      if (Object.keys(legacyAudit).length && !Object.keys(state.tdrAudit[culKey] || {}).length) {
+        state.tdrAudit[culKey] = structuredClone(legacyAudit);
+      }
+    }
+
+    function clearTdrBlock(storeKey, blockIndex, podCount) {
+      const entries = state.entries[storeKey] || (state.entries[storeKey] = {});
+      ["LILIAN", "T/S", "SOC", "RF", "MT", "Weight"].forEach((label) => {
+        const rowIndex = cargoLabels.indexOf(label);
+        if (rowIndex < 0) return;
+        for (let podIndex = 0; podIndex < podCount; podIndex += 1) {
+          if (label === "Weight") delete entries[entryKey(blockIndex, rowIndex, podIndex, "weight")];
+          else {
+            delete entries[entryKey(blockIndex, rowIndex, podIndex, "left")];
+            delete entries[entryKey(blockIndex, rowIndex, podIndex, "right")];
+          }
+        }
+      });
+      const audit = state.tdrAudit[storeKey] || (state.tdrAudit[storeKey] = {});
+      Object.keys(audit).forEach((key) => {
+        if (key.startsWith(`${blockIndex}|`)) delete audit[key];
+      });
+    }
+
+    function addTdrAudit(target, storeKey, blockIndex, label, podIndex, side, line) {
+      if (!line) return;
+      const store = target[storeKey] || (target[storeKey] = {});
+      const key = `${blockIndex}|${label}|${podIndex}|${side}`;
+      const lines = store[key] || (store[key] = []);
+      if (!lines.includes(line)) lines.push(line);
+    }
+
+    function tdrPodDescription(row, classification) {
+      return classification.direct ? row.pod : `${row.pod} (${classification.targetPod} T/S)`;
+    }
+
+    function tdrAuditLine(row, quantity, side, label, classification) {
+      if (!quantity) return "";
+      const suffix = label === "RF" ? "RF" : label === "MT" ? "MT" : "";
+      return `${row.so} - ${quantity}x${side}'${suffix} - ${tdrPodDescription(row, classification)}`;
+    }
+
+    function addPolEntry(target, storeKey, blockIndex, label, podIndex, side, value) {
+      if (!value) return;
+      const rowIndex = cargoLabels.indexOf(label);
+      if (rowIndex < 0) return;
+      const actualSide = label === "Weight" ? "weight" : side;
+      const store = target[storeKey] || (target[storeKey] = {});
+      addTdrEntry(store, entryKey(blockIndex, rowIndex, podIndex, actualSide), value);
+    }
+
+    function mergeTdrStores(target, source) {
+      Object.entries(source).forEach(([storeKey, values]) => {
+        const targetStore = target[storeKey] || (target[storeKey] = {});
+        Object.entries(values).forEach(([key, value]) => addTdrEntry(targetStore, key, value));
+      });
+    }
+
+    function mergeTdrAudits(target, source) {
+      Object.entries(source).forEach(([storeKey, values]) => {
+        const targetStore = target[storeKey] || (target[storeKey] = {});
+        Object.entries(values).forEach(([key, lines]) => {
+          const existing = targetStore[key] || (targetStore[key] = []);
+          lines.forEach((line) => {
+            if (!existing.includes(line)) existing.push(line);
+          });
+        });
+      });
+    }
+
     function applyTdrPreview() {
       const preview = state.tdrPreview;
-      if (!preview || preview.rows.some((row) => row.requiresConfirmation && !row.targetPod)) return;
-      const input = readInputs();
-      const sheetName = preview.choice.sheetName;
-      const blockIndex = preview.choice.polIndex + 1;
-      const pods = input[sheetName].pods;
-      const entries = state.entries[sheetName] || (state.entries[sheetName] = {});
-      pods.forEach((_pod, podIndex) => {
-        [0, 2].forEach((rowIndex) => {
-          delete entries[entryKey(blockIndex, rowIndex, podIndex, "left")];
-          delete entries[entryKey(blockIndex, rowIndex, podIndex, "right")];
-        });
-        delete entries[entryKey(blockIndex, 6, podIndex, "weight")];
+      if (!preview || !tdrReadyToApply()) return;
+      let carriers = activeCarriers(readCarrierRows());
+      preview.issues.filter((issue) => issue.type === "so" && issue.value === "partner").forEach((issue) => {
+        const code = issue.key.split(":")[1];
+        if (!carriers.some((carrier) => carrier.code === code)) carriers.push(defaultCarrier(code));
       });
-      preview.rows.forEach((row) => {
-        const podIndex = pods.findIndex((pod) => pod.port === row.targetPod);
-        if (podIndex < 0) return;
-        const rowIndex = row.requiresConfirmation ? 2 : 0;
-        addTdrEntry(entries, entryKey(blockIndex, rowIndex, podIndex, "left"), row.qty20);
-        addTdrEntry(entries, entryKey(blockIndex, rowIndex, podIndex, "right"), row.qty40);
-        addTdrEntry(entries, entryKey(blockIndex, 6, podIndex, "weight"), row.weight);
+      carriers = activeCarriers(carriers);
+      renderCarrierRows(carriers);
+      const multiCarrier = carriers.length > 1;
+      const direction = preview.sheetName;
+      migrateDirectionEntries(direction, carriers);
+      const pods = readInputs()[direction].pods;
+      const totalAuditStore = multiCarrier ? `${direction}_TOTAL` : direction;
+      let applied = 0;
+      let skipped = 0;
+
+      preview.results.forEach((result) => {
+        const blockIndex = result.choice.polIndex + 1;
+        const polDecision = issueValue(`pol:${result.choice.polIndex}`);
+        if (result.status !== "ok") {
+          if (result.status === "terminal" && polDecision === "zero") {
+            carriers.forEach((carrier) => clearTdrBlock(tdrEntryStore(direction, carrier.code, multiCarrier), blockIndex, pods.length));
+            clearTdrBlock(totalAuditStore, blockIndex, pods.length);
+            applied += 1;
+          } else if (result.status !== "not-departed") skipped += 1;
+          return;
+        }
+
+        const polEntries = {};
+        const polAudit = {};
+        const remaining = new Map(result.rows.map((row) => [`${row.so}|${row.co}|${row.pod}`, { ...row }]));
+        result.special.forEach((rf) => {
+          const base = remaining.get(`${rf.so}|${rf.co}|${rf.pod}`);
+          base.qty20 -= Number(rf.rf20) || 0;
+          base.qty40 -= Number(rf.rf40) || 0;
+        });
+
+        remaining.forEach((row) => {
+          const classification = tdrClassification(preview, result.choice, row);
+          const podIndex = pods.findIndex((pod) => pod.port === classification.targetPod);
+          if (podIndex < 0) return;
+          const storeKey = tdrEntryStore(direction, classification.carrier, multiCarrier);
+          addPolEntry(polEntries, storeKey, blockIndex, classification.category, podIndex, "left", row.qty20);
+          addPolEntry(polEntries, storeKey, blockIndex, classification.category, podIndex, "right", row.qty40);
+          addPolEntry(polEntries, storeKey, blockIndex, "MT", podIndex, "left", row.empty20);
+          addPolEntry(polEntries, storeKey, blockIndex, "MT", podIndex, "right", row.empty40);
+          addPolEntry(polEntries, storeKey, blockIndex, "Weight", podIndex, "weight", row.weight);
+
+          let totalLabel = classification.category;
+          if (classification.carrier !== DEFAULT_CARRIER_CODE && classification.category === "LILIAN") totalLabel = "Partner";
+          [["left", row.qty20, 20], ["right", row.qty40, 40]].forEach(([side, qty, size]) => {
+            if (classification.carrier !== DEFAULT_CARRIER_CODE || classification.category !== "LILIAN") {
+              addTdrAudit(polAudit, totalAuditStore, blockIndex, totalLabel, podIndex, side, tdrAuditLine(row, qty, size, totalLabel, classification));
+            }
+          });
+          [["left", row.empty20, 20], ["right", row.empty40, 40]].forEach(([side, qty, size]) => {
+            addTdrAudit(polAudit, totalAuditStore, blockIndex, "MT", podIndex, side, tdrAuditLine(row, qty, size, "MT", classification));
+          });
+          if (classification.carrier === DEFAULT_CARRIER_CODE && classification.category === "SOC") {
+            const culStore = tdrEntryStore(direction, DEFAULT_CARRIER_CODE, multiCarrier);
+            [["left", row.qty20, 20], ["right", row.qty40, 40]].forEach(([side, qty, size]) => {
+              addTdrAudit(polAudit, culStore, blockIndex, "SOC", podIndex, side, tdrAuditLine(row, qty, size, "SOC", classification));
+            });
+          }
+        });
+
+        result.special.forEach((row) => {
+          const classification = tdrClassification(preview, result.choice, row);
+          const podIndex = pods.findIndex((pod) => pod.port === classification.targetPod);
+          if (podIndex < 0) return;
+          const storeKey = tdrEntryStore(direction, classification.carrier, multiCarrier);
+          addPolEntry(polEntries, storeKey, blockIndex, "RF", podIndex, "left", row.rf20);
+          addPolEntry(polEntries, storeKey, blockIndex, "RF", podIndex, "right", row.rf40);
+          [["left", row.rf20, 20], ["right", row.rf40, 40]].forEach(([side, qty, size]) => {
+            addTdrAudit(polAudit, totalAuditStore, blockIndex, "RF", podIndex, side, tdrAuditLine(row, qty, size, "RF", classification));
+          });
+        });
+
+        carriers.forEach((carrier) => clearTdrBlock(tdrEntryStore(direction, carrier.code, multiCarrier), blockIndex, pods.length));
+        clearTdrBlock(totalAuditStore, blockIndex, pods.length);
+        mergeTdrStores(state.entries, polEntries);
+        mergeTdrAudits(state.tdrAudit, polAudit);
+        applied += 1;
       });
       saveLocalDraftForCurrentVvd();
-      $("status").textContent = `TDR 已更新 · ${preview.choice.port} · ${preview.rows.length} 条`;
+      $("status").textContent = `TDR 已更新 · ${direction} · ${applied} 个 POL${skipped ? ` · 跳过 ${skipped}` : ""}`;
       closeTdrDialog();
     }
 
@@ -4034,7 +4476,7 @@
       cell.border = border;
     }
 
-    function applyTemplateBorders(ws, summary, podLeftCols, blockStarts, totalStart, finalRow, moveSummaryStart) {
+    function applyTemplateBorders(ws, summary, podLeftCols, blockStarts, totalStart, finalRow, moveSummaryStart, weightIndex = 6, ttlIndex = 7) {
       const maxCol = summary.last;
       const summaryLeftCols = [
         summary.total20,
@@ -4115,12 +4557,12 @@
       };
 
       blockStarts.forEach((start) => {
-        for (let row = start; row <= start + 5; row += 1) {
+        for (let row = start; row < start + weightIndex; row += 1) {
           styleBodyRow(row);
         }
-        styleBodyRow(start + 6, "thin", "thin");
-        styleMergedWeightRow(start + 6);
-        styleBodyRow(start + 7, "thin", "medium");
+        styleBodyRow(start + weightIndex, "thin", "thin");
+        styleMergedWeightRow(start + weightIndex);
+        styleBodyRow(start + ttlIndex, "thin", "medium");
       });
 
       const styleBottomSummaryRow = (row) => {
@@ -4164,7 +4606,7 @@
         });
       }
 
-      for (let row = 1; row <= totalStart + 7; row += 1) {
+      for (let row = 1; row <= totalStart + ttlIndex; row += 1) {
         let cell = ws.getCell(row, 1);
         setExcelBorder(cell, {
           left: "medium",
@@ -4198,10 +4640,10 @@
       return { type: "pattern", pattern: "solid", bgColor: { argb } };
     }
 
-    function addExportConditionalFormatting(ws, summary, totalStart) {
+    function addExportConditionalFormatting(ws, summary, totalStart, ttlIndex = 7) {
       if (typeof ws.addConditionalFormatting !== "function") return;
-      const utilRef = `${excelCol(summary.utilAll)}6:${excelCol(summary.utilLd)}${totalStart + 7}`;
-      const avlRef = `${excelCol(summary.avlTeu)}6:${excelCol(summary.avlWeight)}${totalStart + 7}`;
+      const utilRef = `${excelCol(summary.utilAll)}6:${excelCol(summary.utilLd)}${totalStart + ttlIndex}`;
+      const avlRef = `${excelCol(summary.avlTeu)}6:${excelCol(summary.avlWeight)}${totalStart + ttlIndex}`;
       ws.addConditionalFormatting({
         ref: utilRef,
         rules: [
@@ -4288,6 +4730,13 @@
 
     function buildExcelSheet(workbook, input, sheetName) {
       const model = makeTableModel(input, sheetName);
+      const labelIndex = Object.fromEntries(model.labels.map((label, index) => [label, index]));
+      const rfIndex = labelIndex.RF;
+      const mtIndex = labelIndex.MT;
+      const weightIndex = labelIndex.Weight;
+      const ttlIndex = labelIndex.TTL;
+      const blockHeight = model.labels.length;
+      const entryStore = model.sheet.entryStoreKey || sheetName;
       const ws = workbook.addWorksheet(sheetName, {
         views: [{ showGridLines: false, state: "frozen", ySplit: 5 }]
       });
@@ -4319,7 +4768,7 @@
         spacer: spacerCol,
         last: summaryStart + 9
       };
-      const maxRow = 5 + model.blocks.length * 8;
+      const maxRow = 5 + model.blocks.length * blockHeight;
       const moveSummaryStart = maxRow + 1;
       const finalRow = maxRow + 7;
       const headerFill = "FF99CCFF";
@@ -4418,7 +4867,7 @@
       setCell(ws, 3, summary.rf, "RF Plug", headerStyle);
 
       const totalBlockIndex = model.blocks.length - 1;
-      const blockStarts = model.blocks.map((_, index) => 6 + index * 8);
+      const blockStarts = model.blocks.map((_, index) => 6 + index * blockHeight);
       const totalStart = blockStarts[totalBlockIndex];
       const allocTeuCell = excelCell(summary.total20 + 2, 2);
       const allocWeightCell = excelCell(summary.total20 + 5, 2);
@@ -4431,34 +4880,34 @@
 
       model.blocks.forEach((block, blockIndex) => {
         const start = blockStarts[blockIndex];
-        if (block.type === "TOTAL") safeMerge(ws, start, 1, start + 5, 2);
-        else safeMerge(ws, start, 1, start + 4, 2);
-        safeMerge(ws, start + 7, 1, start + 7, 2);
+        if (block.type === "TOTAL") safeMerge(ws, start, 1, start + weightIndex - 1, 2);
+        else safeMerge(ws, start, 1, start + mtIndex - 1, 2);
+        safeMerge(ws, start + ttlIndex, 1, start + ttlIndex, 2);
         setCell(ws, start, 1, block.port, { ...baseStyle, bold: true });
         if (block.type !== "TOTAL") {
-          setCell(ws, start + 5, 1, "ETB", baseStyle);
-          setCell(ws, start + 5, 2, block.etb || "", baseStyle);
-          setCell(ws, start + 6, 1, "ETD", baseStyle);
-          setCell(ws, start + 6, 2, block.etd || "", baseStyle);
+          setCell(ws, start + mtIndex, 1, "ETB", baseStyle);
+          setCell(ws, start + mtIndex, 2, block.etb || "", baseStyle);
+          setCell(ws, start + weightIndex, 1, "ETD", baseStyle);
+          setCell(ws, start + weightIndex, 2, block.etd || "", baseStyle);
         }
-        cargoLabels.forEach((label, offset) => {
+        model.labels.forEach((label, offset) => {
           const row = start + offset;
           setCell(ws, row, 3, label, { ...baseStyle, bold: true, alignment: { horizontal: "left", vertical: "middle" } });
           model.sheet.pods.forEach((_pod, podIndex) => {
             const left = podLeftCols[podIndex];
             const right = left + 1;
-            if (offset === 6) {
+            if (offset === weightIndex) {
               safeMerge(ws, row, left, row, right);
               if (blockIndex === totalBlockIndex) {
                 setFormulaCell(
                   ws,
                   row,
                   left,
-                  sumFormula(blockStarts.slice(0, totalBlockIndex).map((blockStart) => excelCell(left, blockStart + 6))),
+                  sumFormula(blockStarts.slice(0, totalBlockIndex).map((blockStart) => excelCell(left, blockStart + weightIndex))),
                   { ...computedStyle, numFmt: weightFmt }
                 );
               } else {
-                const manualWeight = entryNumberValue(sheetName, blockIndex, offset, podIndex, "weight");
+                const manualWeight = entryNumberValue(entryStore, blockIndex, offset, podIndex, "weight");
                 if (isWbSheet && block.type === "ROB" && manualWeight === null) {
                   setFormulaCell(ws, row, left, robInputFormula(left, row, robInputRowShift), { ...baseStyle, numFmt: weightFmt });
                 } else {
@@ -4482,12 +4931,12 @@
                 sumFormula(blockStarts.slice(0, totalBlockIndex).map((blockStart) => excelCell(right, blockStart + offset))),
                 { ...computedStyle, numFmt: countFmt }
               );
-            } else if (offset === 7) {
-              setFormulaCell(ws, row, left, `SUM(${excelCell(left, start)}:${excelCell(left, start + 5)})`, { ...computedStyle, numFmt: countFmt });
-              setFormulaCell(ws, row, right, `SUM(${excelCell(right, start)}:${excelCell(right, start + 5)})`, { ...computedStyle, numFmt: countFmt });
+            } else if (offset === ttlIndex) {
+              setFormulaCell(ws, row, left, `SUM(${excelCell(left, start)}:${excelCell(left, start + weightIndex - 1)})`, { ...computedStyle, numFmt: countFmt });
+              setFormulaCell(ws, row, right, `SUM(${excelCell(right, start)}:${excelCell(right, start + weightIndex - 1)})`, { ...computedStyle, numFmt: countFmt });
             } else {
-              const manualLeft = entryNumberValue(sheetName, blockIndex, offset, podIndex, "left");
-              const manualRight = entryNumberValue(sheetName, blockIndex, offset, podIndex, "right");
+              const manualLeft = entryNumberValue(entryStore, blockIndex, offset, podIndex, "left");
+              const manualRight = entryNumberValue(entryStore, blockIndex, offset, podIndex, "right");
               if (isWbSheet && block.type === "ROB" && manualLeft === null) {
                 setFormulaCell(ws, row, left, robInputFormula(left, row, robInputRowShift), { ...baseStyle, numFmt: countFmt });
               } else {
@@ -4501,13 +4950,13 @@
             }
           });
 
-          if (offset === 6) {
+          if (offset === weightIndex) {
             safeMerge(ws, row, summary.total20, row, summary.total40);
             setFormulaCell(ws, row, summary.total20, sumFormula(podLeftCols.map((col) => excelCell(col, row))), { ...computedStyle, numFmt: weightFmt });
             setCell(ws, row, summary.ttl, "", computedStyle);
-          } else if (offset === 7) {
-            setFormulaCell(ws, row, summary.total20, `SUM(${excelCell(summary.total20, start)}:${excelCell(summary.total20, start + 5)})`, { ...computedStyle, numFmt: countFmt });
-            setFormulaCell(ws, row, summary.total40, `SUM(${excelCell(summary.total40, start)}:${excelCell(summary.total40, start + 5)})`, { ...computedStyle, numFmt: countFmt });
+          } else if (offset === ttlIndex) {
+            setFormulaCell(ws, row, summary.total20, `SUM(${excelCell(summary.total20, start)}:${excelCell(summary.total20, start + weightIndex - 1)})`, { ...computedStyle, numFmt: countFmt });
+            setFormulaCell(ws, row, summary.total40, `SUM(${excelCell(summary.total40, start)}:${excelCell(summary.total40, start + weightIndex - 1)})`, { ...computedStyle, numFmt: countFmt });
             setFormulaCell(ws, row, summary.ttl, `${excelCell(summary.total20, row)}+${excelCell(summary.total40, row)}*2`, { ...computedStyle, numFmt: countFmt });
           } else {
             setFormulaCell(ws, row, summary.total20, sumFormula(podLeftCols.map((col) => excelCell(col, row))), { ...computedStyle, numFmt: countFmt });
@@ -4518,10 +4967,10 @@
       });
 
       blockStarts.slice(0, totalBlockIndex).forEach((start, blockIndex) => {
-        const loadAll = `SUM(${excelCell(summary.ttl, start)}:${excelCell(summary.ttl, start + 5)})`;
-        const loadLd = `SUM(${excelCell(summary.ttl, start)}:${excelCell(summary.ttl, start + 4)})`;
-        const loadWeight = excelCell(summary.total20, start + 6);
-        const loadRf = `${excelCell(summary.total20, start + 4)}+${excelCell(summary.total40, start + 4)}`;
+        const loadAll = excelCell(summary.ttl, start + ttlIndex);
+        const loadLd = `SUM(${excelCell(summary.ttl, start)}:${excelCell(summary.ttl, start + mtIndex - 1)})`;
+        const loadWeight = excelCell(summary.total20, start + weightIndex);
+        const loadRf = `${excelCell(summary.total20, start + rfIndex)}+${excelCell(summary.total40, start + rfIndex)}`;
         let dischargeTeu = "0";
         let dischargeMt = "0";
         let dischargeWeight = "0";
@@ -4531,30 +4980,30 @@
           if (podIndex >= 0) {
             const left = podLeftCols[podIndex];
             const right = podRightCols[podIndex];
-            dischargeTeu = sumFormula(Array.from({ length: 6 }, (_, offset) => `${excelCell(left, totalStart + offset)}+${excelCell(right, totalStart + offset)}*2`));
-            dischargeMt = `${excelCell(left, totalStart + 5)}+${excelCell(right, totalStart + 5)}*2`;
-            dischargeWeight = excelCell(left, totalStart + 6);
-            dischargeRf = `${excelCell(left, totalStart + 4)}+${excelCell(right, totalStart + 4)}`;
+            dischargeTeu = sumFormula(Array.from({ length: weightIndex }, (_, offset) => `${excelCell(left, totalStart + offset)}+${excelCell(right, totalStart + offset)}*2`));
+            dischargeMt = `${excelCell(left, totalStart + mtIndex)}+${excelCell(right, totalStart + mtIndex)}*2`;
+            dischargeWeight = excelCell(left, totalStart + weightIndex);
+            dischargeRf = `${excelCell(left, totalStart + rfIndex)}+${excelCell(right, totalStart + rfIndex)}`;
           }
         }
 
         const prevStart = blockStarts[blockIndex - 1];
         const robAllFormula = blockIndex === 0 ? loadAll : `${excelCell(summary.robAll, prevStart)}+${loadAll}-(${dischargeTeu})`;
         const robLdFormula = blockIndex === 0 ? loadLd : `${excelCell(summary.robLd, prevStart)}+${loadLd}-((${dischargeTeu})-(${dischargeMt}))`;
-        const weightFormula = blockIndex === 0 ? loadWeight : `${excelCell(summary.robAll, prevStart + 6)}+${loadWeight}-(${dischargeWeight})`;
-        const rfFormula = blockIndex === 0 ? `${allocRfValue}-(${loadRf})` : `${excelCell(summary.rf, prevStart + 4)}-(${loadRf})+(${dischargeRf})`;
+        const weightFormula = blockIndex === 0 ? loadWeight : `${excelCell(summary.robAll, prevStart + weightIndex)}+${loadWeight}-(${dischargeWeight})`;
+        const rfFormula = blockIndex === 0 ? `${allocRfValue}-(${loadRf})` : `${excelCell(summary.rf, prevStart + rfIndex)}-(${loadRf})+(${dischargeRf})`;
 
         setFormulaCell(ws, start, summary.robAll, robAllFormula, { ...computedStyle, numFmt: countFmt });
         setFormulaCell(ws, start, summary.robLd, robLdFormula, { ...computedStyle, numFmt: countFmt });
         setFormulaCell(ws, start, summary.utilAll, `IF(${allocTeuValue}>0,${excelCell(summary.robAll, start)}/${allocTeuValue},0)`, { ...computedStyle, numFmt: percentFmt });
         setFormulaCell(ws, start, summary.utilLd, `IF(${allocTeuValue}>0,${excelCell(summary.robLd, start)}/${allocTeuValue},0)`, { ...computedStyle, numFmt: percentFmt });
-        setFormulaCell(ws, start + 6, summary.robAll, weightFormula, { ...computedStyle, numFmt: weightFmt });
-        setFormulaCell(ws, start + 6, summary.robLd, `${excelCell(summary.robAll, start + 6)}-(${excelCell(summary.robAll, start)}-${excelCell(summary.robLd, start)})*2`, { ...computedStyle, numFmt: weightFmt });
-        setFormulaCell(ws, start + 6, summary.utilAll, `IF(${allocWeightValue}>0,${excelCell(summary.robAll, start + 6)}/${allocWeightValue},0)`, { ...computedStyle, numFmt: percentFmt });
-        setFormulaCell(ws, start + 6, summary.utilLd, `IF(${allocWeightValue}>0,${excelCell(summary.robLd, start + 6)}/${allocWeightValue},0)`, { ...computedStyle, numFmt: percentFmt });
-        setFormulaCell(ws, start + 7, summary.avlTeu, `${allocTeuValue}-${excelCell(summary.robAll, start)}`, { ...computedStyle, numFmt: countFmt });
-        setFormulaCell(ws, start + 6, summary.avlWeight, `${allocWeightValue}-${excelCell(summary.robAll, start + 6)}`, { ...computedStyle, numFmt: weightFmt });
-        setFormulaCell(ws, start + 4, summary.rf, rfFormula, { ...computedStyle, numFmt: countFmt });
+        setFormulaCell(ws, start + weightIndex, summary.robAll, weightFormula, { ...computedStyle, numFmt: weightFmt });
+        setFormulaCell(ws, start + weightIndex, summary.robLd, `${excelCell(summary.robAll, start + weightIndex)}-(${excelCell(summary.robAll, start)}-${excelCell(summary.robLd, start)})*2`, { ...computedStyle, numFmt: weightFmt });
+        setFormulaCell(ws, start + weightIndex, summary.utilAll, `IF(${allocWeightValue}>0,${excelCell(summary.robAll, start + weightIndex)}/${allocWeightValue},0)`, { ...computedStyle, numFmt: percentFmt });
+        setFormulaCell(ws, start + weightIndex, summary.utilLd, `IF(${allocWeightValue}>0,${excelCell(summary.robLd, start + weightIndex)}/${allocWeightValue},0)`, { ...computedStyle, numFmt: percentFmt });
+        setFormulaCell(ws, start + ttlIndex, summary.avlTeu, `${allocTeuValue}-${excelCell(summary.robAll, start)}`, { ...computedStyle, numFmt: countFmt });
+        setFormulaCell(ws, start + weightIndex, summary.avlWeight, `${allocWeightValue}-${excelCell(summary.robAll, start + weightIndex)}`, { ...computedStyle, numFmt: weightFmt });
+        setFormulaCell(ws, start + rfIndex, summary.rf, rfFormula, { ...computedStyle, numFmt: countFmt });
       });
 
       const blockStartsByPort = new Map();
@@ -4581,17 +5030,17 @@
       };
 
       addMoveRow(moveSummaryStart, "TEUS", ({ left, right }) => (
-        `=${sumFormula(Array.from({ length: 6 }, (_, offset) => (
+        `=${sumFormula(Array.from({ length: weightIndex }, (_, offset) => (
           `${excelCell(left, totalStart + offset)}+${excelCell(right, totalStart + offset)}*2`
         )))}`
       ));
       addMoveRow(moveSummaryStart + 1, "TOTAL MTONS", ({ left }) => (
-        `=${excelCell(left, totalStart + 6)}`
+        `=${excelCell(left, totalStart + weightIndex)}`
       ), moveValueStyle, visibleWeightFmt);
       addMoveRow(moveSummaryStart + 4, "Move counts utilised", ({ pod, left, right }) => {
-        const dischargeCount = `${excelCell(left, totalStart + 7)}+${excelCell(right, totalStart + 7)}`;
+        const dischargeCount = `${excelCell(left, totalStart + ttlIndex)}+${excelCell(right, totalStart + ttlIndex)}`;
         const loadCounts = (blockStartsByPort.get(pod.port) || []).map((start) => (
-          `${excelCell(summary.total20, start + 7)}+${excelCell(summary.total40, start + 7)}`
+          `${excelCell(summary.total20, start + ttlIndex)}+${excelCell(summary.total40, start + ttlIndex)}`
         ));
         return `=${sumFormula([dischargeCount, ...loadCounts])}`;
       });
@@ -4612,8 +5061,8 @@
           }
         }
       }
-      applyTemplateBorders(ws, summary, podLeftCols, blockStarts, totalStart, finalRow, moveSummaryStart);
-      addExportConditionalFormatting(ws, summary, totalStart);
+      applyTemplateBorders(ws, summary, podLeftCols, blockStarts, totalStart, finalRow, moveSummaryStart, weightIndex, ttlIndex);
+      addExportConditionalFormatting(ws, summary, totalStart, ttlIndex);
       return {
         ws,
         model,
@@ -4621,6 +5070,9 @@
         podLeftCols,
         podRightCols,
         totalStart,
+        labelIndex,
+        blockHeight,
+        blockStarts,
         moveSheetRow: moveSummaryStart + 4,
         moveLimitRow: moveSummaryStart + 5,
         moveBalanceRow: moveSummaryStart + 6,
@@ -4645,6 +5097,8 @@
       return {
         ...baseInput[direction],
         direction,
+        carrierCode: carrier.code,
+        entryStoreKey: isMultiCarrier ? `${direction}_${carrier.code}` : direction,
         allocationLabel: isMultiCarrier || carrier.code !== DEFAULT_CARRIER_CODE
           ? `${direction} ${carrier.code}`
           : baseInput[direction].allocationLabel,
@@ -4656,6 +5110,8 @@
       return {
         ...baseInput[direction],
         direction,
+        cargoLabels: totalCargoLabels,
+        entryStoreKey: `${direction}_TOTAL`,
         allocationLabel: `${direction} TOTAL`,
         allocation: totalCarrierAllocation(carriers, direction)
       };
@@ -4675,35 +5131,48 @@
 
     function applyTotalSheetFormulas(totalMeta, carrierMetas) {
       if (!totalMeta || !carrierMetas.length) return;
-      const sheetNames = carrierMetas.map((meta) => meta.ws.name);
-      const totalBlockIndex = totalMeta.model.blocks.length - 1;
-      const blockStarts = totalMeta.model.blocks.map((_, index) => 6 + index * 8);
-      blockStarts.forEach((start) => {
-        cargoLabels.forEach((_label, offset) => {
+      const sourceRefs = (label, side, podIndex, blockIndex) => carrierMetas.flatMap((meta) => {
+        const code = meta.model.sheet.carrierCode || DEFAULT_CARRIER_CODE;
+        let sourceLabel = label;
+        if (label === "Partner") {
+          if (code === DEFAULT_CARRIER_CODE) return [];
+          sourceLabel = "LILIAN";
+        } else if (["LILIAN", "SUL", "SOC"].includes(label) && code !== DEFAULT_CARRIER_CODE) {
+          return [];
+        }
+        const sourceOffset = meta.labelIndex[sourceLabel];
+        if (!Number.isInteger(sourceOffset)) return [];
+        const sourceStart = meta.blockStarts[blockIndex];
+        const col = side === "right" ? meta.podRightCols[podIndex] : meta.podLeftCols[podIndex];
+        return [`${excelSheetRef(meta.ws.name)}!${excelCell(col, sourceStart + sourceOffset)}`];
+      });
+      totalMeta.blockStarts.forEach((start, blockIndex) => {
+        totalMeta.model.labels.forEach((label, offset) => {
+          if (label === "TTL") return;
           const row = start + offset;
           totalMeta.podLeftCols.forEach((left, podIndex) => {
             const right = totalMeta.podRightCols[podIndex];
-            if (offset === 6) {
+            if (label === "Weight") {
               setFormulaCell(
                 totalMeta.ws,
                 row,
                 left,
-                sumSheetCellFormula(sheetNames, excelCell(left, row)),
+                sumFormula(sourceRefs(label, "left", podIndex, blockIndex)),
                 { fill: "FFFFFFFF", numFmt: "0.0;-0.0;;@" }
               );
-            } else if (offset < 6 || offset === 7) {
+            } else {
               setFormulaCell(
                 totalMeta.ws,
                 row,
                 left,
-                sumSheetCellFormula(sheetNames, excelCell(left, row)),
+                sumFormula(sourceRefs(label, "left", podIndex, blockIndex)),
                 { fill: "FFFFFFFF", numFmt: "0;-0;;@" }
               );
               setFormulaCell(
                 totalMeta.ws,
                 row,
                 right,
-                sumSheetCellFormula(sheetNames, excelCell(right, row)),
+                sumFormula(sourceRefs(label, "right", podIndex, blockIndex)),
                 { fill: "FFFFFFFF", numFmt: "0;-0;;@" }
               );
             }
@@ -4714,11 +5183,44 @@
         totalMeta.ws,
         totalMeta.summary,
         totalMeta.podLeftCols,
-        blockStarts,
+        totalMeta.blockStarts,
         totalMeta.totalStart,
         totalMeta.finalRow,
-        totalMeta.moveSheetRow - 4
+        totalMeta.moveSheetRow - 4,
+        totalMeta.labelIndex.Weight,
+        totalMeta.labelIndex.TTL
       );
+    }
+
+    function applyTdrComments(meta, storeKey) {
+      const audit = state.tdrAudit[storeKey] || {};
+      const totalNotes = new Map();
+      Object.entries(audit).forEach(([key, lines]) => {
+        const [blockText, label, podText, side] = key.split("|");
+        const blockIndex = Number(blockText);
+        const podIndex = Number(podText);
+        const offset = meta.labelIndex[label];
+        if (!Number.isInteger(blockIndex) || !Number.isInteger(podIndex) || !Number.isInteger(offset)) return;
+        const row = meta.blockStarts[blockIndex] + offset;
+        const col = side === "right" ? meta.podRightCols[podIndex] : meta.podLeftCols[podIndex];
+        const text = [...new Set(lines)].join("\n");
+        if (!text) return;
+        meta.ws.getCell(row, col).note = text;
+        const totalKey = `${blockIndex}|${label}|${side}`;
+        const accumulated = totalNotes.get(totalKey) || [];
+        lines.forEach((line) => {
+          if (!accumulated.includes(line)) accumulated.push(line);
+        });
+        totalNotes.set(totalKey, accumulated);
+      });
+      totalNotes.forEach((lines, key) => {
+        const [blockText, label, side] = key.split("|");
+        const offset = meta.labelIndex[label];
+        if (!Number.isInteger(offset)) return;
+        const row = meta.blockStarts[Number(blockText)] + offset;
+        const col = side === "right" ? meta.summary.total40 : meta.summary.total20;
+        meta.ws.getCell(row, col).note = lines.join("\n");
+      });
     }
 
     function addRobTransferSheet(workbook, name, pods, options = {}) {
@@ -5110,6 +5612,8 @@
         workbook.calcProperties.forceFullCalc = true;
         const carriers = input.carriers?.length ? input.carriers : [defaultCarrier()];
         const isMultiCarrier = carriers.length > 1;
+        migrateDirectionEntries("WB", carriers);
+        migrateDirectionEntries("EB", carriers);
         const buildUnits = isMultiCarrier ? 3 + carriers.length * 2 : 3;
         let completedUnits = 0;
         const markBuilt = async (label) => {
@@ -5134,6 +5638,8 @@
           );
           await markBuilt("EB 工作表已生成");
           applyEbRobCarryover(wbMeta, ebMeta);
+          applyTdrComments(wbMeta, "WB");
+          applyTdrComments(ebMeta, "EB");
           addRobInputSheet(workbook, wbMeta);
           addRobOutputSheet(workbook, ebMeta);
           await markBuilt("ROB 公式和传递表已生成");
@@ -5191,6 +5697,12 @@
           });
           applyTotalSheetFormulas(wbTotalMeta, wbCarrierMetas.map((item) => item.meta));
           applyTotalSheetFormulas(ebTotalMeta, ebCarrierMetas.map((item) => item.meta));
+          applyTdrComments(wbTotalMeta, "WB_TOTAL");
+          applyTdrComments(ebTotalMeta, "EB_TOTAL");
+          const wbCul = wbCarrierMetas.find((item) => item.carrier.code === DEFAULT_CARRIER_CODE);
+          const ebCul = ebCarrierMetas.find((item) => item.carrier.code === DEFAULT_CARRIER_CODE);
+          if (wbCul) applyTdrComments(wbCul.meta, "WB_CUL");
+          if (ebCul) applyTdrComments(ebCul.meta, "EB_CUL");
           addMultiCarrierRobInputSheet(workbook, wbCarrierMetas);
           addMultiCarrierRobOutputSheet(workbook, ebCarrierMetas);
           await markBuilt("TOTAL、ROB 公式和传递表已生成");
