@@ -1,0 +1,5 @@
+node_modules/
+tdr-helper/node_modules/
+.env
+*.log
+tdr-credentials.json

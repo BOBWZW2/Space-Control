@@ -150,6 +150,77 @@
       white-space: nowrap;
     }
 
+    button.tdr-button {
+      border-color: #1570a6;
+      background: #e8f3fb;
+      color: #0b4f75;
+      font-weight: 700;
+    }
+
+    dialog.tdr-dialog {
+      width: min(920px, calc(100vw - 24px));
+    }
+
+    .tdr-controls {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) auto;
+      gap: 10px;
+      align-items: end;
+      margin-bottom: 12px;
+    }
+
+    .tdr-controls select {
+      width: 100%;
+    }
+
+    .tdr-message {
+      min-height: 22px;
+      margin: 6px 0 10px;
+      color: #475467;
+    }
+
+    .tdr-preview-wrap {
+      max-height: min(52vh, 460px);
+      overflow: auto;
+      border: 1px solid var(--line);
+    }
+
+    .tdr-preview-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .tdr-preview-table th,
+    .tdr-preview-table td {
+      padding: 7px 8px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    .tdr-preview-table th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #f2f4f7;
+    }
+
+    .tdr-preview-table select {
+      min-width: 120px;
+    }
+
+    .tdr-unmatched {
+      background: #fff8e7;
+    }
+
+    .tdr-dialog-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
     .generation-actions .status {
       min-width: 0;
       max-width: 240px;
@@ -1265,6 +1336,7 @@
           <div class="generation-actions">
             <button id="clearInputs" type="button">清除</button>
             <button id="generate" type="button">刷新船期</button>
+            <button id="fetchTdr" type="button" class="tdr-button">更新 TDR</button>
             <button id="saveSync" type="button" class="sync-save">保存并同步</button>
             <button id="copyTable" type="button">复制预览</button>
             <button id="exportXls" type="button" class="primary export-button">导出 Excel</button>
@@ -1340,6 +1412,45 @@
       </div>
     </dialog>
 
+    <dialog id="tdrDialog" class="settings-dialog tdr-dialog" aria-labelledby="tdrTitle">
+      <div class="settings-dialog-head">
+        <h2 id="tdrTitle">TDR 实际货量</h2>
+        <button id="tdrClose" class="icon-button" type="button" aria-label="关闭 TDR" title="关闭">
+          <i data-lucide="x" class="close-fallback" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="settings-dialog-body">
+        <div class="tdr-controls">
+          <div class="field">
+            <label for="tdrPolSelect">起运港 / 航次</label>
+            <select id="tdrPolSelect"></select>
+          </div>
+          <button id="tdrQuery" type="button" class="primary">后台查询</button>
+        </div>
+        <div id="tdrMessage" class="tdr-message" aria-live="polite">请选择已离港的 POL。</div>
+        <div id="tdrPreviewWrap" class="tdr-preview-wrap hidden">
+          <table class="tdr-preview-table">
+            <thead>
+              <tr>
+                <th>来源</th>
+                <th>TDR POD</th>
+                <th>写入 POD</th>
+                <th>货类</th>
+                <th>20'</th>
+                <th>40'</th>
+                <th>重量</th>
+              </tr>
+            </thead>
+            <tbody id="tdrPreviewBody"></tbody>
+          </table>
+        </div>
+        <div class="tdr-dialog-actions">
+          <button id="tdrCancel" type="button">取消</button>
+          <button id="tdrApply" type="button" class="primary" disabled>确认写入</button>
+        </div>
+      </div>
+    </dialog>
+
     <main class="workspace">
       <div class="preview-heading">
         <h2>船期与 BSA 预览</h2>
@@ -1379,6 +1490,9 @@
   <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
   <script>
     const cargoLabels = ["LILIAN", "SUL", "T/S", "SOC", "RF", "MT", "Weight", "TTL"];
+    const TDR_API_BASE = ["127.0.0.1", "localhost"].includes(window.location.hostname) && window.location.port === "4318"
+      ? ""
+      : "http://127.0.0.1:4318";
     const SCHEDULE_URL = "https://raw.githubusercontent.com/BOBWZW2/data-base/main/schedule_latest.xlsx";
     const LOCAL_MAPPING_URL = "data/vessel_mapping_latest.csv";
     const REMOTE_MAPPING_URL = "https://raw.githubusercontent.com/BOBWZW2/data-base/main/vessel_mapping_latest.csv";
@@ -1461,6 +1575,7 @@
       sharedCache: null,
       sharedCachePromise: null,
       applyingCache: false,
+      tdrPreview: null,
       initialized: false
     };
 
@@ -3063,6 +3178,184 @@
 
     function entryKey(block, row, pod, side) {
       return `${block}|${row}|${pod}|${side}`;
+    }
+
+    function tdrPolChoices() {
+      const input = readInputs();
+      const sheetName = state.activeSheet;
+      const calls = sheetName === "WB"
+        ? (state.currentLookup?.wbCalls || [])
+        : (state.currentLookup?.ebCalls || []);
+      return input[sheetName].pols.map((pol, polIndex) => ({
+        sheetName,
+        polIndex,
+        port: pol.port,
+        etb: pol.etb,
+        etd: pol.etd,
+        vvd: calls[polIndex]?.vvd || (sheetName === "WB"
+          ? state.currentLookup?.currentWVvd
+          : state.currentLookup?.currentEVvd) || input.vvd
+      }));
+    }
+
+    function openTdrDialog() {
+      if (!state.currentLookup) {
+        $("status").textContent = "请先刷新船期";
+        return;
+      }
+      const choices = tdrPolChoices();
+      const select = $("tdrPolSelect");
+      select.replaceChildren();
+      choices.forEach((choice, index) => {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = `${choice.sheetName} · ${choice.port} · ${choice.vvd} · ETD ${choice.etd || "-"}`;
+        select.appendChild(option);
+      });
+      state.tdrPreview = null;
+      $("tdrPreviewBody").replaceChildren();
+      $("tdrPreviewWrap").classList.add("hidden");
+      $("tdrApply").disabled = true;
+      $("tdrMessage").textContent = choices.length ? "请选择已离港的 POL，然后后台查询。" : "当前方向没有可查询的 POL。";
+      $("tdrQuery").disabled = !choices.length;
+      const dialog = $("tdrDialog");
+      if (!dialog.open) dialog.showModal();
+    }
+
+    function closeTdrDialog() {
+      const dialog = $("tdrDialog");
+      if (dialog?.open) dialog.close();
+    }
+
+    function tdrTargetOptions(pods, selected = "") {
+      const select = document.createElement("select");
+      const prompt = document.createElement("option");
+      prompt.value = "";
+      prompt.textContent = "确认中转港";
+      select.appendChild(prompt);
+      pods.forEach((pod) => {
+        const option = document.createElement("option");
+        option.value = pod.port;
+        option.textContent = `${pod.port}${String(pod.eta).toUpperCase() === "SKIP" ? " (SKIP)" : ""}`;
+        option.selected = pod.port === selected;
+        select.appendChild(option);
+      });
+      return select;
+    }
+
+    function renderTdrPreview() {
+      const preview = state.tdrPreview;
+      const body = $("tdrPreviewBody");
+      body.replaceChildren();
+      if (!preview) return;
+      preview.rows.forEach((row, index) => {
+        const tr = document.createElement("tr");
+        if (row.requiresConfirmation) tr.className = "tdr-unmatched";
+        [row.source === "ocean" ? "Ocean" : "Inter-port", row.pod].forEach((value) => {
+          const td = document.createElement("td");
+          td.textContent = value;
+          tr.appendChild(td);
+        });
+        const targetCell = document.createElement("td");
+        if (row.requiresConfirmation) {
+          const select = tdrTargetOptions(preview.pods, row.targetPod);
+          select.dataset.tdrRow = String(index);
+          select.addEventListener("change", () => {
+            row.targetPod = select.value;
+            $("tdrApply").disabled = preview.rows.some((item) => item.requiresConfirmation && !item.targetPod);
+          });
+          targetCell.appendChild(select);
+        } else {
+          targetCell.textContent = row.targetPod;
+        }
+        tr.appendChild(targetCell);
+        [row.requiresConfirmation ? "T/S" : "LILIAN", cellText(row.qty20), cellText(row.qty40), cellText(row.weight, 1)].forEach((value) => {
+          const td = document.createElement("td");
+          td.textContent = value;
+          tr.appendChild(td);
+        });
+        body.appendChild(tr);
+      });
+      $("tdrPreviewWrap").classList.remove("hidden");
+      $("tdrApply").disabled = preview.rows.some((row) => row.requiresConfirmation && !row.targetPod);
+    }
+
+    async function queryTdr() {
+      const choices = tdrPolChoices();
+      const choice = choices[Number($("tdrPolSelect").value || 0)];
+      if (!choice) return;
+      const input = readInputs();
+      const pods = input[choice.sheetName].pods;
+      $("tdrQuery").disabled = true;
+      $("tdrApply").disabled = true;
+      $("tdrMessage").textContent = `正在后台读取 ${choice.vvd} / ${choice.port}，通常需要 10–30 秒…`;
+      try {
+        const response = await fetch(`${TDR_API_BASE}/api/tdr`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vvd: choice.vvd, pol: choice.port })
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || `TDR 查询失败 (${response.status})`);
+        const podMap = new Map(pods.map((pod) => [pod.port, pod]));
+        const rows = (payload.rows || []).map((row) => {
+          const matchingPod = podMap.get(row.pod);
+          const skipped = matchingPod && String(matchingPod.eta).toUpperCase() === "SKIP";
+          const requiresConfirmation = !matchingPod || skipped;
+          return {
+            ...row,
+            targetPod: requiresConfirmation ? "" : row.pod,
+            requiresConfirmation
+          };
+        });
+        state.tdrPreview = { choice, pods, rows, fetchedAt: payload.fetchedAt };
+        renderTdrPreview();
+        const unmatched = rows.filter((row) => row.requiresConfirmation).length;
+        $("tdrMessage").textContent = unmatched
+          ? `已取得 ${rows.length} 条。${unmatched} 条跳港/未匹配货量需要确认实际中转港。`
+          : `已取得 ${rows.length} 条，确认后写入控舱表。`;
+      } catch (error) {
+        console.error(error);
+        state.tdrPreview = null;
+        $("tdrPreviewWrap").classList.add("hidden");
+        $("tdrMessage").textContent = error.message || String(error);
+      } finally {
+        $("tdrQuery").disabled = false;
+      }
+    }
+
+    function addTdrEntry(target, key, value) {
+      if (!value) return;
+      const current = parseCellNumber(target[key]);
+      target[key] = String(Math.round((current + Number(value)) * 10) / 10);
+    }
+
+    function applyTdrPreview() {
+      const preview = state.tdrPreview;
+      if (!preview || preview.rows.some((row) => row.requiresConfirmation && !row.targetPod)) return;
+      const input = readInputs();
+      const sheetName = preview.choice.sheetName;
+      const blockIndex = preview.choice.polIndex + 1;
+      const pods = input[sheetName].pods;
+      const entries = state.entries[sheetName] || (state.entries[sheetName] = {});
+      pods.forEach((_pod, podIndex) => {
+        [0, 2].forEach((rowIndex) => {
+          delete entries[entryKey(blockIndex, rowIndex, podIndex, "left")];
+          delete entries[entryKey(blockIndex, rowIndex, podIndex, "right")];
+        });
+        delete entries[entryKey(blockIndex, 6, podIndex, "weight")];
+      });
+      preview.rows.forEach((row) => {
+        const podIndex = pods.findIndex((pod) => pod.port === row.targetPod);
+        if (podIndex < 0) return;
+        const rowIndex = row.requiresConfirmation ? 2 : 0;
+        addTdrEntry(entries, entryKey(blockIndex, rowIndex, podIndex, "left"), row.qty20);
+        addTdrEntry(entries, entryKey(blockIndex, rowIndex, podIndex, "right"), row.qty40);
+        addTdrEntry(entries, entryKey(blockIndex, 6, podIndex, "weight"), row.weight);
+      });
+      saveLocalDraftForCurrentVvd();
+      $("status").textContent = `TDR 已更新 · ${preview.choice.port} · ${preview.rows.length} 条`;
+      closeTdrDialog();
     }
 
     function saveCellEntry(cell, sheetName) {
@@ -4984,6 +5277,14 @@
     updateTokenUi();
 
     $("generate").addEventListener("click", () => generateFromSchedule({ forceSchedule: true }));
+    $("fetchTdr").addEventListener("click", openTdrDialog);
+    $("tdrQuery").addEventListener("click", queryTdr);
+    $("tdrApply").addEventListener("click", applyTdrPreview);
+    $("tdrClose").addEventListener("click", closeTdrDialog);
+    $("tdrCancel").addEventListener("click", closeTdrDialog);
+    $("tdrDialog").addEventListener("click", (event) => {
+      if (event.target === $("tdrDialog")) closeTdrDialog();
+    });
     $("clearInputs").addEventListener("click", clearCurrentInputs);
     $("loadSample").addEventListener("click", () => {
       setSample();
