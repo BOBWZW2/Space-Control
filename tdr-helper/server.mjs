@@ -9,16 +9,19 @@ const HOST = "127.0.0.1";
 const PORT = Number(process.env.TDR_HELPER_PORT || 4318);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const UI_FILE = path.join(ROOT, "space-control-generator.html");
-const CHROME = process.env.CHROME_PATH || "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const PROFILE = process.env.TDR_PROFILE_DIR || path.join(process.env.LOCALAPPDATA || os.homedir(), "SpaceControl", "tdr-browser-profile");
+const APP_DATA = path.join(process.env.LOCALAPPDATA || os.homedir(), "SpaceControl");
+const PID_FILE = process.env.TDR_PID_FILE || path.join(APP_DATA, `tdr-helper-${PORT}.pid`);
 const LOGIN_URL = "https://ops.culines.com/oceans/nawlogon.do";
 const TDR_URL = "https://ops.culines.com/oceans/VOP_M3001.do";
 const ONLINE_ORIGIN = "https://bobwzw2.github.io";
+const AGENT_VERSION = "1.0.0";
 
 let context;
 let page;
 let queue = Promise.resolve();
 let selectedVvd = "";
+let browserExecutable = "";
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -61,8 +64,9 @@ function normalizeCode(value, max) {
 async function browserPage() {
   if (!context) {
     await fs.mkdir(PROFILE, { recursive: true });
+    browserExecutable = browserExecutable || await resolveBrowserExecutable();
     context = await chromium.launchPersistentContext(PROFILE, {
-      executablePath: CHROME,
+      executablePath: browserExecutable,
       headless: true,
       viewport: { width: 1440, height: 900 },
       args: ["--no-first-run", "--no-default-browser-check"]
@@ -71,6 +75,34 @@ async function browserPage() {
   }
   if (!page || page.isClosed()) page = await context.newPage();
   return page;
+}
+
+async function resolveBrowserExecutable() {
+  const candidates = [
+    process.env.CHROME_PATH,
+    path.join(process.env.PROGRAMFILES || "C:\\Program Files", "Google", "Chrome", "Application", "chrome.exe"),
+    path.join(process.env["PROGRAMFILES(X86)"] || "C:\\Program Files (x86)", "Microsoft", "Edge", "Application", "msedge.exe"),
+    path.join(process.env.PROGRAMFILES || "C:\\Program Files", "Microsoft", "Edge", "Application", "msedge.exe"),
+    path.join(process.env.LOCALAPPDATA || "", "Google", "Chrome", "Application", "chrome.exe"),
+    path.join(process.env.LOCALAPPDATA || "", "Microsoft", "Edge", "Application", "msedge.exe")
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      // Try the next installed browser.
+    }
+  }
+  throw codedError("未找到 Microsoft Edge 或 Google Chrome", "BROWSER_NOT_FOUND");
+}
+
+async function resetBrowser() {
+  const oldContext = context;
+  context = undefined;
+  page = undefined;
+  selectedVvd = "";
+  await oldContext?.close().catch(() => undefined);
 }
 
 function codedError(message, code, details = {}) {
@@ -241,6 +273,29 @@ async function fetchTdr(vvd, pol) {
   };
 }
 
+async function fetchTdrWithRetry(vvd, pol) {
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let timer;
+    try {
+      return await Promise.race([
+        fetchTdr(vvd, pol),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(codedError("TDR 查询超时", "TDR_TIMEOUT")), 90000);
+        })
+      ]);
+    } catch (error) {
+      if (error?.code === "TERMINAL_NOT_FOUND" || error?.code === "BROWSER_NOT_FOUND") throw error;
+      lastError = error;
+      await resetBrowser();
+      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 1200));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastError;
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     if (!allowRequestOrigin(req, res)) return json(res, 403, { error: "Origin not allowed" });
@@ -249,14 +304,21 @@ const server = http.createServer(async (req, res) => {
       return res.end();
     }
     const url = new URL(req.url || "/", `http://${HOST}:${PORT}`);
-    if (req.method === "GET" && url.pathname === "/api/health") return json(res, 200, { ok: true });
+    if (req.method === "GET" && url.pathname === "/api/health") {
+      return json(res, 200, { ok: true, version: AGENT_VERSION, browser: browserExecutable ? path.basename(browserExecutable) : "auto" });
+    }
     if (req.method === "POST" && url.pathname === "/api/tdr") {
       const input = await bodyJson(req);
       const vvd = normalizeCode(input.vvd, 12);
       const pol = normalizeCode(input.pol, 5);
-      const task = queue.then(() => fetchTdr(vvd, pol));
+      const task = queue.then(() => fetchTdrWithRetry(vvd, pol));
       queue = task.catch(() => undefined);
       return json(res, 200, await task);
+    }
+    if (req.method === "POST" && url.pathname === "/api/shutdown" && !req.headers.origin) {
+      json(res, 200, { ok: true });
+      setTimeout(() => shutdown(0), 50);
+      return;
     }
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/space-control-generator.html")) {
       const body = await fs.readFile(UI_FILE);
@@ -269,11 +331,19 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, HOST, () => console.log(`Space Control TDR helper: http://${HOST}:${PORT}`));
+async function shutdown(code = 0) {
+  await resetBrowser();
+  await fs.unlink(PID_FILE).catch(() => undefined);
+  server.close(() => process.exit(code));
+  setTimeout(() => process.exit(code), 3000).unref();
+}
+
+server.listen(PORT, HOST, async () => {
+  await fs.mkdir(APP_DATA, { recursive: true });
+  await fs.writeFile(PID_FILE, String(process.pid), "utf8");
+  console.log(`Space Control TDR Agent ${AGENT_VERSION}: http://${HOST}:${PORT}`);
+});
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, async () => {
-    await context?.close().catch(() => undefined);
-    server.close(() => process.exit(0));
-  });
+  process.on(signal, () => shutdown(0));
 }

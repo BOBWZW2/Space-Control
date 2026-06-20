@@ -174,6 +174,30 @@
       font-weight: 700;
     }
 
+    .tdr-agent-download {
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #ffffff;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .tdr-agent-status {
+      margin: -4px 0 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .tdr-agent-status.good { color: #067647; }
+    .tdr-agent-status.bad { color: var(--danger); }
+
     .tdr-progress {
       display: grid;
       grid-template-columns: minmax(180px, 1fr) 48px;
@@ -1513,8 +1537,10 @@
             <button class="tab" type="button" data-sheet="EB">EB · E航向</button>
           </div>
           <div id="tdrScope" class="tdr-scope">查询当前方向全部 POL</div>
+          <a class="tdr-agent-download" href="https://github.com/BOBWZW2/Space-Control/releases/latest/download/SpaceControl-TDR-Agent-Setup.exe" target="_blank" rel="noopener">安装 Windows TDR Agent</a>
           <button id="tdrQuery" type="button" class="primary">后台查询整个方向</button>
         </div>
+        <div id="tdrAgentStatus" class="tdr-agent-status">正在检测本机 TDR Agent...</div>
         <div id="tdrProgressWrap" class="tdr-progress hidden" role="status" aria-live="polite">
           <progress id="tdrProgress" max="100" value="0"></progress>
           <span id="tdrProgressPercent">0%</span>
@@ -3371,6 +3397,34 @@
       if (text) $("tdrMessage").textContent = text;
     }
 
+    async function checkTdrAgent() {
+      const status = $("tdrAgentStatus");
+      if (status) {
+        status.className = "tdr-agent-status";
+        status.textContent = "正在检测本机 TDR Agent...";
+      }
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3000);
+        const response = await fetch(`${TDR_API_BASE}/api/health`, { cache: "no-store", signal: controller.signal });
+        clearTimeout(timer);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const health = await response.json();
+        if (!health?.ok) throw new Error("Agent unavailable");
+        if (status) {
+          status.classList.add("good");
+          status.textContent = `本机 TDR Agent 已连接${health.version ? ` · v${health.version}` : ""}`;
+        }
+        return health;
+      } catch {
+        if (status) {
+          status.classList.add("bad");
+          status.textContent = "未连接本机 TDR Agent。请先安装或启动 Windows TDR Agent；手机和平板不能直接执行 TDR。";
+        }
+        return null;
+      }
+    }
+
     function tdrIssue(key, type, message, options, value = "") {
       return { key, type, message, options, value };
     }
@@ -3477,6 +3531,7 @@
       $("tdrQuery").disabled = !choices.length;
       const dialog = $("tdrDialog");
       if (!dialog.open) dialog.showModal();
+      checkTdrAgent();
     }
 
     function closeTdrDialog() {
@@ -3577,6 +3632,12 @@
     async function queryTdr() {
       const choices = tdrPolChoices();
       if (!choices.length) return;
+      if (!await checkTdrAgent()) {
+        $("tdrQuery").disabled = false;
+        $("tdrApply").disabled = true;
+        setTdrProgress(0, "TDR Agent 未连接，未开始查询。", true);
+        return;
+      }
       const input = readInputs();
       const pods = input[state.activeSheet].pods;
       $("tdrQuery").disabled = true;

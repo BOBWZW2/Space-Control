@@ -10,12 +10,15 @@ $port = 4318
 
 try {
   Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/health" -TimeoutSec 2 | Out-Null
-  if (-not $NoBrowser) { Start-Process "http://127.0.0.1:$port/" }
+  if (-not $NoBrowser) { Start-Process 'https://bobwzw2.github.io/Space-Control/' }
   exit 0
 } catch {}
 
 if (-not (Test-Path -LiteralPath $credentialPath)) {
-  throw "TDR credentials are not configured."
+  if (-not $NoBrowser) {
+    & (Join-Path $root 'configure-tdr-agent.ps1')
+  }
+  if (-not (Test-Path -LiteralPath $credentialPath)) { exit 2 }
 }
 
 $credential = Get-Content -LiteralPath $credentialPath -Raw | ConvertFrom-Json
@@ -28,7 +31,10 @@ try {
   [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
 }
 
-$node = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
+$node = Join-Path $root 'runtime\node.exe'
+if (-not (Test-Path -LiteralPath $node)) {
+  $node = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
+}
 if (-not $node) {
   $node = Join-Path $env:USERPROFILE '.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe'
 }
@@ -43,7 +49,7 @@ for ($i = 0; $i -lt 30; $i++) {
   Start-Sleep -Milliseconds 500
   try {
     Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/health" -TimeoutSec 2 | Out-Null
-    if (-not $NoBrowser) { Start-Process "http://127.0.0.1:$port/" }
+    if (-not $NoBrowser) { Start-Process 'https://bobwzw2.github.io/Space-Control/' }
     exit 0
   } catch {}
 }
