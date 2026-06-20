@@ -3406,7 +3406,11 @@
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 3000);
-        const response = await fetch(`${TDR_API_BASE}/api/health`, { cache: "no-store", signal: controller.signal });
+        const response = await fetch(`${TDR_API_BASE}/api/health`, {
+          cache: "no-store",
+          signal: controller.signal,
+          targetAddressSpace: "local"
+        });
         clearTimeout(timer);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const health = await response.json();
@@ -3419,7 +3423,7 @@
       } catch {
         if (status) {
           status.classList.add("bad");
-          status.textContent = "未连接本机 TDR Agent。请先安装或启动 Windows TDR Agent；手机和平板不能直接执行 TDR。";
+          status.textContent = "未连接本机 TDR Agent。请先安装或启动；如浏览器询问是否访问本地网络，请选择允许。手机和平板不能直接执行 TDR。";
         }
         return null;
       }
@@ -3666,6 +3670,7 @@
           const response = await fetch(`${TDR_API_BASE}/api/tdr`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            targetAddressSpace: "local",
             body: JSON.stringify({ vvd: choice.vvd, pol: choice.port })
           });
           const payload = await response.json().catch(() => ({}));
