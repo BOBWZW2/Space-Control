@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
+import { spawn } from "node:child_process";
 import { chromium } from "playwright-core";
 
 const HOST = "127.0.0.1";
@@ -12,10 +13,11 @@ const UI_FILE = path.join(ROOT, "space-control-generator.html");
 const PROFILE = process.env.TDR_PROFILE_DIR || path.join(process.env.LOCALAPPDATA || os.homedir(), "SpaceControl", "tdr-browser-profile");
 const APP_DATA = path.join(process.env.LOCALAPPDATA || os.homedir(), "SpaceControl");
 const PID_FILE = process.env.TDR_PID_FILE || path.join(APP_DATA, `tdr-helper-${PORT}.pid`);
+const CONFIGURE_SCRIPT = path.join(ROOT, "configure-tdr-agent.ps1");
 const LOGIN_URL = "https://ops.culines.com/oceans/nawlogon.do";
 const TDR_URL = "https://ops.culines.com/oceans/VOP_M3001.do";
 const ONLINE_ORIGIN = "https://bobwzw2.github.io";
-const AGENT_VERSION = "1.0.0";
+const AGENT_VERSION = "1.0.1";
 
 let context;
 let page;
@@ -118,13 +120,40 @@ async function ensureLogin(target) {
   if (!/nawlogon\.do/i.test(target.url())) return;
   const username = process.env.ALLEGRO_USER;
   const password = process.env.ALLEGRO_PASSWORD;
-  if (!username || !password) throw new Error("Allegro credentials are not configured");
+  if (!username || !password) {
+    throw codedError("Allegro 账号尚未配置，请修改 TDR 账号后重试", "AUTH_FAILED");
+  }
   await target.getByRole("textbox", { name: "USER ID" }).fill(username);
   await target.getByRole("textbox", { name: "PASSWORD" }).fill(password);
-  await Promise.all([
-    target.waitForURL(/nawmain\.html/i, { timeout: 30000 }),
-    target.getByRole("button", { name: "LOGIN" }).click({ force: true })
-  ]);
+  try {
+    await Promise.all([
+      target.waitForURL(/nawmain\.html/i, { timeout: 30000 }),
+      target.getByRole("button", { name: "LOGIN" }).click({ force: true })
+    ]);
+  } catch (error) {
+    const stillOnLogin = /nawlogon\.do/i.test(target.url())
+      || await target.getByRole("textbox", { name: "PASSWORD" }).isVisible().catch(() => false);
+    if (stillOnLogin) {
+      throw codedError("Allegro 登录失败，账号或密码可能已变更", "AUTH_FAILED");
+    }
+    throw error;
+  }
+}
+
+async function openCredentialSettings() {
+  await fs.access(CONFIGURE_SCRIPT);
+  const child = spawn("powershell.exe", [
+    "-NoProfile",
+    "-WindowStyle", "Hidden",
+    "-ExecutionPolicy", "Bypass",
+    "-File", CONFIGURE_SCRIPT
+  ], {
+    cwd: ROOT,
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true
+  });
+  child.unref();
 }
 
 async function selectVoyage(target, vvd) {
@@ -285,7 +314,7 @@ async function fetchTdrWithRetry(vvd, pol) {
         })
       ]);
     } catch (error) {
-      if (error?.code === "TERMINAL_NOT_FOUND" || error?.code === "BROWSER_NOT_FOUND") throw error;
+      if (["TERMINAL_NOT_FOUND", "BROWSER_NOT_FOUND", "AUTH_FAILED"].includes(error?.code)) throw error;
       lastError = error;
       await resetBrowser();
       if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 1200));
@@ -315,6 +344,11 @@ const server = http.createServer(async (req, res) => {
       queue = task.catch(() => undefined);
       return json(res, 200, await task);
     }
+    if (req.method === "POST" && url.pathname === "/api/configure") {
+      json(res, 200, { ok: true });
+      setTimeout(() => openCredentialSettings().catch((error) => console.error(error)), 80);
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/api/shutdown" && !req.headers.origin) {
       json(res, 200, { ok: true });
       setTimeout(() => shutdown(0), 50);
@@ -327,7 +361,8 @@ const server = http.createServer(async (req, res) => {
     }
     json(res, 404, { error: "Not found" });
   } catch (error) {
-    json(res, 500, { error: error?.message || String(error), code: error?.code || "TDR_QUERY_FAILED" });
+    const status = error?.code === "AUTH_FAILED" ? 401 : 500;
+    json(res, status, { error: error?.message || String(error), code: error?.code || "TDR_QUERY_FAILED" });
   }
 });
 

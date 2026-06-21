@@ -208,13 +208,37 @@
     }
 
     .tdr-agent-status {
-      margin: -4px 0 10px;
+      margin: 0;
       color: var(--muted);
       font-size: 12px;
     }
 
     .tdr-agent-status.good { color: #067647; }
     .tdr-agent-status.bad { color: var(--danger); }
+
+    .tdr-agent-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: -4px 0 10px;
+    }
+
+    .tdr-account-settings {
+      padding: 2px 7px;
+      border-color: transparent;
+      background: transparent;
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .tdr-account-settings:hover,
+    .tdr-account-settings.attention {
+      border-color: #f79009;
+      background: #fffaeb;
+      color: #b54708;
+    }
 
     .tdr-progress {
       display: grid;
@@ -1691,10 +1715,13 @@
             </label>
           </div>
           <div id="tdrScope" class="tdr-scope">查询当前方向全部 POL</div>
-          <a class="tdr-agent-download" href="https://github.com/BOBWZW2/Space-Control/releases/latest/download/SpaceControl-TDR-Agent-Setup.exe?v=96bc669a" target="_blank" rel="noopener">安装 Windows TDR Agent</a>
+          <a class="tdr-agent-download" href="https://github.com/BOBWZW2/Space-Control/releases/latest/download/SpaceControl-TDR-Agent-Setup.exe?v=1.0.1" target="_blank" rel="noopener">安装 Windows TDR Agent</a>
           <button id="tdrQuery" type="button" class="primary">后台查询整个方向</button>
         </div>
-        <div id="tdrAgentStatus" class="tdr-agent-status">正在检测本机 TDR Agent...</div>
+        <div class="tdr-agent-line">
+          <div id="tdrAgentStatus" class="tdr-agent-status">正在检测本机 TDR Agent...</div>
+          <button id="tdrAccountSettings" class="tdr-account-settings" type="button">修改 TDR 账号</button>
+        </div>
         <div id="tdrProgressWrap" class="tdr-progress hidden" role="status" aria-live="polite">
           <progress id="tdrProgress" max="100" value="0"></progress>
           <span id="tdrProgressPercent">0%</span>
@@ -3622,6 +3649,30 @@
       }
     }
 
+    function setTdrAccountAttention(enabled) {
+      $("tdrAccountSettings")?.classList.toggle("attention", Boolean(enabled));
+    }
+
+    async function openTdrAccountSettings() {
+      const button = $("tdrAccountSettings");
+      button.disabled = true;
+      try {
+        const response = await fetch(`${TDR_API_BASE}/api/configure`, {
+          method: "POST",
+          targetAddressSpace: "local"
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+        setTdrAccountAttention(false);
+        $("tdrMessage").textContent = "账号设置窗口已打开。保存后 Agent 会自动重启，请再执行一次 TDR 查询。";
+      } catch (error) {
+        console.error(error);
+        $("tdrMessage").textContent = "当前 Agent 无法从网页打开账号设置。请安装最新版，或从 Windows 开始菜单打开“设置 TDR 账号”。";
+      } finally {
+        button.disabled = false;
+      }
+    }
+
     function tdrIssue(key, type, message, options, value = "") {
       return { key, type, message, options, value };
     }
@@ -3636,7 +3687,7 @@
 
     function tdrReadyToApply() {
       const preview = state.tdrPreview;
-      if (!preview || preview.querying || preview.issues.some((issue) => !issue.value)) return false;
+      if (!preview || preview.querying || preview.authFailed || preview.issues.some((issue) => !issue.value)) return false;
       if (preview.mode !== "single") return true;
       return preview.results.some((result) => (
         result.status === "ok"
@@ -3689,7 +3740,7 @@
       if (!preview) return;
       preview.results.forEach((result) => {
         const card = document.createElement("div");
-        const bad = ["error", "missing", "terminal"].includes(result.status);
+        const bad = ["error", "missing", "terminal", "auth"].includes(result.status);
         card.className = `tdr-status-card ${bad ? "error" : result.status === "not-departed" ? "pending" : ""}`;
         appendText(card, "strong", `${result.choice.port} · ${result.choice.vvd}`);
         appendText(card, "span", result.message);
@@ -3732,6 +3783,7 @@
       updateTdrModeUi(allChoices);
       const choices = tdrQueryChoices();
       state.tdrPreview = null;
+      setTdrAccountAttention(false);
       $("tdrPreviewBody").replaceChildren();
       $("tdrPreviewWrap").classList.add("hidden");
       $("tdrStatusGrid").replaceChildren();
@@ -3798,6 +3850,11 @@
       renderTdrStatuses();
       $("tdrApply").disabled = !tdrReadyToApply();
       if (!preview.querying) {
+        if (preview.authFailed) {
+          clearTdrManualPreview();
+          $("tdrMessage").textContent = "Allegro 登录失败。请修改 TDR 账号；保存并等待 Agent 重启后，再重新查询。";
+          return;
+        }
         const writable = preview.results.filter((result) => result.status === "ok").length
           + preview.results.filter((result) => result.status === "terminal" && issueValue(`pol:${result.choice.polIndex}`) === "zero").length;
         const skipped = preview.results.filter((result) => ["missing", "terminal", "error"].includes(result.status) && issueValue(`pol:${result.choice.polIndex}`) === "skip").length;
@@ -3870,6 +3927,7 @@
       $("tdrApply").disabled = true;
       const preview = {
         querying: true,
+        authFailed: false,
         mode: state.tdrMode,
         sheetName: state.activeSheet,
         choices,
@@ -3908,7 +3966,9 @@
               renderTdrStatuses();
               continue;
             }
-            throw new Error(payload.error || `TDR 查询失败 (${response.status})`);
+            const requestError = new Error(payload.error || `TDR 查询失败 (${response.status})`);
+            requestError.code = payload.code || "TDR_QUERY_FAILED";
+            throw requestError;
           }
           const rows = payload.rows || [];
           const special = payload.special || [];
@@ -3933,6 +3993,13 @@
           }
         } catch (error) {
           console.error(error);
+          if (error.code === "AUTH_FAILED") {
+            preview.authFailed = true;
+            preview.results.push({ choice, status: "auth", message: "Allegro 登录失败", rows: [], special: [], specialByKey: new Map() });
+            setTdrAccountAttention(true);
+            renderTdrStatuses();
+            break;
+          }
           preview.results.push({ choice, status: "error", message: error.message || String(error), rows: [], special: [], specialByKey: new Map() });
           preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "pol-error", `${choice.port}：${error.message || error}`, [
             { value: "skip", label: "确认跳过该 POL，不导入" }
@@ -3942,7 +4009,12 @@
         renderTdrStatuses();
       }
       preview.querying = false;
-      setTdrProgress(100, `查询完成：${preview.results.filter((result) => result.status === "ok").length} 个 POL 可写入`, true);
+      if (preview.authFailed) {
+        const checked = Math.max(1, preview.results.length);
+        setTdrProgress(Math.round(checked / choices.length * 100), "Allegro 登录失败，已停止后续 POL 查询。", true);
+      } else {
+        setTdrProgress(100, `查询完成：${preview.results.filter((result) => result.status === "ok").length} 个 POL 可写入`, true);
+      }
       renderTdrPreview();
       $("tdrQuery").disabled = false;
     }
@@ -6300,6 +6372,7 @@
     $("generate").addEventListener("click", () => generateFromSchedule({ forceSchedule: true }));
     $("fetchTdr").addEventListener("click", openTdrDialog);
     $("tdrQuery").addEventListener("click", queryTdr);
+    $("tdrAccountSettings").addEventListener("click", openTdrAccountSettings);
     $("tdrApply").addEventListener("click", applyTdrPreview);
     $("tdrClose").addEventListener("click", closeTdrDialog);
     $("tdrCancel").addEventListener("click", closeTdrDialog);

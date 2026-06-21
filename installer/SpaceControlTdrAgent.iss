@@ -1,5 +1,5 @@
 #define MyAppName "Space Control TDR Agent"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "CULines Space Control"
 #define MyAppURL "https://bobwzw2.github.io/Space-Control/"
 
@@ -17,7 +17,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\outputs
-OutputBaseFilename=SpaceControl-TDR-Agent-Setup-1.0.0
+OutputBaseFilename=SpaceControl-TDR-Agent-Setup-1.0.1
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
