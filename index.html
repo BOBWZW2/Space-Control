@@ -164,9 +164,27 @@
     .tdr-controls {
       display: flex;
       justify-content: space-between;
+      flex-wrap: wrap;
       gap: 10px;
       align-items: center;
       margin-bottom: 12px;
+    }
+
+    .tdr-mode-control,
+    .tdr-port-picker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tdr-port-picker {
+      color: #344054;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .tdr-port-picker select {
+      min-width: 150px;
     }
 
     .tdr-scope {
@@ -317,6 +335,90 @@
 
     .tdr-unmatched {
       background: #fff8e7;
+    }
+
+    .tdr-copy-wrap {
+      margin-top: 12px;
+      padding: 12px;
+      border: 1px solid #84caff;
+      border-radius: 8px;
+      background: #f5fbff;
+    }
+
+    .tdr-copy-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .tdr-copy-head span,
+    .tdr-copy-card-note,
+    .tdr-copy-summary {
+      display: block;
+      margin-top: 3px;
+      color: #475467;
+      font-size: 12px;
+    }
+
+    .tdr-copy-blocks {
+      display: grid;
+      gap: 10px;
+    }
+
+    .tdr-copy-card {
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #ffffff;
+    }
+
+    .tdr-copy-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .tdr-copy-card-title {
+      color: #0b4f75;
+      font-weight: 800;
+    }
+
+    .tdr-copy-table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+    }
+
+    .tdr-copy-table {
+      width: max-content;
+      min-width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+
+    .tdr-copy-table th,
+    .tdr-copy-table td {
+      min-width: 48px;
+      padding: 5px 7px;
+      border: 1px solid #d0d5dd;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .tdr-copy-table th {
+      background: #eaf4fb;
+    }
+
+    .tdr-copy-table .row-label {
+      position: sticky;
+      left: 0;
+      z-index: 1;
+      min-width: 66px;
+      background: #f8fafc;
+      text-align: left;
+      font-weight: 700;
     }
 
     .tdr-dialog-actions {
@@ -1390,6 +1492,17 @@
       .partner-summary-table td:first-child {
         width: 64px;
       }
+
+      .tdr-controls,
+      .tdr-copy-card-head,
+      .tdr-copy-head {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .tdr-mode-control {
+        flex-wrap: wrap;
+      }
     }
 
     @media print {
@@ -1536,6 +1649,16 @@
             <button class="tab active" type="button" data-sheet="WB">WB · W航向</button>
             <button class="tab" type="button" data-sheet="EB">EB · E航向</button>
           </div>
+          <div class="tdr-mode-control">
+            <div class="tabs" id="tdrModeTabs" aria-label="选择 TDR 查询范围">
+              <button class="tab active" type="button" data-tdr-mode="bound">整个方向</button>
+              <button class="tab" type="button" data-tdr-mode="single">单个港口</button>
+            </div>
+            <label id="tdrPortPicker" class="tdr-port-picker hidden" for="tdrPortSelect">
+              POL
+              <select id="tdrPortSelect"></select>
+            </label>
+          </div>
           <div id="tdrScope" class="tdr-scope">查询当前方向全部 POL</div>
           <a class="tdr-agent-download" href="https://github.com/BOBWZW2/Space-Control/releases/latest/download/SpaceControl-TDR-Agent-Setup.exe?v=96bc669a" target="_blank" rel="noopener">安装 Windows TDR Agent</a>
           <button id="tdrQuery" type="button" class="primary">后台查询整个方向</button>
@@ -1571,6 +1694,16 @@
             </thead>
             <tbody id="tdrPreviewBody"></tbody>
           </table>
+        </div>
+        <div id="tdrCopyWrap" class="tdr-copy-wrap hidden">
+          <div class="tdr-copy-head">
+            <div>
+              <strong>单港复制区</strong>
+              <span id="tdrCopySummary">逐个复制到旧 Excel 的指定 Sheet 和起始单元格。</span>
+            </div>
+          </div>
+          <div id="tdrCopyBlocks" class="tdr-copy-blocks"></div>
+          <div class="tdr-copy-summary">复制范围仅包含 LILIAN–Weight 的输入数值；TTL、TOTAL、ROB 和利用率公式不会被覆盖。</div>
         </div>
         <div class="tdr-dialog-actions">
           <button id="tdrCancel" type="button">取消</button>
@@ -1707,6 +1840,9 @@
       applyingCache: false,
       tdrPreview: null,
       tdrAudit: {},
+      tdrMode: "bound",
+      tdrSelectedPolIndex: 0,
+      tdrCopyBlocks: [],
       initialized: false
     };
 
@@ -3368,6 +3504,32 @@
       }));
     }
 
+    function tdrQueryChoices() {
+      const choices = tdrPolChoices();
+      if (state.tdrMode !== "single") return choices;
+      return choices.filter((choice) => choice.polIndex === Number(state.tdrSelectedPolIndex)).slice(0, 1);
+    }
+
+    function updateTdrModeUi(choices = tdrPolChoices()) {
+      document.querySelectorAll("#tdrModeTabs .tab[data-tdr-mode]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.tdrMode === state.tdrMode);
+      });
+      const picker = $("tdrPortPicker");
+      const select = $("tdrPortSelect");
+      picker.classList.toggle("hidden", state.tdrMode !== "single");
+      const selectedExists = choices.some((choice) => choice.polIndex === Number(state.tdrSelectedPolIndex));
+      if (!selectedExists) state.tdrSelectedPolIndex = choices[0]?.polIndex ?? 0;
+      select.replaceChildren();
+      choices.forEach((choice) => {
+        const option = document.createElement("option");
+        option.value = String(choice.polIndex);
+        option.textContent = `${choice.port} · ${choice.vvd} · ETD ${choice.etd || "-"}`;
+        option.selected = choice.polIndex === Number(state.tdrSelectedPolIndex);
+        select.appendChild(option);
+      });
+      select.disabled = !choices.length;
+    }
+
     function scheduleDate(value) {
       const match = normalizeText(value).match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
       if (!match) return null;
@@ -3443,7 +3605,18 @@
 
     function tdrReadyToApply() {
       const preview = state.tdrPreview;
-      return Boolean(preview && !preview.querying && preview.issues.every((issue) => issue.value));
+      if (!preview || preview.querying || preview.issues.some((issue) => !issue.value)) return false;
+      if (preview.mode !== "single") return true;
+      return preview.results.some((result) => (
+        result.status === "ok"
+        || (result.status === "terminal" && issueValue(`pol:${result.choice.polIndex}`) === "zero")
+      ));
+    }
+
+    function clearTdrCopyResults() {
+      state.tdrCopyBlocks = [];
+      $("tdrCopyBlocks").replaceChildren();
+      $("tdrCopyWrap").classList.add("hidden");
     }
 
     function renderTdrIssues() {
@@ -3469,6 +3642,7 @@
         });
         select.addEventListener("change", () => {
           issue.value = select.value;
+          clearTdrCopyResults();
           renderTdrPreview();
           $("tdrApply").disabled = !tdrReadyToApply();
         });
@@ -3523,15 +3697,26 @@
         $("status").textContent = "请先刷新船期";
         return;
       }
-      const choices = tdrPolChoices();
+      const allChoices = tdrPolChoices();
+      updateTdrModeUi(allChoices);
+      const choices = tdrQueryChoices();
       state.tdrPreview = null;
       $("tdrPreviewBody").replaceChildren();
       $("tdrPreviewWrap").classList.add("hidden");
       $("tdrStatusGrid").replaceChildren();
       $("tdrIssues").replaceChildren();
+      clearTdrCopyResults();
       $("tdrApply").disabled = true;
-      $("tdrScope").textContent = `${state.activeSheet} · ${directionVvd(state.activeSheet)} · ${choices.length} 个 POL · 整个方向`;
-      setTdrProgress(0, choices.length ? "将按离港日期检查当前方向全部 POL。" : "当前方向没有可查询的 POL。", false);
+      $("tdrApply").textContent = state.tdrMode === "single" ? "生成可复制数据" : "确认并写入可用 POL";
+      $("tdrQuery").textContent = state.tdrMode === "single" ? "后台查询此港" : "后台查询整个方向";
+      const scopeLabel = state.tdrMode === "single"
+        ? `${choices[0]?.port || "无 POL"} · 单港更新`
+        : `${choices.length} 个 POL · 整个方向`;
+      $("tdrScope").textContent = `${state.activeSheet} · ${directionVvd(state.activeSheet)} · ${scopeLabel}`;
+      const prompt = state.tdrMode === "single"
+        ? "只查询所选 POL，并生成旧 Excel 的定点粘贴数据。"
+        : "将按离港日期检查当前方向全部 POL。";
+      setTdrProgress(0, choices.length ? prompt : "当前方向没有可查询的 POL。", false);
       $("tdrQuery").disabled = !choices.length;
       const dialog = $("tdrDialog");
       if (!dialog.open) dialog.showModal();
@@ -3585,7 +3770,8 @@
           + preview.results.filter((result) => result.status === "terminal" && issueValue(`pol:${result.choice.polIndex}`) === "zero").length;
         const skipped = preview.results.filter((result) => ["missing", "terminal", "error"].includes(result.status) && issueValue(`pol:${result.choice.polIndex}`) === "skip").length;
         const unresolved = preview.issues.filter((issue) => !issue.value).length;
-        $("tdrMessage").textContent = `查询完成：${writable} 个 POL 可写入${skipped ? ` · 跳过 ${skipped}` : ""}${unresolved ? ` · 待确认 ${unresolved}` : ""}`;
+        const action = preview.mode === "single" ? "可生成复制数据" : "可写入";
+        $("tdrMessage").textContent = `查询完成：${writable} 个 POL ${action}${skipped ? ` · 跳过 ${skipped}` : ""}${unresolved ? ` · 待确认 ${unresolved}` : ""}`;
       }
     }
 
@@ -3634,7 +3820,7 @@
     }
 
     async function queryTdr() {
-      const choices = tdrPolChoices();
+      const choices = tdrQueryChoices();
       if (!choices.length) return;
       if (!await checkTdrAgent()) {
         $("tdrQuery").disabled = false;
@@ -3648,6 +3834,7 @@
       $("tdrApply").disabled = true;
       const preview = {
         querying: true,
+        mode: state.tdrMode,
         sheetName: state.activeSheet,
         choices,
         pods,
@@ -3812,15 +3999,239 @@
       });
     }
 
-    function applyTdrPreview() {
-      const preview = state.tdrPreview;
-      if (!preview || !tdrReadyToApply()) return;
+    function resolvedTdrCarriers(preview) {
       let carriers = activeCarriers(readCarrierRows());
       preview.issues.filter((issue) => issue.type === "so" && issue.value === "partner").forEach((issue) => {
         const code = issue.key.split(":")[1];
         if (!carriers.some((carrier) => carrier.code === code)) carriers.push(defaultCarrier(code));
       });
-      carriers = activeCarriers(carriers);
+      return activeCarriers(carriers);
+    }
+
+    function buildTdrPolPayload(preview, result, carriers, pods) {
+      const multiCarrier = carriers.length > 1;
+      const direction = preview.sheetName;
+      const blockIndex = result.choice.polIndex + 1;
+      const totalAuditStore = multiCarrier ? `${direction}_TOTAL` : direction;
+      const polEntries = {};
+      const polAudit = {};
+      const remaining = new Map(result.rows.map((row) => [`${row.so}|${row.co}|${row.pod}`, { ...row }]));
+      result.special.forEach((rf) => {
+        const base = remaining.get(`${rf.so}|${rf.co}|${rf.pod}`);
+        if (!base) return;
+        base.qty20 -= Number(rf.rf20) || 0;
+        base.qty40 -= Number(rf.rf40) || 0;
+      });
+
+      remaining.forEach((row) => {
+        const classification = tdrClassification(preview, result.choice, row);
+        const podIndex = pods.findIndex((pod) => pod.port === classification.targetPod);
+        if (podIndex < 0) return;
+        const storeKey = tdrEntryStore(direction, classification.carrier, multiCarrier);
+        addPolEntry(polEntries, storeKey, blockIndex, classification.category, podIndex, "left", row.qty20);
+        addPolEntry(polEntries, storeKey, blockIndex, classification.category, podIndex, "right", row.qty40);
+        addPolEntry(polEntries, storeKey, blockIndex, "MT", podIndex, "left", row.empty20);
+        addPolEntry(polEntries, storeKey, blockIndex, "MT", podIndex, "right", row.empty40);
+        addPolEntry(polEntries, storeKey, blockIndex, "Weight", podIndex, "weight", row.weight);
+
+        let totalLabel = classification.category;
+        if (classification.carrier !== DEFAULT_CARRIER_CODE && classification.category === "LILIAN") totalLabel = "Partner";
+        [["left", row.qty20, 20], ["right", row.qty40, 40]].forEach(([side, qty, size]) => {
+          if (classification.carrier !== DEFAULT_CARRIER_CODE || classification.category !== "LILIAN") {
+            addTdrAudit(polAudit, totalAuditStore, blockIndex, totalLabel, podIndex, side, tdrAuditLine(row, qty, size, totalLabel, classification));
+          }
+        });
+        [["left", row.empty20, 20], ["right", row.empty40, 40]].forEach(([side, qty, size]) => {
+          addTdrAudit(polAudit, totalAuditStore, blockIndex, "MT", podIndex, side, tdrAuditLine(row, qty, size, "MT", classification));
+        });
+        if (classification.carrier === DEFAULT_CARRIER_CODE && classification.category === "SOC") {
+          const culStore = tdrEntryStore(direction, DEFAULT_CARRIER_CODE, multiCarrier);
+          [["left", row.qty20, 20], ["right", row.qty40, 40]].forEach(([side, qty, size]) => {
+            addTdrAudit(polAudit, culStore, blockIndex, "SOC", podIndex, side, tdrAuditLine(row, qty, size, "SOC", classification));
+          });
+        }
+      });
+
+      result.special.forEach((row) => {
+        const classification = tdrClassification(preview, result.choice, row);
+        const podIndex = pods.findIndex((pod) => pod.port === classification.targetPod);
+        if (podIndex < 0) return;
+        const storeKey = tdrEntryStore(direction, classification.carrier, multiCarrier);
+        addPolEntry(polEntries, storeKey, blockIndex, "RF", podIndex, "left", row.rf20);
+        addPolEntry(polEntries, storeKey, blockIndex, "RF", podIndex, "right", row.rf40);
+        [["left", row.rf20, 20], ["right", row.rf40, 40]].forEach(([side, qty, size]) => {
+          addTdrAudit(polAudit, totalAuditStore, blockIndex, "RF", podIndex, side, tdrAuditLine(row, qty, size, "RF", classification));
+        });
+      });
+
+      return { polEntries, polAudit, blockIndex, totalAuditStore };
+    }
+
+    function tdrCopyValueMatrix(store, blockIndex, pods) {
+      return cargoLabels.slice(0, 7).map((label, rowIndex) => {
+        const row = [];
+        pods.forEach((_pod, podIndex) => {
+          if (label === "Weight") {
+            row.push(store[entryKey(blockIndex, rowIndex, podIndex, "weight")] || "", "");
+          } else {
+            row.push(
+              store[entryKey(blockIndex, rowIndex, podIndex, "left")] || "",
+              store[entryKey(blockIndex, rowIndex, podIndex, "right")] || ""
+            );
+          }
+        });
+        return row;
+      });
+    }
+
+    function tdrCopyNotes(polAudit, storeKey, totalAuditStore, blockIndex, carrierCode, pods) {
+      const notes = [];
+      [...new Set([storeKey, totalAuditStore])].forEach((auditStoreKey) => {
+        Object.entries(polAudit[auditStoreKey] || {}).forEach(([key, lines]) => {
+          const [auditBlock, label, podText, side] = key.split("|");
+          if (Number(auditBlock) !== blockIndex) return;
+          lines.filter((line) => line.startsWith(`${carrierCode} - `)).forEach((line) => {
+            const pod = pods[Number(podText)]?.port || `POD ${Number(podText) + 1}`;
+            const size = side === "right" ? "40'" : "20'";
+            notes.push(`${label} · ${pod} · ${size}：${line}`);
+          });
+        });
+      });
+      return [...new Set(notes)];
+    }
+
+    function createTdrClipboardTable(block) {
+      const table = document.createElement("table");
+      const body = table.createTBody();
+      block.values.forEach((values, rowIndex) => {
+        const row = body.insertRow();
+        if (rowIndex === 6) {
+          block.pods.forEach((_pod, podIndex) => {
+            const cell = row.insertCell();
+            cell.colSpan = 2;
+            cell.textContent = values[podIndex * 2] || "";
+          });
+        } else {
+          values.forEach((value) => {
+            row.insertCell().textContent = value || "";
+          });
+        }
+      });
+      return table;
+    }
+
+    async function copyTdrBlock(block, button) {
+      const table = createTdrClipboardTable(block);
+      const text = block.values.map((row) => row.join("\t")).join("\n");
+      try {
+        if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") throw new Error("HTML clipboard unavailable");
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/html": new Blob([table.outerHTML], { type: "text/html" }),
+            "text/plain": new Blob([text], { type: "text/plain" })
+          })
+        ]);
+      } catch {
+        await navigator.clipboard.writeText(text);
+      }
+      button.textContent = "已复制";
+      $("tdrMessage").textContent = `已复制 ${block.sheetName}!${block.range}；请在旧 Excel 选择 ${block.startCell} 后粘贴。`;
+      setTimeout(() => { button.textContent = "复制此 Sheet 数据"; }, 1800);
+    }
+
+    function renderTdrCopyBlocks() {
+      const preview = state.tdrPreview;
+      if (!preview || preview.mode !== "single" || !tdrReadyToApply()) return;
+      const result = preview.results.find((item) => item.status === "ok"
+        || (item.status === "terminal" && issueValue(`pol:${item.choice.polIndex}`) === "zero"));
+      if (!result) return;
+      const carriersBefore = activeCarriers(readCarrierRows());
+      const carriers = resolvedTdrCarriers(preview);
+      const multiCarrier = carriers.length > 1;
+      const pods = readInputs()[preview.sheetName].pods;
+      const blockIndex = result.choice.polIndex + 1;
+      const payload = result.status === "ok"
+        ? buildTdrPolPayload(preview, result, carriers, pods)
+        : { polEntries: {}, polAudit: {}, blockIndex, totalAuditStore: multiCarrier ? `${preview.sheetName}_TOTAL` : preview.sheetName };
+      const startRow = 6 + blockIndex * cargoLabels.length;
+      const endRow = startRow + 6;
+      const lastColumn = excelCol(3 + pods.length * 2);
+      const blocks = carriers.map((carrier) => {
+        const storeKey = tdrEntryStore(preview.sheetName, carrier.code, multiCarrier);
+        const sheetName = carrierSheetName(preview.sheetName, carrier, multiCarrier);
+        return {
+          carrier: carrier.code,
+          sheetName,
+          storeKey,
+          startCell: `D${startRow}`,
+          range: `D${startRow}:${lastColumn}${endRow}`,
+          values: tdrCopyValueMatrix(payload.polEntries[storeKey] || {}, blockIndex, pods),
+          pods,
+          newCarrier: !carriersBefore.some((item) => item.code === carrier.code),
+          notes: tdrCopyNotes(payload.polAudit, storeKey, payload.totalAuditStore, blockIndex, carrier.code, pods)
+        };
+      });
+      state.tdrCopyBlocks = blocks;
+      const wrap = $("tdrCopyBlocks");
+      wrap.replaceChildren();
+      blocks.forEach((block) => {
+        const card = appendText(wrap, "section", "", "tdr-copy-card");
+        const head = appendText(card, "div", "", "tdr-copy-card-head");
+        const title = appendText(head, "div", "");
+        appendText(title, "div", `${block.sheetName}!${block.range}`, "tdr-copy-card-title");
+        appendText(title, "span", `在旧 Excel 打开 ${block.sheetName}，选择 ${block.startCell} 后粘贴`, "tdr-copy-card-note");
+        const button = appendText(head, "button", "复制此 Sheet 数据");
+        button.type = "button";
+        button.addEventListener("click", () => copyTdrBlock(block, button));
+        if (block.newCarrier) {
+          appendText(card, "div", `注意：${block.carrier} 是本次新增 Partner；旧工作簿若没有 ${block.sheetName}，不能直接粘贴，需要重新导出整表。`, "tdr-copy-card-note");
+        }
+        const tableWrap = appendText(card, "div", "", "tdr-copy-table-wrap");
+        const table = document.createElement("table");
+        table.className = "tdr-copy-table";
+        const headRow = table.createTHead().insertRow();
+        appendText(headRow, "th", "行").rowSpan = 2;
+        block.pods.forEach((pod) => {
+          const th = appendText(headRow, "th", pod.port);
+          th.colSpan = 2;
+        });
+        const sizeRow = table.tHead.insertRow();
+        block.pods.forEach(() => {
+          appendText(sizeRow, "th", "20'");
+          appendText(sizeRow, "th", "40'");
+        });
+        const body = table.createTBody();
+        cargoLabels.slice(0, 7).forEach((label, rowIndex) => {
+          const row = body.insertRow();
+          appendText(row, "th", label, "row-label");
+          if (label === "Weight") {
+            block.pods.forEach((_pod, podIndex) => {
+              const cell = appendText(row, "td", block.values[rowIndex][podIndex * 2] || "");
+              cell.colSpan = 2;
+            });
+          } else {
+            block.values[rowIndex].forEach((value) => appendText(row, "td", value || ""));
+          }
+        });
+        tableWrap.appendChild(table);
+        if (block.notes.length) {
+          appendText(card, "div", `批注参考（数值粘贴不会自动写入批注）：${block.notes.join("；")}`, "tdr-copy-card-note");
+        }
+      });
+      $("tdrCopySummary").textContent = `${result.choice.port} · ${blocks.length} 个 Sheet。工作簿的 Partner/BSA 结构必须与当前网页一致。`;
+      $("tdrCopyWrap").classList.remove("hidden");
+      $("tdrApply").textContent = "重新生成复制数据";
+      $("tdrMessage").textContent = `已生成 ${result.choice.port} 的 ${blocks.length} 个定点粘贴区；网页和其他 POL 数据未被修改。`;
+    }
+
+    function applyTdrPreview() {
+      const preview = state.tdrPreview;
+      if (!preview || !tdrReadyToApply()) return;
+      if (preview.mode === "single") {
+        renderTdrCopyBlocks();
+        return;
+      }
+      const carriers = resolvedTdrCarriers(preview);
       renderCarrierRows(carriers);
       const multiCarrier = carriers.length > 1;
       const direction = preview.sheetName;
@@ -3842,55 +4253,7 @@
           return;
         }
 
-        const polEntries = {};
-        const polAudit = {};
-        const remaining = new Map(result.rows.map((row) => [`${row.so}|${row.co}|${row.pod}`, { ...row }]));
-        result.special.forEach((rf) => {
-          const base = remaining.get(`${rf.so}|${rf.co}|${rf.pod}`);
-          base.qty20 -= Number(rf.rf20) || 0;
-          base.qty40 -= Number(rf.rf40) || 0;
-        });
-
-        remaining.forEach((row) => {
-          const classification = tdrClassification(preview, result.choice, row);
-          const podIndex = pods.findIndex((pod) => pod.port === classification.targetPod);
-          if (podIndex < 0) return;
-          const storeKey = tdrEntryStore(direction, classification.carrier, multiCarrier);
-          addPolEntry(polEntries, storeKey, blockIndex, classification.category, podIndex, "left", row.qty20);
-          addPolEntry(polEntries, storeKey, blockIndex, classification.category, podIndex, "right", row.qty40);
-          addPolEntry(polEntries, storeKey, blockIndex, "MT", podIndex, "left", row.empty20);
-          addPolEntry(polEntries, storeKey, blockIndex, "MT", podIndex, "right", row.empty40);
-          addPolEntry(polEntries, storeKey, blockIndex, "Weight", podIndex, "weight", row.weight);
-
-          let totalLabel = classification.category;
-          if (classification.carrier !== DEFAULT_CARRIER_CODE && classification.category === "LILIAN") totalLabel = "Partner";
-          [["left", row.qty20, 20], ["right", row.qty40, 40]].forEach(([side, qty, size]) => {
-            if (classification.carrier !== DEFAULT_CARRIER_CODE || classification.category !== "LILIAN") {
-              addTdrAudit(polAudit, totalAuditStore, blockIndex, totalLabel, podIndex, side, tdrAuditLine(row, qty, size, totalLabel, classification));
-            }
-          });
-          [["left", row.empty20, 20], ["right", row.empty40, 40]].forEach(([side, qty, size]) => {
-            addTdrAudit(polAudit, totalAuditStore, blockIndex, "MT", podIndex, side, tdrAuditLine(row, qty, size, "MT", classification));
-          });
-          if (classification.carrier === DEFAULT_CARRIER_CODE && classification.category === "SOC") {
-            const culStore = tdrEntryStore(direction, DEFAULT_CARRIER_CODE, multiCarrier);
-            [["left", row.qty20, 20], ["right", row.qty40, 40]].forEach(([side, qty, size]) => {
-              addTdrAudit(polAudit, culStore, blockIndex, "SOC", podIndex, side, tdrAuditLine(row, qty, size, "SOC", classification));
-            });
-          }
-        });
-
-        result.special.forEach((row) => {
-          const classification = tdrClassification(preview, result.choice, row);
-          const podIndex = pods.findIndex((pod) => pod.port === classification.targetPod);
-          if (podIndex < 0) return;
-          const storeKey = tdrEntryStore(direction, classification.carrier, multiCarrier);
-          addPolEntry(polEntries, storeKey, blockIndex, "RF", podIndex, "left", row.rf20);
-          addPolEntry(polEntries, storeKey, blockIndex, "RF", podIndex, "right", row.rf40);
-          [["left", row.rf20, 20], ["right", row.rf40, 40]].forEach(([side, qty, size]) => {
-            addTdrAudit(polAudit, totalAuditStore, blockIndex, "RF", podIndex, side, tdrAuditLine(row, qty, size, "RF", classification));
-          });
-        });
+        const { polEntries, polAudit } = buildTdrPolPayload(preview, result, carriers, pods);
 
         carriers.forEach((carrier) => clearTdrBlock(tdrEntryStore(direction, carrier.code, multiCarrier), blockIndex, pods.length));
         clearTdrBlock(totalAuditStore, blockIndex, pods.length);
@@ -5925,9 +6288,21 @@
       button.addEventListener("click", () => {
         if (button.disabled) return;
         state.activeSheet = button.dataset.sheet;
+        state.tdrSelectedPolIndex = 0;
         updateDirectionUi();
         if ($("tdrDialog")?.open) openTdrDialog();
       });
+    });
+    document.querySelectorAll("#tdrModeTabs .tab[data-tdr-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (button.disabled) return;
+        state.tdrMode = button.dataset.tdrMode;
+        if ($("tdrDialog")?.open) openTdrDialog();
+      });
+    });
+    $("tdrPortSelect").addEventListener("change", () => {
+      state.tdrSelectedPolIndex = Number($("tdrPortSelect").value) || 0;
+      if ($("tdrDialog")?.open) openTdrDialog();
     });
 
     $("sheetWrap").addEventListener("input", (event) => {
