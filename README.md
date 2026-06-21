@@ -15,7 +15,7 @@ The online page calls the installed Agent on `127.0.0.1:4318`. Allegro remains i
 
 The TDR action checks every POL in the active bound, shows per-POL status and percentage progress, and writes a POL only after all of its data and required decisions are complete. Skipped PODs, unknown SO codes, exceptional CUL CO codes, missing terminals, and failed POLs are confirmed in the page before import.
 
-The dialog also supports a single-port mode for later TDR rechecks. It queries only the selected POL and generates one paste block per carrier sheet, with the exact target sheet, cell range, and starting cell shown. These blocks contain only the `LILIAN` through `Weight` input area, so pasting them into an earlier exported workbook does not replace other POL changes or the workbook's `TTL`, `TOTAL`, `ROB`, and utilisation formulas. TOTAL sheets recalculate from their carrier sheets and are not pasted directly.
+The dialog also supports a single-port mode for later TDR rechecks. It queries only the selected POL and renders a read-only preview for each carrier sheet using the exported workbook's POL, ETB/ETD, POD 20'/40', cargo-row, TOTAL, and TTL layout. The preview does not copy, download, or write any values; users enter the confirmed numbers manually in their existing workbook, while its TOTAL sheets and other formulas remain unchanged.
 
 Equipment mapping is `20ft + 20ftHC -> 20'` and `40ft + 40ftHC + 45ft -> 40'`. Empty containers go to `MT`. Reefer quantities are deducted from their original category and moved to `RF`; weight is counted only once. Multi-partner TOTAL sheets include a `Partner` row and audit comments on the relevant POD and TOTAL cells.
 

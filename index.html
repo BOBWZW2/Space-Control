@@ -337,7 +337,7 @@
       background: #fff8e7;
     }
 
-    .tdr-copy-wrap {
+    .tdr-manual-wrap {
       margin-top: 12px;
       padding: 12px;
       border: 1px solid #84caff;
@@ -345,35 +345,35 @@
       background: #f5fbff;
     }
 
-    .tdr-copy-head {
+    .tdr-manual-head {
       display: flex;
       justify-content: space-between;
       gap: 12px;
       margin-bottom: 10px;
     }
 
-    .tdr-copy-head span,
-    .tdr-copy-card-note,
-    .tdr-copy-summary {
+    .tdr-manual-head span,
+    .tdr-manual-card-note,
+    .tdr-manual-summary {
       display: block;
       margin-top: 3px;
       color: #475467;
       font-size: 12px;
     }
 
-    .tdr-copy-blocks {
+    .tdr-manual-blocks {
       display: grid;
       gap: 10px;
     }
 
-    .tdr-copy-card {
+    .tdr-manual-card {
       padding: 10px;
       border: 1px solid var(--line);
       border-radius: 7px;
       background: #ffffff;
     }
 
-    .tdr-copy-card-head {
+    .tdr-manual-card-head {
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -381,43 +381,74 @@
       margin-bottom: 8px;
     }
 
-    .tdr-copy-card-title {
+    .tdr-manual-card-title {
       color: #0b4f75;
       font-weight: 800;
     }
 
-    .tdr-copy-table-wrap {
+    .tdr-excel-table-wrap {
       overflow: auto;
-      border: 1px solid var(--line);
+      border: 1px solid #000000;
     }
 
-    .tdr-copy-table {
+    .tdr-excel-table {
       width: max-content;
       min-width: 100%;
       border-collapse: collapse;
+      color: #000000;
+      font-family: Carlito, Calibri, Arial, sans-serif;
       font-size: 11px;
     }
 
-    .tdr-copy-table th,
-    .tdr-copy-table td {
+    .tdr-excel-table th,
+    .tdr-excel-table td {
       min-width: 48px;
-      padding: 5px 7px;
-      border: 1px solid #d0d5dd;
+      height: 24px;
+      padding: 3px 6px;
+      border: 1px solid #000000;
       text-align: center;
       white-space: nowrap;
     }
 
-    .tdr-copy-table th {
-      background: #eaf4fb;
+    .tdr-excel-table thead th {
+      background: #99ccff;
+      font-weight: 700;
     }
 
-    .tdr-copy-table .row-label {
+    .tdr-excel-table tbody th {
+      background: #ffffff;
+      font-weight: 700;
+    }
+
+    .tdr-excel-table .row-label {
       position: sticky;
       left: 0;
       z-index: 1;
       min-width: 66px;
-      background: #f8fafc;
+      background: #ffffff;
       text-align: left;
+      font-weight: 700;
+    }
+
+    .tdr-excel-table .pol-cell {
+      min-width: 78px;
+      font-weight: 700;
+    }
+
+    .tdr-excel-table .date-label {
+      font-weight: 400;
+      text-align: left;
+    }
+
+    .tdr-excel-table .date-value {
+      min-width: 58px;
+      font-weight: 400;
+    }
+
+    .tdr-excel-table .total-cell,
+    .tdr-excel-table .ttl-row td,
+    .tdr-excel-table .ttl-row th {
+      background: #f8fafc;
       font-weight: 700;
     }
 
@@ -1494,8 +1525,8 @@
       }
 
       .tdr-controls,
-      .tdr-copy-card-head,
-      .tdr-copy-head {
+      .tdr-manual-card-head,
+      .tdr-manual-head {
         align-items: stretch;
         flex-direction: column;
       }
@@ -1695,15 +1726,15 @@
             <tbody id="tdrPreviewBody"></tbody>
           </table>
         </div>
-        <div id="tdrCopyWrap" class="tdr-copy-wrap hidden">
-          <div class="tdr-copy-head">
+        <div id="tdrManualWrap" class="tdr-manual-wrap hidden">
+          <div class="tdr-manual-head">
             <div>
-              <strong>单港复制区</strong>
-              <span id="tdrCopySummary">逐个复制到旧 Excel 的指定 Sheet 和起始单元格。</span>
+              <strong>单港 Excel 格式预览</strong>
+              <span id="tdrManualSummary">按对应 Partner Sheet 的行列手工填写旧 Excel。</span>
             </div>
           </div>
-          <div id="tdrCopyBlocks" class="tdr-copy-blocks"></div>
-          <div class="tdr-copy-summary">复制范围仅包含 LILIAN–Weight 的输入数值；TTL、TOTAL、ROB 和利用率公式不会被覆盖。</div>
+          <div id="tdrManualBlocks" class="tdr-manual-blocks"></div>
+          <div class="tdr-manual-summary">此处仅供核对和手工输入，不会复制、下载或修改网页及本地 Excel。</div>
         </div>
         <div class="tdr-dialog-actions">
           <button id="tdrCancel" type="button">取消</button>
@@ -1842,7 +1873,7 @@
       tdrAudit: {},
       tdrMode: "bound",
       tdrSelectedPolIndex: 0,
-      tdrCopyBlocks: [],
+      tdrManualBlocks: [],
       initialized: false
     };
 
@@ -3613,10 +3644,10 @@
       ));
     }
 
-    function clearTdrCopyResults() {
-      state.tdrCopyBlocks = [];
-      $("tdrCopyBlocks").replaceChildren();
-      $("tdrCopyWrap").classList.add("hidden");
+    function clearTdrManualPreview() {
+      state.tdrManualBlocks = [];
+      $("tdrManualBlocks").replaceChildren();
+      $("tdrManualWrap").classList.add("hidden");
     }
 
     function renderTdrIssues() {
@@ -3642,7 +3673,7 @@
         });
         select.addEventListener("change", () => {
           issue.value = select.value;
-          clearTdrCopyResults();
+          clearTdrManualPreview();
           renderTdrPreview();
           $("tdrApply").disabled = !tdrReadyToApply();
         });
@@ -3705,16 +3736,17 @@
       $("tdrPreviewWrap").classList.add("hidden");
       $("tdrStatusGrid").replaceChildren();
       $("tdrIssues").replaceChildren();
-      clearTdrCopyResults();
+      clearTdrManualPreview();
       $("tdrApply").disabled = true;
-      $("tdrApply").textContent = state.tdrMode === "single" ? "生成可复制数据" : "确认并写入可用 POL";
+      $("tdrApply").classList.toggle("hidden", state.tdrMode === "single");
+      $("tdrApply").textContent = "确认并写入可用 POL";
       $("tdrQuery").textContent = state.tdrMode === "single" ? "后台查询此港" : "后台查询整个方向";
       const scopeLabel = state.tdrMode === "single"
         ? `${choices[0]?.port || "无 POL"} · 单港更新`
         : `${choices.length} 个 POL · 整个方向`;
       $("tdrScope").textContent = `${state.activeSheet} · ${directionVvd(state.activeSheet)} · ${scopeLabel}`;
       const prompt = state.tdrMode === "single"
-        ? "只查询所选 POL，并生成旧 Excel 的定点粘贴数据。"
+        ? "只查询所选 POL，并按导出 Excel 的单港区块预览。"
         : "将按离港日期检查当前方向全部 POL。";
       setTdrProgress(0, choices.length ? prompt : "当前方向没有可查询的 POL。", false);
       $("tdrQuery").disabled = !choices.length;
@@ -3770,8 +3802,12 @@
           + preview.results.filter((result) => result.status === "terminal" && issueValue(`pol:${result.choice.polIndex}`) === "zero").length;
         const skipped = preview.results.filter((result) => ["missing", "terminal", "error"].includes(result.status) && issueValue(`pol:${result.choice.polIndex}`) === "skip").length;
         const unresolved = preview.issues.filter((issue) => !issue.value).length;
-        const action = preview.mode === "single" ? "可生成复制数据" : "可写入";
+        const action = preview.mode === "single" ? "可按 Excel 格式预览" : "可写入";
         $("tdrMessage").textContent = `查询完成：${writable} 个 POL ${action}${skipped ? ` · 跳过 ${skipped}` : ""}${unresolved ? ` · 待确认 ${unresolved}` : ""}`;
+        if (preview.mode === "single") {
+          if (tdrReadyToApply()) renderTdrManualPreview();
+          else clearTdrManualPreview();
+        }
       }
     }
 
@@ -4067,7 +4103,7 @@
       return { polEntries, polAudit, blockIndex, totalAuditStore };
     }
 
-    function tdrCopyValueMatrix(store, blockIndex, pods) {
+    function tdrManualValueMatrix(store, blockIndex, pods) {
       return cargoLabels.slice(0, 7).map((label, rowIndex) => {
         const row = [];
         pods.forEach((_pod, podIndex) => {
@@ -4084,7 +4120,7 @@
       });
     }
 
-    function tdrCopyNotes(polAudit, storeKey, totalAuditStore, blockIndex, carrierCode, pods) {
+    function tdrManualNotes(polAudit, storeKey, totalAuditStore, blockIndex, carrierCode, pods) {
       const notes = [];
       [...new Set([storeKey, totalAuditStore])].forEach((auditStoreKey) => {
         Object.entries(polAudit[auditStoreKey] || {}).forEach(([key, lines]) => {
@@ -4100,46 +4136,30 @@
       return [...new Set(notes)];
     }
 
-    function createTdrClipboardTable(block) {
-      const table = document.createElement("table");
-      const body = table.createTBody();
-      block.values.forEach((values, rowIndex) => {
-        const row = body.insertRow();
-        if (rowIndex === 6) {
-          block.pods.forEach((_pod, podIndex) => {
-            const cell = row.insertCell();
-            cell.colSpan = 2;
-            cell.textContent = values[podIndex * 2] || "";
-          });
-        } else {
-          values.forEach((value) => {
-            row.insertCell().textContent = value || "";
-          });
+    function buildTdrManualBlock(values, pods) {
+      const ttlValues = [];
+      pods.forEach((_pod, podIndex) => {
+        let left = 0;
+        let right = 0;
+        for (let rowIndex = 0; rowIndex < 6; rowIndex += 1) {
+          left += parseCellNumber(values[rowIndex][podIndex * 2]);
+          right += parseCellNumber(values[rowIndex][podIndex * 2 + 1]);
         }
+        ttlValues.push(cellText(left), cellText(right));
       });
-      return table;
+      const rowTotals = [...values, ttlValues].map((row, rowIndex) => {
+        if (rowIndex === 6) {
+          const weight = pods.reduce((sum, _pod, podIndex) => sum + parseCellNumber(row[podIndex * 2]), 0);
+          return { left: weight, right: 0, teus: 0 };
+        }
+        const left = pods.reduce((sum, _pod, podIndex) => sum + parseCellNumber(row[podIndex * 2]), 0);
+        const right = pods.reduce((sum, _pod, podIndex) => sum + parseCellNumber(row[podIndex * 2 + 1]), 0);
+        return { left, right, teus: left + right * 2 };
+      });
+      return { values, ttlValues, rowTotals };
     }
 
-    async function copyTdrBlock(block, button) {
-      const table = createTdrClipboardTable(block);
-      const text = block.values.map((row) => row.join("\t")).join("\n");
-      try {
-        if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") throw new Error("HTML clipboard unavailable");
-        await navigator.clipboard.write([
-          new ClipboardItem({
-            "text/html": new Blob([table.outerHTML], { type: "text/html" }),
-            "text/plain": new Blob([text], { type: "text/plain" })
-          })
-        ]);
-      } catch {
-        await navigator.clipboard.writeText(text);
-      }
-      button.textContent = "已复制";
-      $("tdrMessage").textContent = `已复制 ${block.sheetName}!${block.range}；请在旧 Excel 选择 ${block.startCell} 后粘贴。`;
-      setTimeout(() => { button.textContent = "复制此 Sheet 数据"; }, 1800);
-    }
-
-    function renderTdrCopyBlocks() {
+    function renderTdrManualPreview() {
       const preview = state.tdrPreview;
       if (!preview || preview.mode !== "single" || !tdrReadyToApply()) return;
       const result = preview.results.find((item) => item.status === "ok"
@@ -4153,82 +4173,104 @@
       const payload = result.status === "ok"
         ? buildTdrPolPayload(preview, result, carriers, pods)
         : { polEntries: {}, polAudit: {}, blockIndex, totalAuditStore: multiCarrier ? `${preview.sheetName}_TOTAL` : preview.sheetName };
-      const startRow = 6 + blockIndex * cargoLabels.length;
-      const endRow = startRow + 6;
-      const lastColumn = excelCol(3 + pods.length * 2);
       const blocks = carriers.map((carrier) => {
         const storeKey = tdrEntryStore(preview.sheetName, carrier.code, multiCarrier);
         const sheetName = carrierSheetName(preview.sheetName, carrier, multiCarrier);
+        const manual = buildTdrManualBlock(tdrManualValueMatrix(payload.polEntries[storeKey] || {}, blockIndex, pods), pods);
         return {
           carrier: carrier.code,
           sheetName,
           storeKey,
-          startCell: `D${startRow}`,
-          range: `D${startRow}:${lastColumn}${endRow}`,
-          values: tdrCopyValueMatrix(payload.polEntries[storeKey] || {}, blockIndex, pods),
+          values: manual.values,
+          ttlValues: manual.ttlValues,
+          rowTotals: manual.rowTotals,
           pods,
           newCarrier: !carriersBefore.some((item) => item.code === carrier.code),
-          notes: tdrCopyNotes(payload.polAudit, storeKey, payload.totalAuditStore, blockIndex, carrier.code, pods)
+          notes: tdrManualNotes(payload.polAudit, storeKey, payload.totalAuditStore, blockIndex, carrier.code, pods)
         };
       });
-      state.tdrCopyBlocks = blocks;
-      const wrap = $("tdrCopyBlocks");
+      state.tdrManualBlocks = blocks;
+      const wrap = $("tdrManualBlocks");
       wrap.replaceChildren();
       blocks.forEach((block) => {
-        const card = appendText(wrap, "section", "", "tdr-copy-card");
-        const head = appendText(card, "div", "", "tdr-copy-card-head");
+        const card = appendText(wrap, "section", "", "tdr-manual-card");
+        const head = appendText(card, "div", "", "tdr-manual-card-head");
         const title = appendText(head, "div", "");
-        appendText(title, "div", `${block.sheetName}!${block.range}`, "tdr-copy-card-title");
-        appendText(title, "span", `在旧 Excel 打开 ${block.sheetName}，选择 ${block.startCell} 后粘贴`, "tdr-copy-card-note");
-        const button = appendText(head, "button", "复制此 Sheet 数据");
-        button.type = "button";
-        button.addEventListener("click", () => copyTdrBlock(block, button));
+        appendText(title, "div", block.sheetName, "tdr-manual-card-title");
+        appendText(title, "span", `参照此区块，在旧 Excel 的 ${block.sheetName} 手工输入`, "tdr-manual-card-note");
         if (block.newCarrier) {
-          appendText(card, "div", `注意：${block.carrier} 是本次新增 Partner；旧工作簿若没有 ${block.sheetName}，不能直接粘贴，需要重新导出整表。`, "tdr-copy-card-note");
+          appendText(card, "div", `注意：${block.carrier} 是本次新增 Partner；旧工作簿若没有 ${block.sheetName}，需要重新导出整表。`, "tdr-manual-card-note");
         }
-        const tableWrap = appendText(card, "div", "", "tdr-copy-table-wrap");
+        const tableWrap = appendText(card, "div", "", "tdr-excel-table-wrap");
         const table = document.createElement("table");
-        table.className = "tdr-copy-table";
+        table.className = "tdr-excel-table";
         const headRow = table.createTHead().insertRow();
-        appendText(headRow, "th", "行").rowSpan = 2;
+        appendText(headRow, "th", "POD").colSpan = 3;
         block.pods.forEach((pod) => {
-          const th = appendText(headRow, "th", pod.port);
+          const th = appendText(headRow, "th", `${pod.port}${pod.eta ? ` · ETA ${pod.eta}` : ""}`);
           th.colSpan = 2;
         });
+        appendText(headRow, "th", "TOTAL").colSpan = 2;
+        appendText(headRow, "th", "TTL");
         const sizeRow = table.tHead.insertRow();
+        appendText(sizeRow, "th", "POL / ETB / ETD").colSpan = 2;
+        appendText(sizeRow, "th", "ROW");
         block.pods.forEach(() => {
           appendText(sizeRow, "th", "20'");
           appendText(sizeRow, "th", "40'");
         });
+        appendText(sizeRow, "th", "20'");
+        appendText(sizeRow, "th", "40'");
+        appendText(sizeRow, "th", "TEUS");
         const body = table.createTBody();
-        cargoLabels.slice(0, 7).forEach((label, rowIndex) => {
+        cargoLabels.forEach((label, rowIndex) => {
           const row = body.insertRow();
+          if (rowIndex === 7) row.className = "ttl-row";
+          if (rowIndex === 0) {
+            const pol = appendText(row, "th", result.choice.port, "pol-cell");
+            pol.colSpan = 2;
+            pol.rowSpan = 5;
+          } else if (rowIndex === 5) {
+            appendText(row, "th", "ETB", "date-label");
+            appendText(row, "td", result.choice.etb || "", "date-value");
+          } else if (rowIndex === 6) {
+            appendText(row, "th", "ETD", "date-label");
+            appendText(row, "td", result.choice.etd || "", "date-value");
+          } else if (rowIndex === 7) {
+            appendText(row, "td", "").colSpan = 2;
+          }
           appendText(row, "th", label, "row-label");
           if (label === "Weight") {
             block.pods.forEach((_pod, podIndex) => {
               const cell = appendText(row, "td", block.values[rowIndex][podIndex * 2] || "");
               cell.colSpan = 2;
             });
+            const total = appendText(row, "td", cellText(block.rowTotals[rowIndex].left, 1), "total-cell");
+            total.colSpan = 2;
+            appendText(row, "td", "", "total-cell");
           } else {
-            block.values[rowIndex].forEach((value) => appendText(row, "td", value || ""));
+            const values = label === "TTL" ? block.ttlValues : block.values[rowIndex];
+            values.forEach((value) => appendText(row, "td", value || ""));
+            appendText(row, "td", cellText(block.rowTotals[rowIndex].left), "total-cell");
+            appendText(row, "td", cellText(block.rowTotals[rowIndex].right), "total-cell");
+            appendText(row, "td", cellText(block.rowTotals[rowIndex].teus), "total-cell");
           }
         });
         tableWrap.appendChild(table);
         if (block.notes.length) {
-          appendText(card, "div", `批注参考（数值粘贴不会自动写入批注）：${block.notes.join("；")}`, "tdr-copy-card-note");
+          appendText(card, "div", `批注参考：${block.notes.join("；")}`, "tdr-manual-card-note");
         }
       });
-      $("tdrCopySummary").textContent = `${result.choice.port} · ${blocks.length} 个 Sheet。工作簿的 Partner/BSA 结构必须与当前网页一致。`;
-      $("tdrCopyWrap").classList.remove("hidden");
-      $("tdrApply").textContent = "重新生成复制数据";
-      $("tdrMessage").textContent = `已生成 ${result.choice.port} 的 ${blocks.length} 个定点粘贴区；网页和其他 POL 数据未被修改。`;
+      $("tdrManualSummary").textContent = `${result.choice.port} · ${blocks.length} 个 Partner Sheet。TOTAL Sheet 将由原 Excel 公式自动汇总。`;
+      $("tdrManualWrap").classList.remove("hidden");
+      $("tdrMessage").textContent = `已显示 ${result.choice.port} 的 Excel 格式只读预览；请据此手工输入原工作簿。`;
     }
 
     function applyTdrPreview() {
       const preview = state.tdrPreview;
       if (!preview || !tdrReadyToApply()) return;
       if (preview.mode === "single") {
-        renderTdrCopyBlocks();
+        renderTdrManualPreview();
         return;
       }
       const carriers = resolvedTdrCarriers(preview);
