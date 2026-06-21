@@ -216,6 +216,20 @@
     .tdr-agent-status.good { color: #067647; }
     .tdr-agent-status.bad { color: var(--danger); }
 
+    .tdr-cloud-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+      padding: 0 10px;
+      border: 1px solid #a6f4c5;
+      border-radius: 6px;
+      background: #ecfdf3;
+      color: #067647;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
     .tdr-agent-line {
       display: flex;
       align-items: center;
@@ -238,6 +252,40 @@
       border-color: #f79009;
       background: #fffaeb;
       color: #b54708;
+    }
+
+    .tdr-account-panel {
+      display: grid;
+      grid-template-columns: minmax(150px, 1fr) minmax(170px, 1fr) auto auto;
+      gap: 8px;
+      align-items: end;
+      margin: -2px 0 12px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+    }
+
+    .tdr-account-panel label {
+      display: grid;
+      gap: 4px;
+      color: #344054;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .tdr-account-panel input[type="text"],
+    .tdr-account-panel input[type="password"] {
+      min-height: 34px;
+    }
+
+    .tdr-account-remember {
+      display: flex !important;
+      grid-auto-flow: column;
+      align-items: center;
+      justify-content: start;
+      min-height: 34px;
+      white-space: nowrap;
     }
 
     .tdr-progress {
@@ -1558,6 +1606,10 @@
       .tdr-mode-control {
         flex-wrap: wrap;
       }
+
+      .tdr-account-panel {
+        grid-template-columns: 1fr;
+      }
     }
 
     @media print {
@@ -1715,12 +1767,18 @@
             </label>
           </div>
           <div id="tdrScope" class="tdr-scope">查询当前方向全部 POL</div>
-          <a class="tdr-agent-download" href="https://github.com/BOBWZW2/Space-Control/releases/latest/download/SpaceControl-TDR-Agent-Setup.exe?v=1.0.1" target="_blank" rel="noopener">安装 Windows TDR Agent</a>
+          <span class="tdr-cloud-badge">云端查询 · 支持电脑 / 手机 / 平板</span>
           <button id="tdrQuery" type="button" class="primary">后台查询整个方向</button>
         </div>
         <div class="tdr-agent-line">
-          <div id="tdrAgentStatus" class="tdr-agent-status">正在检测本机 TDR Agent...</div>
-          <button id="tdrAccountSettings" class="tdr-account-settings" type="button">修改 TDR 账号</button>
+          <div id="tdrAgentStatus" class="tdr-agent-status">正在检测云端 TDR 服务...</div>
+          <button id="tdrAccountSettings" class="tdr-account-settings" type="button">TDR 账号</button>
+        </div>
+        <div id="tdrAccountPanel" class="tdr-account-panel hidden">
+          <label>Allegro 用户名<input id="tdrUsername" type="text" autocomplete="username"></label>
+          <label>Allegro 密码<input id="tdrPassword" type="password" autocomplete="current-password"></label>
+          <label class="tdr-account-remember"><input id="tdrRememberAccount" type="checkbox" checked> 在此设备记住</label>
+          <button id="tdrSaveAccount" type="button">保存账号</button>
         </div>
         <div id="tdrProgressWrap" class="tdr-progress hidden" role="status" aria-live="polite">
           <progress id="tdrProgress" max="100" value="0"></progress>
@@ -1811,9 +1869,8 @@
     const cargoLabels = ["LILIAN", "SUL", "T/S", "SOC", "RF", "MT", "Weight", "TTL"];
     const totalCargoLabels = ["LILIAN", "SUL", "T/S", "SOC", "Partner", "RF", "MT", "Weight", "TTL"];
     const NORMAL_CUL_CO = new Set(["CUL", "CUS", "CUM"]);
-    const TDR_API_BASE = ["127.0.0.1", "localhost"].includes(window.location.hostname) && window.location.port === "4318"
-      ? ""
-      : "http://127.0.0.1:4318";
+    const TDR_API_BASE = "https://space-control-tdr.2119990716.workers.dev";
+    const TDR_CREDENTIALS_KEY = "spaceControl.tdrCredentials";
     const SCHEDULE_URL = "https://raw.githubusercontent.com/BOBWZW2/data-base/main/schedule_latest.xlsx";
     const LOCAL_MAPPING_URL = "data/vessel_mapping_latest.csv";
     const REMOTE_MAPPING_URL = "https://raw.githubusercontent.com/BOBWZW2/data-base/main/vessel_mapping_latest.csv";
@@ -3617,33 +3674,79 @@
       if (text) $("tdrMessage").textContent = text;
     }
 
+    function loadTdrCredentials() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(TDR_CREDENTIALS_KEY) || "null");
+        return saved && typeof saved === "object"
+          ? { username: String(saved.username || ""), password: String(saved.password || "") }
+          : { username: "", password: "" };
+      } catch {
+        return { username: "", password: "" };
+      }
+    }
+
+    function populateTdrAccountFields() {
+      const saved = loadTdrCredentials();
+      if (!$("tdrUsername").value) $("tdrUsername").value = saved.username;
+      if (!$("tdrPassword").value) $("tdrPassword").value = saved.password;
+      $("tdrRememberAccount").checked = Boolean(saved.username || saved.password);
+      return saved;
+    }
+
+    function currentTdrCredentials() {
+      return {
+        username: $("tdrUsername").value.trim(),
+        password: $("tdrPassword").value
+      };
+    }
+
+    function saveTdrAccountSettings() {
+      const credentials = currentTdrCredentials();
+      if (!credentials.username || !credentials.password) {
+        setTdrAccountAttention(true);
+        $("tdrMessage").textContent = "请填写 Allegro 用户名和密码。";
+        return false;
+      }
+      if ($("tdrRememberAccount").checked) {
+        localStorage.setItem(TDR_CREDENTIALS_KEY, JSON.stringify(credentials));
+      } else {
+        localStorage.removeItem(TDR_CREDENTIALS_KEY);
+      }
+      setTdrAccountAttention(false);
+      $("tdrAccountPanel").classList.add("hidden");
+      $("tdrMessage").textContent = "TDR 账号已保存，可以开始云端查询。";
+      checkTdrAgent();
+      return true;
+    }
+
     async function checkTdrAgent() {
       const status = $("tdrAgentStatus");
+      const credentials = populateTdrAccountFields();
       if (status) {
         status.className = "tdr-agent-status";
-        status.textContent = "正在检测本机 TDR Agent...";
+        status.textContent = "正在检测云端 TDR 服务...";
       }
       try {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 3000);
+        const timer = setTimeout(() => controller.abort(), 8000);
         const response = await fetch(`${TDR_API_BASE}/api/health`, {
           cache: "no-store",
-          signal: controller.signal,
-          targetAddressSpace: "local"
+          signal: controller.signal
         });
         clearTimeout(timer);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const health = await response.json();
-        if (!health?.ok) throw new Error("Agent unavailable");
+        if (!health?.ok) throw new Error("Cloud service unavailable");
         if (status) {
           status.classList.add("good");
-          status.textContent = `本机 TDR Agent 已连接${health.version ? ` · v${health.version}` : ""}`;
+          const account = credentials.username ? ` · 账号 ${credentials.username}` : " · 尚未填写账号";
+          status.textContent = `云端 TDR 已连接${health.version ? ` · v${health.version}` : ""}${account}`;
         }
         return health;
       } catch {
         if (status) {
           status.classList.add("bad");
-          status.textContent = "未连接本机 TDR Agent。请先安装或启动；如浏览器询问是否访问本地网络，请选择允许。手机和平板不能直接执行 TDR。";
+          status.textContent = "云端 TDR 服务暂时无法连接，请稍后重试。";
         }
         return null;
       }
@@ -3653,24 +3756,11 @@
       $("tdrAccountSettings")?.classList.toggle("attention", Boolean(enabled));
     }
 
-    async function openTdrAccountSettings() {
-      const button = $("tdrAccountSettings");
-      button.disabled = true;
-      try {
-        const response = await fetch(`${TDR_API_BASE}/api/configure`, {
-          method: "POST",
-          targetAddressSpace: "local"
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
-        setTdrAccountAttention(false);
-        $("tdrMessage").textContent = "账号设置窗口已打开。保存后 Agent 会自动重启，请再执行一次 TDR 查询。";
-      } catch (error) {
-        console.error(error);
-        $("tdrMessage").textContent = "当前 Agent 无法从网页打开账号设置。请安装最新版，或从 Windows 开始菜单打开“设置 TDR 账号”。";
-      } finally {
-        button.disabled = false;
-      }
+    function openTdrAccountSettings() {
+      populateTdrAccountFields();
+      const panel = $("tdrAccountPanel");
+      panel.classList.toggle("hidden");
+      if (!panel.classList.contains("hidden")) $("tdrUsername").focus();
     }
 
     function tdrIssue(key, type, message, options, value = "") {
@@ -3852,7 +3942,7 @@
       if (!preview.querying) {
         if (preview.authFailed) {
           clearTdrManualPreview();
-          $("tdrMessage").textContent = "Allegro 登录失败。请修改 TDR 账号；保存并等待 Agent 重启后，再重新查询。";
+          $("tdrMessage").textContent = "Allegro 登录失败。请修改并保存 TDR 账号后重新查询。";
           return;
         }
         const writable = preview.results.filter((result) => result.status === "ok").length
@@ -3912,15 +4002,70 @@
       });
     }
 
+    function recordTdrBatchLine(preview, choice, line) {
+      if (!line?.ok) {
+        const message = line?.error || "TDR 查询失败";
+        if (line?.code === "AUTH_FAILED" || line?.code === "AUTH_REQUIRED") {
+          preview.authFailed = true;
+          preview.results.push({ choice, status: "auth", message: "Allegro 登录失败", rows: [], special: [], specialByKey: new Map() });
+          setTdrAccountAttention(true);
+          return;
+        }
+        if (line?.code === "TERMINAL_NOT_FOUND") {
+          preview.results.push({ choice, status: "terminal", message: "未找到 Terminal", rows: [], special: [], specialByKey: new Map() });
+          preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "terminal-error", `${choice.port} 未找到 Terminal`, [
+            { value: "zero", label: "确认该 POL 为 0 并导入" },
+            { value: "skip", label: "跳过该 POL，不导入" }
+          ]));
+          return;
+        }
+        preview.results.push({ choice, status: "error", message, rows: [], special: [], specialByKey: new Map() });
+        preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "pol-error", `${choice.port}：${message}`, [
+          { value: "skip", label: "确认跳过该 POL，不导入" }
+        ]));
+        return;
+      }
+
+      const payload = line.result || {};
+      const rows = payload.rows || [];
+      const special = payload.special || [];
+      const rfError = validateRfRows(rows, special);
+      if (!rows.length && !special.length) {
+        preview.results.push({ choice, status: "missing", message: "未导入TDR/船期未更新", rows, special, specialByKey: new Map() });
+        preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "pol-error", `${choice.port}：未导入TDR/船期未更新`, [
+          { value: "skip", label: "确认跳过该 POL，不导入" }
+        ]));
+      } else if (rfError) {
+        preview.results.push({ choice, status: "error", message: rfError, rows, special, specialByKey: new Map() });
+        preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "rf-error", `${choice.port}：${rfError}`, [
+          { value: "skip", label: "确认跳过该 POL，不导入" }
+        ]));
+      } else {
+        const specialByKey = new Map(special.map((row) => [`${row.so}|${row.co}|${row.pod}`, row]));
+        const result = { choice, status: "ok", message: `${rows.length} 条 · RF ${special.length} 条`, rows, special, specialByKey };
+        preview.results.push(result);
+        addDecisionIssues(preview, result);
+      }
+    }
+
     async function queryTdr() {
       const choices = tdrQueryChoices();
       if (!choices.length) return;
       if (!await checkTdrAgent()) {
         $("tdrQuery").disabled = false;
         $("tdrApply").disabled = true;
-        setTdrProgress(0, "TDR Agent 未连接，未开始查询。", true);
+        setTdrProgress(0, "云端 TDR 服务未连接，未开始查询。", true);
         return;
       }
+      const credentials = currentTdrCredentials();
+      if (!credentials.username || !credentials.password) {
+        setTdrAccountAttention(true);
+        $("tdrAccountPanel").classList.remove("hidden");
+        setTdrProgress(0, "请先填写并保存 Allegro 账号和密码。", true);
+        $("tdrUsername").focus();
+        return;
+      }
+
       const input = readInputs();
       const pods = input[state.activeSheet].pods;
       $("tdrQuery").disabled = true;
@@ -3937,81 +4082,76 @@
         issues: []
       };
       state.tdrPreview = preview;
-      setTdrProgress(0, `准备查询 ${choices.length} 个 POL`, true);
-      for (let index = 0; index < choices.length; index += 1) {
-        const choice = choices[index];
-        const before = Math.round(index / choices.length * 100);
-        setTdrProgress(before, `正在检查第 ${index + 1}/${choices.length} 个 POL：${choice.port}`, true);
-        if (!departedAtLeastOneDay(choice.etd)) {
-          preview.results.push({ choice, status: "not-departed", message: "未离港", rows: [], special: [], specialByKey: new Map() });
-          renderTdrStatuses();
-          continue;
-        }
-        try {
-          const response = await fetch(`${TDR_API_BASE}/api/tdr`, {
+      const queryChoices = [];
+      choices.forEach((choice) => {
+        if (departedAtLeastOneDay(choice.etd)) queryChoices.push(choice);
+        else preview.results.push({ choice, status: "not-departed", message: "未离港", rows: [], special: [], specialByKey: new Map() });
+      });
+      renderTdrStatuses();
+      const initialCompleted = choices.length - queryChoices.length;
+      setTdrProgress(Math.round(initialCompleted / choices.length * 100), `云端准备查询 ${queryChoices.length} 个已离港 POL`, true);
+
+      const processed = new Set();
+      try {
+        if (queryChoices.length) {
+          const response = await fetch(`${TDR_API_BASE}/api/tdr/batch`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            targetAddressSpace: "local",
-            body: JSON.stringify({ vvd: choice.vvd, pol: choice.port })
+            body: JSON.stringify({
+              ...credentials,
+              queries: queryChoices.map((choice) => ({ vvd: choice.vvd, pol: choice.port }))
+            })
           });
-          const payload = await response.json().catch(() => ({}));
           if (!response.ok) {
-            if (payload.code === "TERMINAL_NOT_FOUND") {
-              const result = { choice, status: "terminal", message: "未找到 Terminal", rows: [], special: [], specialByKey: new Map() };
-              preview.results.push(result);
-              preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "terminal-error", `${choice.port} 未找到 Terminal`, [
-                { value: "zero", label: "确认该 POL 为 0 并导入" },
-                { value: "skip", label: "跳过该 POL，不导入" }
-              ]));
-              renderTdrStatuses();
-              continue;
-            }
-            const requestError = new Error(payload.error || `TDR 查询失败 (${response.status})`);
-            requestError.code = payload.code || "TDR_QUERY_FAILED";
+            const errorPayload = await response.json().catch(() => ({}));
+            const requestError = new Error(errorPayload.error || `TDR 查询失败 (${response.status})`);
+            requestError.code = errorPayload.code || "TDR_QUERY_FAILED";
             throw requestError;
           }
-          const rows = payload.rows || [];
-          const special = payload.special || [];
-          const rfError = validateRfRows(rows, special);
-          if (!rows.length && !special.length) {
-            const result = { choice, status: "missing", message: "未导入TDR/船期未更新", rows, special, specialByKey: new Map() };
-            preview.results.push(result);
-            preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "pol-error", `${choice.port}：未导入TDR/船期未更新`, [
-              { value: "skip", label: "确认跳过该 POL，不导入" }
-            ]));
-          } else if (rfError) {
-            const result = { choice, status: "error", message: rfError, rows, special, specialByKey: new Map() };
-            preview.results.push(result);
-            preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "rf-error", `${choice.port}：${rfError}`, [
-              { value: "skip", label: "确认跳过该 POL，不导入" }
-            ]));
-          } else {
-            const specialByKey = new Map(special.map((row) => [`${row.so}|${row.co}|${row.pod}`, row]));
-            const result = { choice, status: "ok", message: `${rows.length} 条 · RF ${special.length} 条`, rows, special, specialByKey };
-            preview.results.push(result);
-            addDecisionIssues(preview, result);
+          if (!response.body) throw new Error("浏览器不支持 TDR 流式查询");
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          while (true) {
+            const { done, value } = await reader.read();
+            buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+            const lines = buffer.split("\n");
+            buffer = done ? "" : lines.pop();
+            for (const text of lines) {
+              if (!text.trim()) continue;
+              const line = JSON.parse(text);
+              const choice = queryChoices[Number(line.index)];
+              if (!choice || processed.has(Number(line.index))) continue;
+              processed.add(Number(line.index));
+              recordTdrBatchLine(preview, choice, line);
+              const completed = initialCompleted + processed.size;
+              setTdrProgress(Math.round(completed / choices.length * 100), `已完成 ${completed}/${choices.length} 个 POL：${choice.port}`, true);
+              renderTdrStatuses();
+            }
+            if (done) break;
           }
-        } catch (error) {
-          console.error(error);
-          if (error.code === "AUTH_FAILED") {
-            preview.authFailed = true;
-            preview.results.push({ choice, status: "auth", message: "Allegro 登录失败", rows: [], special: [], specialByKey: new Map() });
-            setTdrAccountAttention(true);
-            renderTdrStatuses();
-            break;
-          }
-          preview.results.push({ choice, status: "error", message: error.message || String(error), rows: [], special: [], specialByKey: new Map() });
-          preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "pol-error", `${choice.port}：${error.message || error}`, [
-            { value: "skip", label: "确认跳过该 POL，不导入" }
-          ]));
         }
-        setTdrProgress(Math.round((index + 1) / choices.length * 100), `已完成 ${index + 1}/${choices.length} 个 POL`, true);
-        renderTdrStatuses();
+      } catch (error) {
+        console.error(error);
+        if (error.code === "AUTH_FAILED" || error.code === "AUTH_REQUIRED") {
+          preview.authFailed = true;
+          setTdrAccountAttention(true);
+        }
+        queryChoices.forEach((choice, index) => {
+          if (processed.has(index)) return;
+          preview.results.push({ choice, status: error.code === "AUTH_FAILED" ? "auth" : "error", message: error.message || String(error), rows: [], special: [], specialByKey: new Map() });
+          if (error.code !== "AUTH_FAILED") {
+            preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "pol-error", `${choice.port}：${error.message || error}`, [
+              { value: "skip", label: "确认跳过该 POL，不导入" }
+            ]));
+          }
+        });
       }
+
       preview.querying = false;
       if (preview.authFailed) {
         const checked = Math.max(1, preview.results.length);
-        setTdrProgress(Math.round(checked / choices.length * 100), "Allegro 登录失败，已停止后续 POL 查询。", true);
+        setTdrProgress(Math.round(checked / choices.length * 100), "Allegro 登录失败，请修改 TDR 账号后重试。", true);
       } else {
         setTdrProgress(100, `查询完成：${preview.results.filter((result) => result.status === "ok").length} 个 POL 可写入`, true);
       }
@@ -6373,6 +6513,10 @@
     $("fetchTdr").addEventListener("click", openTdrDialog);
     $("tdrQuery").addEventListener("click", queryTdr);
     $("tdrAccountSettings").addEventListener("click", openTdrAccountSettings);
+    $("tdrSaveAccount").addEventListener("click", saveTdrAccountSettings);
+    $("tdrPassword").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") saveTdrAccountSettings();
+    });
     $("tdrApply").addEventListener("click", applyTdrPreview);
     $("tdrClose").addEventListener("click", closeTdrDialog);
     $("tdrCancel").addEventListener("click", closeTdrDialog);

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "space-control-tdr",
+  "main": "worker.js",
+  "compatibility_date": "2026-06-21",
+  "account_id": "2e6bced50545278e36df9269580c7619",
+  "vars": {
+    "ALLOWED_ORIGIN": "https://bobwzw2.github.io"
+  }
+}
