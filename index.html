@@ -342,6 +342,16 @@
       background: #fffaeb;
     }
 
+    .tdr-status-card.imported {
+      border-color: #6ce9a6;
+      background: #ecfdf3;
+    }
+
+    .tdr-status-card.imported strong,
+    .tdr-status-card.imported span {
+      color: #067647;
+    }
+
     .tdr-message {
       min-height: 22px;
       margin: 6px 0 10px;
@@ -1955,6 +1965,7 @@
       applyingCache: false,
       tdrPreview: null,
       tdrAudit: {},
+      tdrImports: {},
       tdrMode: "bound",
       tdrSelectedPolIndex: 0,
       tdrManualBlocks: [],
@@ -2242,6 +2253,7 @@
         },
         entries: state.entries,
         tdrAudit: state.tdrAudit,
+        tdrImports: state.tdrImports,
         selectedWbPodKeys,
         selectedWbPodPorts: selectedWbPodKeys.map((key) => key.split("::")[0]).filter(Boolean)
       };
@@ -2277,6 +2289,9 @@
         if (record.tdrAudit && typeof record.tdrAudit === "object") {
           state.tdrAudit = structuredClone(record.tdrAudit);
         }
+        state.tdrImports = record.tdrImports && typeof record.tdrImports === "object"
+          ? structuredClone(record.tdrImports)
+          : {};
 
         if (Array.isArray(record.selectedWbPodKeys)) {
           const selectedKeys = new Set(record.selectedWbPodKeys);
@@ -2317,6 +2332,7 @@
       state.lookupSignature = "";
       state.entries = { WB: {}, EB: {} };
       state.tdrAudit = {};
+      state.tdrImports = {};
       state.tableData = { WB: null, EB: null };
       renderCarrierRows([defaultCarrier()]);
       ["serviceLane", "vvd", "vesselName", "reportDate", "selection", "wbTeus", "wbMt", "wbRf", "ebTeus", "ebMt", "ebRf"].forEach((id) => {
@@ -3077,6 +3093,7 @@
       if (state.lookupSignature && state.lookupSignature !== signature) {
         state.entries = { WB: {}, EB: {} };
         state.tdrAudit = {};
+        state.tdrImports = {};
       }
       state.lookupSignature = signature;
       state.currentLookup = lookup;
@@ -3601,6 +3618,49 @@
       return `${block}|${row}|${pod}|${side}`;
     }
 
+    function tdrImportKey(choice) {
+      return [
+        normalizeText(choice?.sheetName).toUpperCase(),
+        cleanVvd(choice?.vvd),
+        normalizePort(choice?.port)
+      ].join("|");
+    }
+
+    function tdrImportRecord(choice) {
+      return state.tdrImports?.[tdrImportKey(choice)] || null;
+    }
+
+    function formatTdrImportTime(value) {
+      const date = new Date(value || "");
+      if (!Number.isFinite(date.getTime())) return "时间未知";
+      return date.toLocaleString("zh-CN", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      });
+    }
+
+    function tdrImportLabel(choice, prefix = "已导入") {
+      const record = tdrImportRecord(choice);
+      if (!record) return "";
+      return `${prefix} ${formatTdrImportTime(record.importedAt)}${record.detail ? ` · ${record.detail}` : ""}`;
+    }
+
+    function markTdrImported(choice, importedAt, detail = "") {
+      const key = tdrImportKey(choice);
+      if (!key || key === "||") return;
+      state.tdrImports[key] = {
+        sheetName: normalizeText(choice.sheetName).toUpperCase(),
+        vvd: cleanVvd(choice.vvd),
+        port: normalizePort(choice.port),
+        importedAt,
+        detail
+      };
+    }
+
     function tdrPolChoices() {
       const input = readInputs();
       const sheetName = state.activeSheet;
@@ -3638,7 +3698,8 @@
       choices.forEach((choice) => {
         const option = document.createElement("option");
         option.value = String(choice.polIndex);
-        option.textContent = `${choice.port} · ${choice.vvd} · ETD ${choice.etd || "-"}`;
+        const imported = tdrImportLabel(choice);
+        option.textContent = `${choice.port} · ${choice.vvd} · ETD ${choice.etd || "-"}${imported ? ` · ${imported}` : " · 尚未导入"}`;
         option.selected = choice.polIndex === Number(state.tdrSelectedPolIndex);
         select.appendChild(option);
       });
@@ -3827,13 +3888,19 @@
       const grid = $("tdrStatusGrid");
       grid.replaceChildren();
       const preview = state.tdrPreview;
-      if (!preview) return;
-      preview.results.forEach((result) => {
+      const results = preview?.results || tdrQueryChoices().map((choice) => ({
+        choice,
+        status: tdrImportRecord(choice) ? "imported" : "idle",
+        message: tdrImportLabel(choice) || "尚未导入 TDR"
+      }));
+      results.forEach((result) => {
         const card = document.createElement("div");
         const bad = ["error", "missing", "terminal", "auth"].includes(result.status);
-        card.className = `tdr-status-card ${bad ? "error" : result.status === "not-departed" ? "pending" : ""}`;
+        const imported = result.status === "imported";
+        card.className = `tdr-status-card ${bad ? "error" : result.status === "not-departed" ? "pending" : imported ? "imported" : ""}`;
         appendText(card, "strong", `${result.choice.port} · ${result.choice.vvd}`);
-        appendText(card, "span", result.message);
+        const previous = preview ? tdrImportLabel(result.choice, "上次导入") : "";
+        appendText(card, "span", `${result.message}${previous ? ` · ${previous}` : ""}`);
         grid.appendChild(card);
       });
     }
@@ -3894,6 +3961,7 @@
       $("tdrQuery").disabled = !choices.length;
       const dialog = $("tdrDialog");
       if (!dialog.open) dialog.showModal();
+      renderTdrStatuses();
       checkTdrAgent();
     }
 
@@ -4494,6 +4562,7 @@
       const totalAuditStore = multiCarrier ? `${direction}_TOTAL` : direction;
       let applied = 0;
       let skipped = 0;
+      const importedAt = new Date().toISOString();
 
       preview.results.forEach((result) => {
         const blockIndex = result.choice.polIndex + 1;
@@ -4502,6 +4571,7 @@
           if (result.status === "terminal" && polDecision === "zero") {
             carriers.forEach((carrier) => clearTdrBlock(tdrEntryStore(direction, carrier.code, multiCarrier), blockIndex, pods.length));
             clearTdrBlock(totalAuditStore, blockIndex, pods.length);
+            markTdrImported(result.choice, importedAt, "确认 0");
             applied += 1;
           } else if (result.status !== "not-departed") skipped += 1;
           return;
@@ -4513,6 +4583,7 @@
         clearTdrBlock(totalAuditStore, blockIndex, pods.length);
         mergeTdrStores(state.entries, polEntries);
         mergeTdrAudits(state.tdrAudit, polAudit);
+        markTdrImported(result.choice, importedAt);
         applied += 1;
       });
       saveLocalDraftForCurrentVvd();
