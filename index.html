@@ -161,6 +161,39 @@
       width: min(1240px, calc(100vw - 24px));
     }
 
+    dialog.settings-dialog.quick-tdr-dialog {
+      width: min(1240px, calc(100vw - 24px));
+    }
+
+    .quick-tdr-form {
+      display: grid;
+      grid-template-columns: minmax(190px, 1fr) minmax(190px, 1fr) auto;
+      gap: 10px;
+      align-items: end;
+      margin-bottom: 12px;
+    }
+
+    .quick-tdr-form .field {
+      display: grid;
+      gap: 4px;
+    }
+
+    .quick-tdr-form .field label {
+      color: #344054;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .quick-tdr-form input {
+      min-height: 36px;
+    }
+
+    .quick-tdr-hint {
+      margin: -2px 0 10px;
+      color: #475467;
+      font-size: 12px;
+    }
+
     .tdr-controls {
       display: flex;
       justify-content: space-between;
@@ -1687,6 +1720,10 @@
       .tdr-account-panel {
         grid-template-columns: 1fr;
       }
+
+      .quick-tdr-form {
+        grid-template-columns: 1fr;
+      }
     }
 
     @media print {
@@ -1745,6 +1782,7 @@
             <button id="clearInputs" type="button">清除</button>
             <button id="generate" type="button">刷新船期</button>
             <button id="fetchTdr" type="button" class="tdr-button">更新 TDR</button>
+            <button id="quickTdr" type="button" class="tdr-button">快速查 TDR</button>
             <button id="saveSync" type="button" class="sync-save">保存并同步</button>
             <button id="copyTable" type="button">复制预览</button>
             <button id="exportXls" type="button" class="primary export-button">导出 Excel</button>
@@ -1917,6 +1955,61 @@
       </div>
     </dialog>
 
+    <dialog id="quickTdrDialog" class="settings-dialog quick-tdr-dialog" aria-labelledby="quickTdrTitle">
+      <div class="settings-dialog-head">
+        <h2 id="quickTdrTitle">TDR 快速查询与蓝色模板导出</h2>
+        <button id="quickTdrClose" class="icon-button" type="button" aria-label="关闭 TDR 快速查询" title="关闭">
+          <i data-lucide="x" class="close-fallback" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="settings-dialog-body">
+        <div class="quick-tdr-form">
+          <div class="field">
+            <label for="quickTdrVvd">VVD</label>
+            <input id="quickTdrVvd" list="quickTdrVvdOptions" autocomplete="off" placeholder="例如 XPBL2618W">
+            <datalist id="quickTdrVvdOptions"></datalist>
+          </div>
+          <div class="field">
+            <label for="quickTdrPort">PORT / POL</label>
+            <input id="quickTdrPort" list="quickTdrPortOptions" autocomplete="off" placeholder="例如 CNTAO">
+            <datalist id="quickTdrPortOptions"></datalist>
+          </div>
+          <button id="quickTdrQuery" type="button" class="primary">查询 TDR</button>
+        </div>
+        <div class="quick-tdr-hint">候选来自 GitHub 船期；也可手工输入。快速查询按 TDR 原始 POD 展示，不改动当前控舱表，也不进行跳港 T/S 重映射。</div>
+        <div class="tdr-agent-line">
+          <div id="quickTdrAgentStatus" class="tdr-agent-status">正在检测云端 TDR 服务...</div>
+          <button id="quickTdrAccountSettings" class="tdr-account-settings" type="button">TDR 账号</button>
+        </div>
+        <div id="quickTdrAccountPanel" class="tdr-account-panel hidden">
+          <label>Allegro 用户名<input id="quickTdrUsername" type="text" autocomplete="username"></label>
+          <label>Allegro 密码<input id="quickTdrPassword" type="password" autocomplete="current-password"></label>
+          <label class="tdr-account-remember"><input id="quickTdrRememberAccount" type="checkbox" checked> 在此设备记住</label>
+          <button id="quickTdrSaveAccount" type="button">保存账号</button>
+        </div>
+        <div id="quickTdrProgressWrap" class="tdr-progress hidden" role="status" aria-live="polite">
+          <progress id="quickTdrProgress" max="100" value="0"></progress>
+          <span id="quickTdrProgressPercent">0%</span>
+        </div>
+        <div id="quickTdrMessage" class="tdr-message" aria-live="polite">输入 VVD 和 PORT 后即可查询。</div>
+        <div id="quickTdrIssues" class="tdr-issues"></div>
+        <div id="quickTdrManualWrap" class="tdr-manual-wrap hidden">
+          <div class="tdr-manual-head">
+            <div>
+              <strong>蓝色 Excel 格式预览</strong>
+              <span id="quickTdrManualSummary">查询完成后按 Partner 分 Sheet 显示。</span>
+            </div>
+          </div>
+          <div id="quickTdrManualBlocks" class="tdr-manual-blocks"></div>
+          <div class="tdr-manual-summary">导出文件包含各 Partner Sheet；多个 Partner 时另含 TOTAL Sheet。数量和重量均为查询时的静态 TDR 数值。</div>
+        </div>
+        <div class="tdr-dialog-actions">
+          <button id="quickTdrCancel" type="button">关闭</button>
+          <button id="quickTdrExport" type="button" class="primary" disabled>导出蓝色 Excel</button>
+        </div>
+      </div>
+    </dialog>
+
     <main class="workspace">
       <div class="preview-heading">
         <h2>船期与 BSA 预览</h2>
@@ -2048,6 +2141,8 @@
       tdrMode: "bound",
       tdrSelectedPolIndex: 0,
       tdrManualBlocks: [],
+      quickTdrPreview: null,
+      quickTdrBlocks: [],
       draftSettings: { enabled: false, ports: {}, partnerOverrides: {} },
       initialized: false
     };
@@ -4129,12 +4224,12 @@
       return { key, type, message, options, value };
     }
 
-    function issueByKey(key) {
-      return state.tdrPreview?.issues?.find((issue) => issue.key === key);
+    function issueByKey(key, preview = state.tdrPreview) {
+      return preview?.issues?.find((issue) => issue.key === key);
     }
 
-    function issueValue(key) {
-      return issueByKey(key)?.value || "";
+    function issueValue(key, preview = state.tdrPreview) {
+      return issueByKey(key, preview)?.value || "";
     }
 
     function tdrReadyToApply() {
@@ -4208,7 +4303,7 @@
 
     function matchingTargetPod(preview, pod) {
       const matched = preview.pods.find((item) => item.port === pod && String(item.eta).toUpperCase() !== "SKIP");
-      return matched?.port || issueValue(`pod:${pod}`);
+      return matched?.port || issueValue(`pod:${pod}`, preview);
     }
 
     function tdrClassification(preview, choice, row) {
@@ -4219,9 +4314,9 @@
       let category = "LILIAN";
       if (so === DEFAULT_CARRIER_CODE) {
         carrier = DEFAULT_CARRIER_CODE;
-        category = NORMAL_CUL_CO.has(co) ? "LILIAN" : issueValue(`co:${choice.sheetName}:${choice.polIndex}:${co}`);
+        category = NORMAL_CUL_CO.has(co) ? "LILIAN" : issueValue(`co:${choice.sheetName}:${choice.polIndex}:${co}`, preview);
       } else if (!known.has(so)) {
-        const decision = issueValue(`so:${so}`);
+        const decision = issueValue(`so:${so}`, preview);
         if (decision === "cul-soc") {
           carrier = DEFAULT_CARRIER_CODE;
           category = "SOC";
@@ -4755,6 +4850,79 @@
       return { values, ttlValues, rowTotals };
     }
 
+    function renderTdrBlueBlocks(wrap, blocks, choice, options = {}) {
+      wrap.replaceChildren();
+      blocks.forEach((block) => {
+        const card = appendText(wrap, "section", "", "tdr-manual-card");
+        const head = appendText(card, "div", "", "tdr-manual-card-head");
+        const title = appendText(head, "div", "");
+        appendText(title, "div", block.sheetName, "tdr-manual-card-title");
+        appendText(title, "span", options.subtitle?.(block) || `参照此区块，在旧 Excel 的 ${block.sheetName} 手工输入`, "tdr-manual-card-note");
+        if (block.newCarrier && options.showNewCarrier !== false) {
+          appendText(card, "div", `注意：${block.carrier} 是本次新增 Partner；旧工作簿若没有 ${block.sheetName}，需要重新导出整表。`, "tdr-manual-card-note");
+        }
+        const tableWrap = appendText(card, "div", "", "tdr-excel-table-wrap");
+        const table = document.createElement("table");
+        table.className = "tdr-excel-table";
+        const headRow = table.createTHead().insertRow();
+        appendText(headRow, "th", "POD").colSpan = 3;
+        block.pods.forEach((pod) => {
+          const th = appendText(headRow, "th", `${pod.port}${pod.eta ? ` · ETA ${pod.eta}` : ""}`);
+          th.colSpan = 2;
+        });
+        appendText(headRow, "th", "TOTAL").colSpan = 2;
+        appendText(headRow, "th", "TTL");
+        const sizeRow = table.tHead.insertRow();
+        appendText(sizeRow, "th", "POL / ETB / ETD").colSpan = 2;
+        appendText(sizeRow, "th", "ROW");
+        block.pods.forEach(() => {
+          appendText(sizeRow, "th", "20'");
+          appendText(sizeRow, "th", "40'");
+        });
+        appendText(sizeRow, "th", "20'");
+        appendText(sizeRow, "th", "40'");
+        appendText(sizeRow, "th", "TEUS");
+        const body = table.createTBody();
+        cargoLabels.forEach((label, rowIndex) => {
+          const row = body.insertRow();
+          if (rowIndex === 7) row.className = "ttl-row";
+          if (rowIndex === 0) {
+            const pol = appendText(row, "th", choice.port, "pol-cell");
+            pol.colSpan = 2;
+            pol.rowSpan = 5;
+          } else if (rowIndex === 5) {
+            appendText(row, "th", "ETB", "date-label");
+            appendText(row, "td", choice.etb || "", "date-value");
+          } else if (rowIndex === 6) {
+            appendText(row, "th", "ETD", "date-label");
+            appendText(row, "td", choice.etd || "", "date-value");
+          } else if (rowIndex === 7) {
+            appendText(row, "td", "").colSpan = 2;
+          }
+          appendText(row, "th", label, "row-label");
+          if (label === "Weight") {
+            block.pods.forEach((_pod, podIndex) => {
+              const cell = appendText(row, "td", block.values[rowIndex][podIndex * 2] || "");
+              cell.colSpan = 2;
+            });
+            const total = appendText(row, "td", cellText(block.rowTotals[rowIndex].left, 1), "total-cell");
+            total.colSpan = 2;
+            appendText(row, "td", "", "total-cell");
+          } else {
+            const values = label === "TTL" ? block.ttlValues : block.values[rowIndex];
+            values.forEach((value) => appendText(row, "td", value || ""));
+            appendText(row, "td", cellText(block.rowTotals[rowIndex].left), "total-cell");
+            appendText(row, "td", cellText(block.rowTotals[rowIndex].right), "total-cell");
+            appendText(row, "td", cellText(block.rowTotals[rowIndex].teus), "total-cell");
+          }
+        });
+        tableWrap.appendChild(table);
+        if (block.notes.length) {
+          appendText(card, "div", `批注参考：${block.notes.join("；")}`, "tdr-manual-card-note");
+        }
+      });
+    }
+
     function renderTdrManualPreview() {
       const preview = state.tdrPreview;
       if (!preview || preview.mode !== "single" || !tdrReadyToApply()) return;
@@ -4787,76 +4955,7 @@
       });
       state.tdrManualBlocks = blocks;
       const wrap = $("tdrManualBlocks");
-      wrap.replaceChildren();
-      blocks.forEach((block) => {
-        const card = appendText(wrap, "section", "", "tdr-manual-card");
-        const head = appendText(card, "div", "", "tdr-manual-card-head");
-        const title = appendText(head, "div", "");
-        appendText(title, "div", block.sheetName, "tdr-manual-card-title");
-        appendText(title, "span", `参照此区块，在旧 Excel 的 ${block.sheetName} 手工输入`, "tdr-manual-card-note");
-        if (block.newCarrier) {
-          appendText(card, "div", `注意：${block.carrier} 是本次新增 Partner；旧工作簿若没有 ${block.sheetName}，需要重新导出整表。`, "tdr-manual-card-note");
-        }
-        const tableWrap = appendText(card, "div", "", "tdr-excel-table-wrap");
-        const table = document.createElement("table");
-        table.className = "tdr-excel-table";
-        const headRow = table.createTHead().insertRow();
-        appendText(headRow, "th", "POD").colSpan = 3;
-        block.pods.forEach((pod) => {
-          const th = appendText(headRow, "th", `${pod.port}${pod.eta ? ` · ETA ${pod.eta}` : ""}`);
-          th.colSpan = 2;
-        });
-        appendText(headRow, "th", "TOTAL").colSpan = 2;
-        appendText(headRow, "th", "TTL");
-        const sizeRow = table.tHead.insertRow();
-        appendText(sizeRow, "th", "POL / ETB / ETD").colSpan = 2;
-        appendText(sizeRow, "th", "ROW");
-        block.pods.forEach(() => {
-          appendText(sizeRow, "th", "20'");
-          appendText(sizeRow, "th", "40'");
-        });
-        appendText(sizeRow, "th", "20'");
-        appendText(sizeRow, "th", "40'");
-        appendText(sizeRow, "th", "TEUS");
-        const body = table.createTBody();
-        cargoLabels.forEach((label, rowIndex) => {
-          const row = body.insertRow();
-          if (rowIndex === 7) row.className = "ttl-row";
-          if (rowIndex === 0) {
-            const pol = appendText(row, "th", result.choice.port, "pol-cell");
-            pol.colSpan = 2;
-            pol.rowSpan = 5;
-          } else if (rowIndex === 5) {
-            appendText(row, "th", "ETB", "date-label");
-            appendText(row, "td", result.choice.etb || "", "date-value");
-          } else if (rowIndex === 6) {
-            appendText(row, "th", "ETD", "date-label");
-            appendText(row, "td", result.choice.etd || "", "date-value");
-          } else if (rowIndex === 7) {
-            appendText(row, "td", "").colSpan = 2;
-          }
-          appendText(row, "th", label, "row-label");
-          if (label === "Weight") {
-            block.pods.forEach((_pod, podIndex) => {
-              const cell = appendText(row, "td", block.values[rowIndex][podIndex * 2] || "");
-              cell.colSpan = 2;
-            });
-            const total = appendText(row, "td", cellText(block.rowTotals[rowIndex].left, 1), "total-cell");
-            total.colSpan = 2;
-            appendText(row, "td", "", "total-cell");
-          } else {
-            const values = label === "TTL" ? block.ttlValues : block.values[rowIndex];
-            values.forEach((value) => appendText(row, "td", value || ""));
-            appendText(row, "td", cellText(block.rowTotals[rowIndex].left), "total-cell");
-            appendText(row, "td", cellText(block.rowTotals[rowIndex].right), "total-cell");
-            appendText(row, "td", cellText(block.rowTotals[rowIndex].teus), "total-cell");
-          }
-        });
-        tableWrap.appendChild(table);
-        if (block.notes.length) {
-          appendText(card, "div", `批注参考：${block.notes.join("；")}`, "tdr-manual-card-note");
-        }
-      });
+      renderTdrBlueBlocks(wrap, blocks, result.choice);
       $("tdrManualSummary").textContent = `${result.choice.port} · ${blocks.length} 个 Partner Sheet。TOTAL Sheet 将由原 Excel 公式自动汇总。`;
       $("tdrManualWrap").classList.remove("hidden");
       $("tdrMessage").textContent = `已显示 ${result.choice.port} 的 Excel 格式只读预览；请据此手工输入原工作簿。`;
@@ -4905,6 +5004,347 @@
       saveLocalDraftForCurrentVvd();
       $("status").textContent = `TDR 已更新 · ${direction} · ${applied} 个 POL${skipped ? ` · 跳过 ${skipped}` : ""}`;
       closeTdrDialog();
+    }
+
+    function setQuickTdrProgress(percent, text, visible = true) {
+      const value = Math.max(0, Math.min(100, Math.round(percent)));
+      $("quickTdrProgress").value = value;
+      $("quickTdrProgressPercent").textContent = `${value}%`;
+      $("quickTdrProgressWrap").classList.toggle("hidden", !visible);
+      if (text) $("quickTdrMessage").textContent = text;
+    }
+
+    function populateQuickTdrAccountFields() {
+      const saved = loadTdrCredentials();
+      if (!$("quickTdrUsername").value) $("quickTdrUsername").value = saved.username;
+      if (!$("quickTdrPassword").value) $("quickTdrPassword").value = saved.password;
+      $("quickTdrRememberAccount").checked = Boolean(saved.username || saved.password);
+      return saved;
+    }
+
+    function currentQuickTdrCredentials() {
+      return {
+        username: $("quickTdrUsername").value.trim(),
+        password: $("quickTdrPassword").value
+      };
+    }
+
+    function saveQuickTdrAccountSettings() {
+      const credentials = currentQuickTdrCredentials();
+      if (!credentials.username || !credentials.password) {
+        $("quickTdrMessage").textContent = "请填写 Allegro 用户名和密码。";
+        return false;
+      }
+      if ($("quickTdrRememberAccount").checked) {
+        localStorage.setItem(TDR_CREDENTIALS_KEY, JSON.stringify(credentials));
+      } else {
+        localStorage.removeItem(TDR_CREDENTIALS_KEY);
+      }
+      $("quickTdrAccountPanel").classList.add("hidden");
+      $("quickTdrMessage").textContent = "TDR 账号已保存，可以开始查询。";
+      checkQuickTdrAgent();
+      return true;
+    }
+
+    async function checkQuickTdrAgent() {
+      const status = $("quickTdrAgentStatus");
+      const credentials = populateQuickTdrAccountFields();
+      status.className = "tdr-agent-status";
+      status.textContent = "正在检测云端 TDR 服务...";
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
+        const response = await fetch(`${TDR_API_BASE}/api/health`, { cache: "no-store", signal: controller.signal });
+        clearTimeout(timer);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const health = await response.json();
+        if (!health?.ok) throw new Error("Cloud service unavailable");
+        status.classList.add("good");
+        status.textContent = `云端 TDR 已连接${health.version ? ` · v${health.version}` : ""}${credentials.username ? ` · 账号 ${credentials.username}` : " · 尚未填写账号"}`;
+        return health;
+      } catch {
+        status.classList.add("bad");
+        status.textContent = "云端 TDR 服务暂时无法连接，请稍后重试。";
+        return null;
+      }
+    }
+
+    function populateQuickTdrCandidates() {
+      const rows = state.scheduleRows || [];
+      const vvdList = $("quickTdrVvdOptions");
+      const vvdMap = new Map();
+      rows.forEach((row) => {
+        const lanes = vvdMap.get(row.vvd) || new Set();
+        lanes.add(row.lane);
+        vvdMap.set(row.vvd, lanes);
+      });
+      vvdList.replaceChildren(...[...vvdMap.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([vvd, lanes]) => {
+        const option = document.createElement("option");
+        option.value = vvd;
+        option.label = [...lanes].sort().join("/");
+        return option;
+      }));
+      populateQuickTdrPortCandidates();
+    }
+
+    function populateQuickTdrPortCandidates() {
+      const rows = state.scheduleRows || [];
+      const vvd = cleanVvd($("quickTdrVvd")?.value || "");
+      const candidates = rows.filter((row) => !vvd || row.vvd === vvd);
+      const ports = new Map();
+      candidates.forEach((row) => {
+        if (!ports.has(row.port)) ports.set(row.port, row);
+      });
+      $("quickTdrPortOptions").replaceChildren(...[...ports.values()].map((row) => {
+        const option = document.createElement("option");
+        option.value = row.port;
+        option.label = `${row.lane}${row.etd ? ` · ETD ${row.etd}` : ""}`;
+        return option;
+      }));
+    }
+
+    function quickTdrScheduleRow(vvd, port) {
+      return (state.scheduleRows || []).find((row) => row.vvd === vvd && row.port === port) || null;
+    }
+
+    function resetQuickTdrResult() {
+      state.quickTdrPreview = null;
+      state.quickTdrBlocks = [];
+      $("quickTdrIssues").replaceChildren();
+      $("quickTdrManualBlocks").replaceChildren();
+      $("quickTdrManualWrap").classList.add("hidden");
+      $("quickTdrExport").disabled = true;
+    }
+
+    async function openQuickTdrDialog() {
+      resetQuickTdrResult();
+      const dialog = $("quickTdrDialog");
+      if (!dialog.open) dialog.showModal();
+      const mainVvd = cleanVvd($("vvd")?.value || "");
+      if (!$("quickTdrVvd").value && /[WE]$/.test(mainVvd)) $("quickTdrVvd").value = mainVvd;
+      setQuickTdrProgress(0, "输入 VVD 和 PORT 后即可查询。", false);
+      populateQuickTdrAccountFields();
+      checkQuickTdrAgent();
+      try {
+        await loadScheduleRows();
+        populateQuickTdrCandidates();
+      } catch (error) {
+        console.warn(error);
+        $("quickTdrMessage").textContent = "船期候选读取失败，仍可手工输入 VVD 和 PORT。";
+      }
+    }
+
+    function closeQuickTdrDialog() {
+      const dialog = $("quickTdrDialog");
+      if (dialog?.open) dialog.close();
+    }
+
+    function quickTdrPods(payload, vvd) {
+      const pods = [];
+      [...(payload.rows || []), ...(payload.special || [])].forEach((row) => {
+        const port = normalizePort(row.pod);
+        if (!port || pods.some((pod) => pod.port === port)) return;
+        const schedule = quickTdrScheduleRow(vvd, port);
+        pods.push({ port, eta: schedule?.eta || "" });
+      });
+      return pods;
+    }
+
+    function quickTdrCarriers(payload) {
+      const codes = [];
+      [...(payload.rows || []), ...(payload.special || [])].forEach((row) => {
+        const code = carrierCode(row.so, DEFAULT_CARRIER_CODE);
+        if (code && !codes.includes(code)) codes.push(code);
+      });
+      codes.sort((a, b) => (a === DEFAULT_CARRIER_CODE ? -1 : b === DEFAULT_CARRIER_CODE ? 1 : a.localeCompare(b)));
+      return (codes.length ? codes : [DEFAULT_CARRIER_CODE]).map((code) => defaultCarrier(code));
+    }
+
+    function quickTdrTotalBlock(blocks, pods) {
+      const values = cargoLabels.slice(0, 7).map((_label, rowIndex) => pods.flatMap((_pod, podIndex) => {
+        if (rowIndex === 6) {
+          const weight = blocks.reduce((sum, block) => sum + parseCellNumber(block.values[rowIndex][podIndex * 2]), 0);
+          return [cellText(weight, 1), ""];
+        }
+        const left = blocks.reduce((sum, block) => sum + parseCellNumber(block.values[rowIndex][podIndex * 2]), 0);
+        const right = blocks.reduce((sum, block) => sum + parseCellNumber(block.values[rowIndex][podIndex * 2 + 1]), 0);
+        return [cellText(left), cellText(right)];
+      }));
+      const manual = buildTdrManualBlock(values, pods);
+      return {
+        carrier: "TOTAL",
+        sheetName: "TOTAL",
+        values: manual.values,
+        ttlValues: manual.ttlValues,
+        rowTotals: manual.rowTotals,
+        pods,
+        newCarrier: false,
+        notes: [...new Set(blocks.flatMap((block) => block.notes || []))]
+      };
+    }
+
+    function buildQuickTdrBlocks(preview, result) {
+      const carriers = preview.carriers;
+      const pods = preview.pods;
+      const payload = buildTdrPolPayload(preview, result, carriers, pods);
+      const multiCarrier = carriers.length > 1;
+      const blocks = carriers.map((carrier) => {
+        const storeKey = tdrEntryStore(preview.sheetName, carrier.code, multiCarrier);
+        const manual = buildTdrManualBlock(tdrManualValueMatrix(payload.polEntries[storeKey] || {}, payload.blockIndex, pods), pods);
+        return {
+          carrier: carrier.code,
+          sheetName: carrier.code,
+          storeKey,
+          values: manual.values,
+          ttlValues: manual.ttlValues,
+          rowTotals: manual.rowTotals,
+          pods,
+          newCarrier: false,
+          notes: tdrManualNotes(payload.polAudit, storeKey, payload.totalAuditStore, payload.blockIndex, carrier.code, pods)
+        };
+      });
+      if (blocks.length > 1) blocks.push(quickTdrTotalBlock(blocks, pods));
+      return blocks;
+    }
+
+    function renderQuickTdrIssues() {
+      const preview = state.quickTdrPreview;
+      const wrap = $("quickTdrIssues");
+      wrap.replaceChildren();
+      (preview?.issues || []).forEach((issue) => {
+        const row = document.createElement("label");
+        row.className = "tdr-issue";
+        appendText(row, "span", issue.message);
+        const select = document.createElement("select");
+        const prompt = document.createElement("option");
+        prompt.value = "";
+        prompt.textContent = "请选择";
+        select.appendChild(prompt);
+        issue.options.forEach((item) => {
+          const option = document.createElement("option");
+          option.value = item.value;
+          option.textContent = item.label;
+          option.selected = item.value === issue.value;
+          select.appendChild(option);
+        });
+        select.addEventListener("change", () => {
+          issue.value = select.value;
+          renderQuickTdrResult();
+        });
+        row.appendChild(select);
+        wrap.appendChild(row);
+      });
+    }
+
+    function renderQuickTdrResult() {
+      const preview = state.quickTdrPreview;
+      resetQuickTdrResultViewOnly();
+      if (!preview) return;
+      state.quickTdrPreview = preview;
+      renderQuickTdrIssues();
+      const result = preview.results.find((item) => item.status === "ok");
+      if (!result) {
+        $("quickTdrMessage").textContent = preview.results[0]?.message || "未取得可导出的 TDR 数据。";
+        return;
+      }
+      const unresolved = preview.issues.filter((issue) => !issue.value).length;
+      if (unresolved) {
+        $("quickTdrMessage").textContent = `查询完成，需确认 ${unresolved} 项后生成蓝色预览。`;
+        return;
+      }
+      const blocks = buildQuickTdrBlocks(preview, result);
+      state.quickTdrBlocks = blocks;
+      renderTdrBlueBlocks($("quickTdrManualBlocks"), blocks, result.choice, {
+        subtitle: (block) => block.sheetName === "TOTAL" ? "全部 Partner 汇总" : `SO ${block.carrier} 对应的独立 Sheet`,
+        showNewCarrier: false
+      });
+      $("quickTdrManualSummary").textContent = `${result.choice.vvd} · ${result.choice.port} · ${preview.pods.length} 个 POD · ${blocks.length} 个 Sheet`;
+      $("quickTdrManualWrap").classList.remove("hidden");
+      $("quickTdrExport").disabled = false;
+      $("quickTdrMessage").textContent = `查询完成：${result.rows.length} 条货量 · RF ${result.special.length} 条，可导出蓝色 Excel。`;
+    }
+
+    function resetQuickTdrResultViewOnly() {
+      state.quickTdrBlocks = [];
+      $("quickTdrIssues").replaceChildren();
+      $("quickTdrManualBlocks").replaceChildren();
+      $("quickTdrManualWrap").classList.add("hidden");
+      $("quickTdrExport").disabled = true;
+    }
+
+    async function queryQuickTdr() {
+      const vvd = cleanVvd($("quickTdrVvd").value);
+      const port = normalizePort($("quickTdrPort").value);
+      $("quickTdrVvd").value = vvd;
+      $("quickTdrPort").value = port;
+      if (!vvd || !port) {
+        $("quickTdrMessage").textContent = "请同时输入 VVD 和 PORT。";
+        return;
+      }
+      const credentials = currentQuickTdrCredentials();
+      if (!credentials.username || !credentials.password) {
+        $("quickTdrAccountPanel").classList.remove("hidden");
+        $("quickTdrMessage").textContent = "请先填写并保存 Allegro 账号和密码。";
+        $("quickTdrUsername").focus();
+        return;
+      }
+      resetQuickTdrResult();
+      $("quickTdrQuery").disabled = true;
+      setQuickTdrProgress(15, `正在查询 ${vvd} · ${port}`, true);
+      const schedule = quickTdrScheduleRow(vvd, port);
+      const choice = {
+        vvd,
+        port,
+        polIndex: 0,
+        sheetName: "QUICK",
+        etb: schedule?.etb || "",
+        etd: schedule?.etd || "",
+        scheduleEtd: schedule?.etd || ""
+      };
+      try {
+        const response = await fetch(`${TDR_API_BASE}/api/tdr/batch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...credentials, queries: [{ vvd, pol: port }] })
+        });
+        if (!response.ok) {
+          const errorPayload = await response.json().catch(() => ({}));
+          const error = new Error(errorPayload.error || `TDR 查询失败 (${response.status})`);
+          error.code = errorPayload.code || "TDR_QUERY_FAILED";
+          throw error;
+        }
+        setQuickTdrProgress(60, "TDR 已返回，正在整理蓝色模板", true);
+        const text = await response.text();
+        const line = text.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).map((item) => JSON.parse(item)).find((item) => Number(item.index) === 0);
+        if (!line) throw new Error("TDR 服务未返回查询结果");
+        const payload = line.result || {};
+        const preview = {
+          querying: false,
+          authFailed: false,
+          mode: "quick",
+          sheetName: "QUICK",
+          choices: [choice],
+          pods: quickTdrPods(payload, vvd),
+          carriers: quickTdrCarriers(payload),
+          results: [],
+          issues: []
+        };
+        recordTdrBatchLine(preview, choice, line);
+        preview.issues = preview.issues.filter((issue) => issue.type === "co");
+        state.quickTdrPreview = preview;
+        if (preview.authFailed) {
+          $("quickTdrAccountPanel").classList.remove("hidden");
+          $("quickTdrMessage").textContent = "Allegro 登录失败，请修改 TDR 账号后重试。";
+        }
+        setQuickTdrProgress(100, "查询完成", true);
+        renderQuickTdrResult();
+      } catch (error) {
+        console.error(error);
+        $("quickTdrMessage").textContent = error.code === "AUTH_FAILED" ? "Allegro 登录失败，请修改账号后重试。" : `查询失败：${error.message || error}`;
+        setQuickTdrProgress(100, $("quickTdrMessage").textContent, true);
+      } finally {
+        $("quickTdrQuery").disabled = false;
+      }
     }
 
     function saveCellEntry(cell, sheetName) {
@@ -5822,6 +6262,143 @@
       }
       if (style.numFmt) cell.numFmt = style.numFmt;
       cell.border = style.border || fullBorder(style.borderStyle || "thin");
+    }
+
+    function addQuickTdrExcelSheet(workbook, block, preview) {
+      const result = preview.results.find((item) => item.status === "ok");
+      const choice = result.choice;
+      const safeName = String(block.sheetName || "TDR").replace(/[\\/:*?\[\]]+/g, "-").slice(0, 31) || "TDR";
+      const ws = workbook.addWorksheet(safeName, {
+        views: [{ showGridLines: false, state: "frozen", ySplit: 5 }],
+        pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
+      });
+      const pods = block.pods;
+      const podStart = 4;
+      const total20 = podStart + pods.length * 2;
+      const total40 = total20 + 1;
+      const ttlCol = total40 + 1;
+      const lastCol = ttlCol;
+      const headerStyle = { fill: "FF99CCFF", bold: true };
+      const bodyStyle = { fill: "FFFFFFFF" };
+      const totalStyle = { fill: "FFF2F4F7", bold: true };
+      const noteStyle = { fill: "FFDDEBF7", alignment: { horizontal: "left", vertical: "middle", wrapText: true } };
+      const generatedAt = new Date().toLocaleString("zh-CN", { hour12: false });
+
+      ws.getColumn(1).width = 9;
+      ws.getColumn(2).width = 13;
+      ws.getColumn(3).width = 11;
+      for (let col = 4; col <= lastCol; col += 1) ws.getColumn(col).width = col === ttlCol ? 10 : 8.5;
+      for (let row = 1; row <= 13; row += 1) ws.getRow(row).height = row <= 5 ? 22 : 20;
+
+      safeMerge(ws, 1, 1, 1, lastCol);
+      safeMerge(ws, 2, 1, 2, lastCol);
+      setCell(ws, 1, 1, `TDR BLUE TEMPLATE · ${choice.vvd} · POL ${choice.port} · ${block.sheetName}`, headerStyle);
+      setCell(ws, 2, 1, `Allegro TDR · 查询时间 ${generatedAt} · POD 按 TDR 原始目的港显示`, noteStyle);
+
+      safeMerge(ws, 3, 1, 3, 3);
+      safeMerge(ws, 4, 1, 4, 3);
+      safeMerge(ws, 5, 1, 5, 3);
+      setCell(ws, 3, 1, "POD", headerStyle);
+      setCell(ws, 4, 1, "ETA", headerStyle);
+      setCell(ws, 5, 1, "POL", headerStyle);
+      pods.forEach((pod, podIndex) => {
+        const left = podStart + podIndex * 2;
+        safeMerge(ws, 3, left, 3, left + 1);
+        safeMerge(ws, 4, left, 4, left + 1);
+        setCell(ws, 3, left, pod.port, headerStyle);
+        setCell(ws, 4, left, pod.eta || null, headerStyle);
+        setCell(ws, 5, left, "20'", headerStyle);
+        setCell(ws, 5, left + 1, "40'", headerStyle);
+      });
+      safeMerge(ws, 3, total20, 3, total40);
+      safeMerge(ws, 4, total20, 4, total40);
+      safeMerge(ws, 3, ttlCol, 4, ttlCol);
+      setCell(ws, 3, total20, "TOTAL", headerStyle);
+      setCell(ws, 5, total20, "20'", headerStyle);
+      setCell(ws, 5, total40, "40'", headerStyle);
+      setCell(ws, 3, ttlCol, "TTL", headerStyle);
+      setCell(ws, 5, ttlCol, "TEUS", headerStyle);
+
+      safeMerge(ws, 6, 1, 10, 2);
+      setCell(ws, 6, 1, choice.port, { ...bodyStyle, bold: true });
+      setCell(ws, 11, 1, "ETB", bodyStyle);
+      setCell(ws, 11, 2, choice.etb || null, bodyStyle);
+      setCell(ws, 12, 1, "ETD", bodyStyle);
+      setCell(ws, 12, 2, choice.etd || null, bodyStyle);
+      safeMerge(ws, 13, 1, 13, 2);
+      setCell(ws, 13, 1, null, totalStyle);
+
+      cargoLabels.forEach((label, rowIndex) => {
+        const row = 6 + rowIndex;
+        const rowStyle = label === "TTL" ? totalStyle : bodyStyle;
+        setCell(ws, row, 3, label, { ...rowStyle, bold: true, alignment: { horizontal: "left", vertical: "middle" } });
+        pods.forEach((_pod, podIndex) => {
+          const left = podStart + podIndex * 2;
+          const right = left + 1;
+          if (label === "Weight") {
+            safeMerge(ws, row, left, row, right);
+            const value = parseCellNumber(block.values[rowIndex][podIndex * 2]);
+            setCell(ws, row, left, value || null, { ...bodyStyle, numFmt: "0.0;-0.0;;@" });
+          } else {
+            const values = label === "TTL" ? block.ttlValues : block.values[rowIndex];
+            const leftValue = parseCellNumber(values[podIndex * 2]);
+            const rightValue = parseCellNumber(values[podIndex * 2 + 1]);
+            setCell(ws, row, left, leftValue || null, { ...rowStyle, numFmt: "0;-0;;@" });
+            setCell(ws, row, right, rightValue || null, { ...rowStyle, numFmt: "0;-0;;@" });
+          }
+        });
+        const totals = block.rowTotals[rowIndex];
+        if (label === "Weight") {
+          safeMerge(ws, row, total20, row, total40);
+          setCell(ws, row, total20, totals.left || null, { ...totalStyle, numFmt: "0.0;-0.0;;@" });
+          setCell(ws, row, ttlCol, null, totalStyle);
+        } else {
+          setCell(ws, row, total20, totals.left || null, { ...totalStyle, numFmt: "0;-0;;@" });
+          setCell(ws, row, total40, totals.right || null, { ...totalStyle, numFmt: "0;-0;;@" });
+          setCell(ws, row, ttlCol, totals.teus || null, { ...totalStyle, numFmt: "0;-0;;@" });
+        }
+      });
+
+      if (block.notes.length) {
+        const noteRow = 15;
+        safeMerge(ws, noteRow, 1, noteRow, lastCol);
+        setCell(ws, noteRow, 1, `批注参考：${block.notes.join("；")}`, {
+          fill: "FFFFFAEB",
+          alignment: { horizontal: "left", vertical: "middle", wrapText: true }
+        });
+        ws.getRow(noteRow).height = Math.min(72, 24 + block.notes.length * 12);
+      }
+      return ws;
+    }
+
+    async function exportQuickTdrExcel() {
+      const preview = state.quickTdrPreview;
+      const blocks = state.quickTdrBlocks || [];
+      const result = preview?.results?.find((item) => item.status === "ok");
+      if (!window.ExcelJS || !preview || !result || !blocks.length) return;
+      $("quickTdrExport").disabled = true;
+      try {
+        $("quickTdrMessage").textContent = "正在生成蓝色 Excel...";
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = "Space Control TDR Quick Query";
+        workbook.created = new Date();
+        blocks.forEach((block) => addQuickTdrExcelSheet(workbook, block, preview));
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `TDR - ${result.choice.vvd} - ${result.choice.port}.xlsx`.replace(/[\\/:*?"<>|]+/g, "-");
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(link.href);
+        $("quickTdrMessage").textContent = `蓝色 Excel 已导出：${blocks.length} 个 Sheet。`;
+      } catch (error) {
+        console.error(error);
+        $("quickTdrMessage").textContent = `导出失败：${error.message || error}`;
+      } finally {
+        $("quickTdrExport").disabled = false;
+      }
     }
 
     function entryValue(sheetName, block, row, pod, side) {
@@ -6919,6 +7496,7 @@
 
     $("generate").addEventListener("click", () => generateFromSchedule({ forceSchedule: true }));
     $("fetchTdr").addEventListener("click", openTdrDialog);
+    $("quickTdr").addEventListener("click", openQuickTdrDialog);
     $("tdrQuery").addEventListener("click", queryTdr);
     $("tdrAccountSettings").addEventListener("click", openTdrAccountSettings);
     $("tdrSaveAccount").addEventListener("click", saveTdrAccountSettings);
@@ -6930,6 +7508,32 @@
     $("tdrCancel").addEventListener("click", closeTdrDialog);
     $("tdrDialog").addEventListener("click", (event) => {
       if (event.target === $("tdrDialog")) closeTdrDialog();
+    });
+    $("quickTdrQuery").addEventListener("click", queryQuickTdr);
+    $("quickTdrExport").addEventListener("click", exportQuickTdrExcel);
+    $("quickTdrClose").addEventListener("click", closeQuickTdrDialog);
+    $("quickTdrCancel").addEventListener("click", closeQuickTdrDialog);
+    $("quickTdrDialog").addEventListener("click", (event) => {
+      if (event.target === $("quickTdrDialog")) closeQuickTdrDialog();
+    });
+    $("quickTdrAccountSettings").addEventListener("click", () => {
+      populateQuickTdrAccountFields();
+      $("quickTdrAccountPanel").classList.toggle("hidden");
+      if (!$("quickTdrAccountPanel").classList.contains("hidden")) $("quickTdrUsername").focus();
+    });
+    $("quickTdrSaveAccount").addEventListener("click", saveQuickTdrAccountSettings);
+    $("quickTdrPassword").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") saveQuickTdrAccountSettings();
+    });
+    $("quickTdrVvd").addEventListener("input", () => {
+      $("quickTdrVvd").value = $("quickTdrVvd").value.toUpperCase().replace(/\s+/g, "");
+      populateQuickTdrPortCandidates();
+    });
+    $("quickTdrPort").addEventListener("input", () => {
+      $("quickTdrPort").value = $("quickTdrPort").value.toUpperCase().replace(/\s+/g, "");
+    });
+    $("quickTdrPort").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") queryQuickTdr();
     });
     $("clearInputs").addEventListener("click", clearCurrentInputs);
     $("loadSample").addEventListener("click", () => {
