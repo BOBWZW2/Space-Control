@@ -3328,6 +3328,13 @@
       return `${call.port}::${callDateKey(call)}`;
     }
 
+    function ebRouteVvdLabel(lookup) {
+      const current = lookup.currentEVvd || "EB";
+      if (!lookup.nextWVvd) return current;
+      const laneSuffix = lookup.nextLane && lookup.nextLane !== lookup.lane ? `/${lookup.nextLane}` : "";
+      return `${current} + ${lookup.nextWVvd}${laneSuffix}`;
+    }
+
     function selectedWbPodCalls(lookup) {
       const checked = new Set(
         [...$("wbPodOptions").querySelectorAll("input[type='checkbox']:checked")].map((input) => input.value)
@@ -3392,7 +3399,7 @@
       $("scheduleSummary").textContent =
         `${lookup.vesselName} / ${lookup.inputVvd} · ${lookup.lane} · ` +
         `WB ${lookup.currentWVvd || "-"} (${lookup.wbCalls.length} calls), ` +
-        `EB ${lookup.currentEVvd || "-"} + ${lookup.nextWVvd || "-"} + ${lookup.nextEVvd || "-"} (${lookup.ebRouteCalls.length} calls)`;
+        `EB ${ebRouteVvdLabel(lookup)} (${lookup.ebRouteCalls.length} calls)`;
       setCompactScheduleSummary(lookup);
     }
 
@@ -3400,7 +3407,7 @@
       $("scheduleSummary").textContent =
         `${lookup.vesselName} / ${lookup.inputVvd} · ${lookup.lane} · ` +
         `WB ${lookup.currentWVvd || "-"} (${lookup.wbCalls.length} calls), ` +
-        `EB ${lookup.currentEVvd || "-"} (${lookup.ebCalls.length} calls)`;
+        `EB ${ebRouteVvdLabel(lookup)} (${lookup.ebRouteCalls.length} calls)`;
     }
 
     async function generateFromSchedule(options = {}) {
@@ -5800,13 +5807,13 @@
       const lookup = state.currentLookup;
       if (!lookup) return direction;
       if (direction === "WB") return lookup.currentWVvd || "WB";
-      return lookup.currentEVvd || "EB";
+      return ebRouteVvdLabel(lookup);
     }
 
     function previewCalls(direction, input) {
       const lookup = state.currentLookup;
       if (lookup) {
-        const calls = direction === "WB" ? lookup.wbCalls : lookup.ebCalls;
+        const calls = direction === "WB" ? lookup.wbCalls : lookup.ebRouteCalls;
         return calls.map((call) => ({ port: call.port, eta: formatMmDd(call.etd) }));
       }
       return input[direction].pols.map((call) => ({ port: call.port, eta: call.etd }));
