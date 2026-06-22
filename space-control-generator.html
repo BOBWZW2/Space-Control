@@ -5541,7 +5541,8 @@
         summary.robAll,
         summary.utilAll,
         summary.avlTeu,
-        summary.rf
+        summary.rf,
+        summary.draft
       ];
       const setBorder = (row, col, sides) => setExcelBorder(ws.getCell(row, col), sides);
 
@@ -5593,7 +5594,7 @@
           let left = null;
           let right = null;
           if (podLeftCols.includes(col) || summaryLeftCols.includes(col)) left = "thin";
-          if (col === summary.rf) left = "medium";
+          if (col === summary.rf || col === summary.draft) left = "medium";
           if (col === 2 || col === 3) right = "medium";
           else if (col === summary.avlWeight) right = "medium";
           else if (col === maxCol) right = "thin";
@@ -5822,8 +5823,9 @@
         avlTeu: summaryStart + 7,
         avlWeight: summaryStart + 8,
         rf: summaryStart + 9,
+        draft: summaryStart + 10,
         spacer: spacerCol,
-        last: summaryStart + 9
+        last: summaryStart + 10
       };
       const maxRow = 5 + model.blocks.length * blockHeight;
       const moveSummaryStart = maxRow + 1;
@@ -5922,6 +5924,9 @@
       setCell(ws, 5, summary.avlTeu, "TEUs", headerStyle);
       setCell(ws, 5, summary.avlWeight, "Weight", headerStyle);
       setCell(ws, 3, summary.rf, "RF Plug", headerStyle);
+      safeMerge(ws, 3, summary.draft, 4, summary.draft);
+      setCell(ws, 3, summary.draft, "DRAFT", headerStyle);
+      setCell(ws, 5, summary.draft, "MT", headerStyle);
 
       const totalBlockIndex = model.blocks.length - 1;
       const blockStarts = model.blocks.map((_, index) => 6 + index * blockHeight);
@@ -6068,6 +6073,10 @@
         const note = draftConstraintNote(model, blockIndex);
         if (note) avlWeightCell.note = note;
         setFormulaCell(ws, start + rfIndex, summary.rf, rfFormula, { ...computedStyle, numFmt: countFmt });
+        if (draftLimitValue !== null) {
+          const draftCell = setCell(ws, start + weightIndex, summary.draft, draftLimitValue, { ...computedStyle, numFmt: countFmt });
+          if (note) draftCell.note = note;
+        }
       });
 
       const blockStartsByPort = new Map();
