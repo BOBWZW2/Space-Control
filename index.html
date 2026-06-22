@@ -3098,25 +3098,43 @@
     function findNextW(rows, lane, currentECalls, vesselCode) {
       if (!currentECalls.length) return [];
       const lastEPort = currentECalls[currentECalls.length - 1].port;
-      const boundary = parseDateValue(currentECalls[currentECalls.length - 1].eta) || firstTime(currentECalls);
+      const lastECall = currentECalls[currentECalls.length - 1];
+      const arrivalBoundary = parseDateValue(lastECall.eta) || firstTime(currentECalls);
+      const departureBoundary = parseDateValue(lastECall.etd)
+        || parseDateValue(lastECall.etb)
+        || arrivalBoundary;
       const grouped = new Map();
       rows
-        .filter((row) => row.lane === lane && row.vvd.startsWith(vesselCode) && row.vvd.endsWith("W"))
+        .filter((row) => row.vvd.startsWith(vesselCode) && row.vvd.endsWith("W"))
         .forEach((row) => {
-          if (!grouped.has(row.vvd)) grouped.set(row.vvd, []);
-          grouped.get(row.vvd).push(row);
+          const key = `${row.lane}::${row.vvd}`;
+          if (!grouped.has(key)) grouped.set(key, []);
+          grouped.get(key).push(row);
         });
 
       const candidates = [];
-      grouped.forEach((calls, vvd) => {
+      grouped.forEach((calls) => {
         calls.sort((a, b) => a.row - b.row);
-        if (!calls.length || calls[0].port !== lastEPort) return;
+        if (!calls.length) return;
         const start = firstTime(calls);
         if (!start) return;
+        const sharesBoundaryPort = calls[0].port === lastEPort;
+        const boundary = sharesBoundaryPort ? arrivalBoundary : departureBoundary;
         if (boundary && start < boundary) return;
-        candidates.push({ start, vvd, calls });
+        candidates.push({
+          start,
+          vvd: calls[0].vvd,
+          calls,
+          boundaryRank: sharesBoundaryPort ? 0 : 1,
+          laneRank: calls[0].lane === lane ? 0 : 1
+        });
       });
-      candidates.sort((a, b) => a.start - b.start || a.vvd.localeCompare(b.vvd));
+      candidates.sort((a, b) => (
+        a.start - b.start
+        || a.boundaryRank - b.boundaryRank
+        || a.laneRank - b.laneRank
+        || a.vvd.localeCompare(b.vvd)
+      ));
       return candidates[0]?.calls || [];
     }
 
@@ -3167,7 +3185,8 @@
       const ebCalls = findCalls(rows, current.e, lane);
       const nextWCalls = findNextW(rows, lane, ebCalls, vessel.code);
       const nextEVvd = nextWCalls.length ? `${nextWCalls[0].vvd.slice(0, -1)}E` : null;
-      const nextECalls = findCalls(rows, nextEVvd, lane);
+      const nextLane = nextWCalls[0]?.lane || lane;
+      const nextECalls = findCalls(rows, nextEVvd, nextLane);
       const ebRouteCalls = [];
       appendConsecutiveDedup(ebRouteCalls, ebCalls);
       appendConsecutiveDedup(ebRouteCalls, nextWCalls);
@@ -3180,6 +3199,7 @@
         currentWVvd: current.w,
         currentEVvd: current.e,
         nextWVvd: nextWCalls[0]?.vvd || "",
+        nextLane: nextWCalls[0]?.lane || "",
         nextEVvd: nextECalls[0]?.vvd || "",
         wbCalls,
         ebCalls,
@@ -3202,6 +3222,7 @@
         lookup.currentWVvd,
         lookup.currentEVvd,
         lookup.nextWVvd,
+        lookup.nextLane,
         lookup.nextEVvd,
         lookup.wbCalls.map((call) => `${call.vvd}:${call.port}:${call.etd}`).join("|"),
         lookup.ebRouteCalls.map((call) => `${call.vvd}:${call.port}:${call.etd}`).join("|")
