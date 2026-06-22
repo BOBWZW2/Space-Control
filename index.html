@@ -586,6 +586,73 @@
       border-top-color: #63a89d !important;
     }
 
+    .draft-panel {
+      grid-column: 1 / -1;
+      background: #f4f1fb;
+      border-top-color: #8064a2 !important;
+    }
+
+    .draft-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      margin: 0;
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .draft-toggle input {
+      width: auto;
+      min-height: 0;
+      margin: 0;
+      padding: 0;
+    }
+
+    .draft-port-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(165px, 1fr));
+      gap: 8px;
+      margin-top: 9px;
+    }
+
+    .draft-port-field {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(84px, 0.8fr);
+      gap: 8px;
+      align-items: center;
+      margin: 0;
+      padding: 7px 8px;
+      border: 1px solid #c8bdd8;
+      border-radius: 6px;
+      background: #ffffff;
+      color: var(--text);
+    }
+
+    .draft-port-field span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .draft-port-field input {
+      min-height: 30px;
+      padding: 5px 6px;
+      border-color: #a995c2;
+      background: #fbf9ff;
+      text-align: right;
+      font-weight: 700;
+    }
+
+    .draft-port-field input::placeholder {
+      color: #98a2b3;
+      font-weight: 400;
+    }
+
     .history-panel.control-panel {
       grid-column: span 5;
       background: #eef5fb;
@@ -1462,8 +1529,8 @@
     }
 
     .space-table .warn {
-      background: var(--warn-bg);
-      color: var(--danger);
+      background: #c00000;
+      color: #ffff00;
       font-weight: 700;
     }
 
@@ -1705,6 +1772,18 @@
           <div class="carrier-table-wrap">
             <div class="partner-editor" id="carrierRows"></div>
           </div>
+        </div>
+
+        <div class="section control-panel draft-panel">
+          <div class="section-heading">
+            <h2>Draft / 吃水限制</h2>
+            <label class="draft-toggle" for="draftEnabled">
+              <input id="draftEnabled" type="checkbox">
+              <span>本 VVD 有 Draft 限制</span>
+            </label>
+          </div>
+          <div class="subtle" id="draftHelp">未启用时，AVL Weight 继续按原整船及 Partner Weight allocation 计算。</div>
+          <div class="draft-port-grid hidden" id="draftPortInputs"></div>
         </div>
 
         <details class="section control-panel history-panel" id="historyPanel">
@@ -1969,6 +2048,7 @@
       tdrMode: "bound",
       tdrSelectedPolIndex: 0,
       tdrManualBlocks: [],
+      draftSettings: { enabled: false, ports: {}, partnerOverrides: {} },
       initialized: false
     };
 
@@ -2254,6 +2334,7 @@
         entries: state.entries,
         tdrAudit: state.tdrAudit,
         tdrImports: state.tdrImports,
+        draft: normalizeDraftSettings(state.draftSettings),
         selectedWbPodKeys,
         selectedWbPodPorts: selectedWbPodKeys.map((key) => key.split("::")[0]).filter(Boolean)
       };
@@ -2292,6 +2373,7 @@
         state.tdrImports = record.tdrImports && typeof record.tdrImports === "object"
           ? structuredClone(record.tdrImports)
           : {};
+        state.draftSettings = normalizeDraftSettings(record.draft);
 
         if (Array.isArray(record.selectedWbPodKeys)) {
           const selectedKeys = new Set(record.selectedWbPodKeys);
@@ -2304,6 +2386,7 @@
           });
         }
         updateScheduleTextareasFromLookup();
+        renderDraftControls();
       } finally {
         state.applyingCache = false;
       }
@@ -2333,6 +2416,7 @@
       state.entries = { WB: {}, EB: {} };
       state.tdrAudit = {};
       state.tdrImports = {};
+      state.draftSettings = normalizeDraftSettings(null);
       state.tableData = { WB: null, EB: null };
       renderCarrierRows([defaultCarrier()]);
       ["serviceLane", "vvd", "vesselName", "reportDate", "selection", "wbTeus", "wbMt", "wbRf", "ebTeus", "ebMt", "ebRf"].forEach((id) => {
@@ -2344,6 +2428,7 @@
         $(id).value = "";
       });
       $("wbPodOptions").replaceChildren();
+      renderDraftControls();
       $("scheduleSummary").textContent = "尚未读取船期";
       $("summaryLine").textContent = "Schedule preview";
       $("sheetWrap").replaceChildren();
@@ -2564,6 +2649,85 @@
     function normalizePort(port) {
       const value = normalizeText(port).toUpperCase();
       return PORT_ALIASES[value] || value;
+    }
+
+    function normalizeDraftSettings(settings) {
+      const ports = {};
+      Object.entries(settings?.ports || {}).forEach(([rawPort, rawLimit]) => {
+        const port = normalizePort(rawPort);
+        const limit = Math.round(Number(rawLimit));
+        if (port && Number.isFinite(limit) && limit > 0) ports[port] = limit;
+      });
+      const partnerOverrides = settings?.partnerOverrides && typeof settings.partnerOverrides === "object"
+        ? structuredClone(settings.partnerOverrides)
+        : {};
+      return {
+        enabled: Boolean(settings?.enabled),
+        ports,
+        partnerOverrides
+      };
+    }
+
+    function currentDraftPorts() {
+      const lookup = state.currentLookup;
+      const calls = lookup
+        ? [...(lookup.wbCalls || []), ...(lookup.ebCalls || [])]
+        : [
+            ...textToRows($("wbPols")?.value || "", 3).map(([port]) => ({ port })),
+            ...textToRows($("ebPols")?.value || "", 3).map(([port]) => ({ port }))
+          ];
+      const seen = new Set();
+      return calls.map((call) => normalizePort(call?.port)).filter((port) => {
+        if (!port || seen.has(port)) return false;
+        seen.add(port);
+        return true;
+      });
+    }
+
+    function renderDraftControls() {
+      const toggle = $("draftEnabled");
+      const container = $("draftPortInputs");
+      const help = $("draftHelp");
+      if (!toggle || !container || !help) return;
+      state.draftSettings = normalizeDraftSettings(state.draftSettings);
+      toggle.checked = state.draftSettings.enabled;
+      container.classList.toggle("hidden", !state.draftSettings.enabled);
+      container.replaceChildren();
+      if (!state.draftSettings.enabled) {
+        help.textContent = "未启用时，AVL Weight 继续按原整船及 Partner Weight allocation 计算。";
+        return;
+      }
+      const ports = currentDraftPorts();
+      help.textContent = ports.length
+        ? "按当前 VVD 保存；港口留空表示无限制。Partner Draft 默认按各方向 Weight allocation 比例分配。"
+        : "请先读取船期，随后可按港口填写 Draft 整数吨位。";
+      ports.forEach((port) => {
+        const label = document.createElement("label");
+        label.className = "draft-port-field";
+        const name = document.createElement("span");
+        name.textContent = port;
+        const input = document.createElement("input");
+        input.type = "number";
+        input.min = "1";
+        input.step = "1";
+        input.inputMode = "numeric";
+        input.placeholder = "无限制";
+        input.value = state.draftSettings.ports[port] || "";
+        input.dataset.draftPort = port;
+        input.addEventListener("input", () => {
+          const text = input.value.trim();
+          const value = Math.round(Number(text));
+          if (!text || !Number.isFinite(value) || value <= 0) delete state.draftSettings.ports[port];
+          else state.draftSettings.ports[port] = value;
+          saveLocalDraftForCurrentVvd();
+        });
+        input.addEventListener("change", () => {
+          input.value = state.draftSettings.ports[port] || "";
+        });
+        label.appendChild(name);
+        label.appendChild(input);
+        container.appendChild(label);
+      });
     }
 
     function cleanVvd(value) {
@@ -3094,6 +3258,7 @@
         state.entries = { WB: {}, EB: {} };
         state.tdrAudit = {};
         state.tdrImports = {};
+        state.draftSettings = normalizeDraftSettings(null);
       }
       state.lookupSignature = signature;
       state.currentLookup = lookup;
@@ -3106,6 +3271,7 @@
       $("selection").value = "";
       renderWbPodOptions(lookup);
       updateScheduleTextareasFromLookup();
+      renderDraftControls();
       updateDirectionUi();
       $("scheduleSummary").textContent =
         `${lookup.vesselName} / ${lookup.inputVvd} · ${lookup.lane} · ` +
@@ -3322,6 +3488,57 @@
         total.rf += allocation.rf;
         return total;
       }, { teus: 0, mt: 0, rf: 0 });
+    }
+
+    function draftLimitValue(settings, port) {
+      if (!settings?.enabled) return null;
+      const value = Number(settings.ports?.[normalizePort(port)]);
+      return Number.isFinite(value) && value > 0 ? value : null;
+    }
+
+    function partnerDraftOverride(settings, direction, port, carrierCode) {
+      const value = Number(settings?.partnerOverrides?.[direction]?.[normalizePort(port)]?.[carrierCode]);
+      return Number.isFinite(value) && value > 0 ? value : null;
+    }
+
+    function buildSheetDraftConfig(baseInput, direction, carrier = null) {
+      const settings = normalizeDraftSettings(baseInput?.draft);
+      if (!settings.enabled) return { enabled: false, ports: {}, ratio: 1, vesselPorts: {} };
+      const totalMt = totalCarrierAllocation(baseInput.carriers || [], direction).mt;
+      const carrierMt = carrier ? carrierAllocation(carrier, direction).mt : totalMt;
+      const ratio = carrier ? (totalMt > 0 ? carrierMt / totalMt : 0) : 1;
+      const ports = {};
+      Object.entries(settings.ports).forEach(([port, vesselLimit]) => {
+        const override = carrier ? partnerDraftOverride(settings, direction, port, carrier.code) : null;
+        const limit = override ?? Number(vesselLimit) * ratio;
+        if (Number.isFinite(limit) && limit > 0) ports[port] = limit;
+      });
+      return {
+        enabled: true,
+        ports,
+        ratio,
+        vesselPorts: structuredClone(settings.ports),
+        carrierCode: carrier?.code || "TOTAL"
+      };
+    }
+
+    function draftDirectionsRequiringWeights(input) {
+      if (!input?.draft?.enabled) return [];
+      return ["WB", "EB"].filter((direction) => (
+        input[direction].pols.some((pol) => draftLimitValue(input.draft, pol.port) !== null)
+      ));
+    }
+
+    function validateDraftWeightAllocations(input) {
+      const directions = draftDirectionsRequiringWeights(input);
+      const missing = [];
+      directions.forEach((direction) => {
+        input.carriers.forEach((carrier) => {
+          if (carrierAllocation(carrier, direction).mt <= 0) missing.push(`${direction} ${carrier.code} Weight`);
+        });
+      });
+      if (!missing.length) return "";
+      return `Draft比例无法计算，请先补齐：${missing.join("、")}`;
     }
 
     function writeCarrierNumber(input, value, decimals = 0) {
@@ -3541,6 +3758,7 @@
         selection: $("selection").value.trim() || "",
         tonPerTeu: carriers[0]?.tonPerTeu ?? DEFAULT_TON_PER_TEU,
         carriers,
+        draft: normalizeDraftSettings(state.draftSettings),
         WB: {
           allocationLabel: carriers.length > 1 ? "WB TOTAL" : "WB ALLOCATION",
           allocation: wbAlloc,
@@ -3557,7 +3775,11 @@
     }
 
     function makeTableModel(input, sheetName) {
-      const sheet = input[sheetName];
+      const rawSheet = input[sheetName];
+      const direction = rawSheet.direction || (String(sheetName).toUpperCase().startsWith("EB") ? "EB" : "WB");
+      const sheet = rawSheet.draft
+        ? rawSheet
+        : { ...rawSheet, direction, draft: buildSheetDraftConfig(input, direction) };
       const labels = Array.isArray(sheet.cargoLabels) && sheet.cargoLabels.length ? sheet.cargoLabels : cargoLabels;
       const blocks = [
         { key: "ROB", port: "ROB", etb: "", etd: "", type: "ROB" },
@@ -3589,6 +3811,48 @@
         rows: blockRows,
         podTotals
       };
+    }
+
+    function draftConstraintForBlock(model, blockIndex) {
+      const draft = model.sheet.draft;
+      if (!draft?.enabled) return null;
+      const polIndex = blockIndex - 1;
+      const candidates = blockIndex === 0
+        ? [model.sheet.pols[0]]
+        : [model.sheet.pols[polIndex], model.sheet.pols[polIndex + 1]];
+      const limits = candidates.map((pol) => {
+        const port = normalizePort(pol?.port);
+        const limit = Number(draft.ports?.[port]);
+        return port && Number.isFinite(limit) && limit > 0 ? { port, limit } : null;
+      }).filter(Boolean);
+      if (!limits.length) return null;
+      return {
+        limit: Math.min(...limits.map((item) => item.limit)),
+        ports: limits
+      };
+    }
+
+    function effectiveWeightLimitForBlock(model, blockIndex) {
+      const allocationLimit = Number(model.sheet.allocation.mt) || 0;
+      const draft = draftConstraintForBlock(model, blockIndex);
+      if (!draft) return { limit: allocationLimit, draft: null };
+      return {
+        limit: allocationLimit > 0 ? Math.min(allocationLimit, draft.limit) : draft.limit,
+        draft
+      };
+    }
+
+    function draftConstraintNote(model, blockIndex) {
+      const effective = effectiveWeightLimitForBlock(model, blockIndex);
+      if (!effective.draft) return "";
+      const ratio = Number(model.sheet.draft?.ratio);
+      const ratioText = Number.isFinite(ratio) && ratio < 0.999999
+        ? `；Partner比例 ${(ratio * 100).toFixed(2)}%`
+        : "";
+      const ports = effective.draft.ports
+        .map((item) => `${item.port} ${Math.round(item.limit).toLocaleString("en-US")} MT`)
+        .join("；");
+      return `Draft控制：${ports}${ratioText}；有效Weight上限 ${Math.round(effective.limit).toLocaleString("en-US")} MT`;
     }
 
     function cellText(value, decimals = 0) {
@@ -4949,6 +5213,7 @@
         const robWeight = prevWeight + loadWeight - dischargeWeight;
         const robLdWeight = robWeight - (robAll - robLd) * 2;
         const rf = b === 0 ? (allocation.rf || 0) - loadRf : prevRf - loadRf + dischargeRf;
+        const weightLimit = effectiveWeightLimitForBlock(model, b).limit;
 
         setMetric(table, b, 0, "robAll", robAll);
         setMetric(table, b, 0, "robLd", robLd);
@@ -4959,7 +5224,7 @@
         setMetric(table, b, 6, "utilAll", allocation.mt ? robWeight / allocation.mt : "");
         setMetric(table, b, 6, "utilLd", allocation.mt ? robLdWeight / allocation.mt : "");
         setMetric(table, b, 7, "avlTeu", allocation.teus ? allocation.teus - robAll : "");
-        setMetric(table, b, 6, "avlWeight", allocation.mt ? allocation.mt - robWeight : "", 1);
+        setMetric(table, b, 6, "avlWeight", weightLimit ? weightLimit - robWeight : "", 1);
         setMetric(table, b, 4, "rf", rf);
 
         prevAll = robAll;
@@ -5464,8 +5729,8 @@
             operator: "lessThan",
             formulae: ["0"],
             style: {
-              fill: conditionalFill("FFFFFF00"),
-              font: { color: { argb: "FFFF0000" }, bold: true }
+              fill: conditionalFill("FFC00000"),
+              font: { color: { argb: "FFFFFF00" }, bold: true }
             }
           }
         ]
@@ -5784,6 +6049,11 @@
         const robLdFormula = blockIndex === 0 ? loadLd : `${excelCell(summary.robLd, prevStart)}+${loadLd}-((${dischargeTeu})-(${dischargeMt}))`;
         const weightFormula = blockIndex === 0 ? loadWeight : `${excelCell(summary.robAll, prevStart + weightIndex)}+${loadWeight}-(${dischargeWeight})`;
         const rfFormula = blockIndex === 0 ? `${allocRfValue}-(${loadRf})` : `${excelCell(summary.rf, prevStart + rfIndex)}-(${loadRf})+(${dischargeRf})`;
+        const draftConstraint = draftConstraintForBlock(model, blockIndex);
+        const draftLimitValue = draftConstraint ? Number(draftConstraint.limit.toFixed(8)) : null;
+        const weightLimitFormula = draftLimitValue === null
+          ? allocWeightValue
+          : `MIN(${allocWeightValue},${draftLimitValue})`;
 
         setFormulaCell(ws, start, summary.robAll, robAllFormula, { ...computedStyle, numFmt: countFmt });
         setFormulaCell(ws, start, summary.robLd, robLdFormula, { ...computedStyle, numFmt: countFmt });
@@ -5794,7 +6064,9 @@
         setFormulaCell(ws, start + weightIndex, summary.utilAll, `IF(${allocWeightValue}>0,${excelCell(summary.robAll, start + weightIndex)}/${allocWeightValue},0)`, { ...computedStyle, numFmt: percentFmt });
         setFormulaCell(ws, start + weightIndex, summary.utilLd, `IF(${allocWeightValue}>0,${excelCell(summary.robLd, start + weightIndex)}/${allocWeightValue},0)`, { ...computedStyle, numFmt: percentFmt });
         setFormulaCell(ws, start + ttlIndex, summary.avlTeu, `${allocTeuValue}-${excelCell(summary.robAll, start)}`, { ...computedStyle, numFmt: countFmt });
-        setFormulaCell(ws, start + weightIndex, summary.avlWeight, `${allocWeightValue}-${excelCell(summary.robAll, start + weightIndex)}`, { ...computedStyle, numFmt: weightFmt });
+        const avlWeightCell = setFormulaCell(ws, start + weightIndex, summary.avlWeight, `${weightLimitFormula}-${excelCell(summary.robAll, start + weightIndex)}`, { ...computedStyle, numFmt: weightFmt });
+        const note = draftConstraintNote(model, blockIndex);
+        if (note) avlWeightCell.note = note;
         setFormulaCell(ws, start + rfIndex, summary.rf, rfFormula, { ...computedStyle, numFmt: countFmt });
       });
 
@@ -5894,7 +6166,8 @@
         allocationLabel: isMultiCarrier || carrier.code !== DEFAULT_CARRIER_CODE
           ? `${direction} ${carrier.code}`
           : baseInput[direction].allocationLabel,
-        allocation: carrierAllocation(carrier, direction)
+        allocation: carrierAllocation(carrier, direction),
+        draft: buildSheetDraftConfig(baseInput, direction, carrier)
       };
     }
 
@@ -5905,7 +6178,8 @@
         cargoLabels: totalCargoLabels,
         entryStoreKey: `${direction}_TOTAL`,
         allocationLabel: `${direction} TOTAL`,
-        allocation: totalCarrierAllocation(carriers, direction)
+        allocation: totalCarrierAllocation(carriers, direction),
+        draft: buildSheetDraftConfig(baseInput, direction)
       };
     }
 
@@ -6396,6 +6670,8 @@
       try {
         await updateExportProgress(3, "正在准备 Excel 数据");
         const input = readInputs();
+        const draftWeightError = validateDraftWeightAllocations(input);
+        if (draftWeightError) throw new Error(draftWeightError);
         const workbook = new ExcelJS.Workbook();
         workbook.creator = "Space Control Generator";
         workbook.created = new Date();
@@ -6508,8 +6784,10 @@
         });
         const link = document.createElement("a");
         link.href = URL.createObjectURL(blob);
-        const laneName = normalizeText(input.serviceLane).split(/[\s/]+/)[0] || "LANE";
-        link.download = `${laneName} ${input.vvd}.xlsx`.replace(/[\\/:*?"<>|]+/g, "-");
+        const laneName = normalizeText(input.serviceLane) || "LANE";
+        const vesselName = normalizeText(input.vesselName) || "VESSEL";
+        link.download = `${laneName} - ${vesselName} - ${input.vvd}.xlsx`
+          .replace(/[\\/:*?"<>|]+/g, "-");
         document.body.appendChild(link);
         link.click();
         link.remove();
@@ -6657,6 +6935,11 @@
       renderCarrierRows(carriers);
       rerenderIfScheduleReady();
     });
+    $("draftEnabled").addEventListener("change", () => {
+      state.draftSettings.enabled = $("draftEnabled").checked;
+      renderDraftControls();
+      saveLocalDraftForCurrentVvd();
+    });
     $("carrierRows").addEventListener("input", (event) => {
       const input = event.target.closest("input[data-field]");
       if (!input) return;
@@ -6696,6 +6979,7 @@
     $("historyAction").addEventListener("click", handleHistoryAction);
 
     renderCarrierRows([defaultCarrier()]);
+    renderDraftControls();
     updateDirectionUi();
     initializePage();
     if (window.lucide) window.lucide.createIcons();
