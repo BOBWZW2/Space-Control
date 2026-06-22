@@ -4551,6 +4551,12 @@
       return `${row.so} - ${quantity}x${side}'${suffix} - ${tdrPodDescription(row, classification)}`;
     }
 
+    function visibleTdrAuditLines(label, lines) {
+      return (Array.isArray(lines) ? lines : []).filter((line) => (
+        label !== "MT" || !/^CUL\s+-\s+/i.test(normalizeText(line))
+      ));
+    }
+
     function addPolEntry(target, storeKey, blockIndex, label, podIndex, side, value) {
       if (!value) return;
       const rowIndex = cargoLabels.indexOf(label);
@@ -4622,7 +4628,9 @@
           }
         });
         [["left", row.empty20, 20], ["right", row.empty40, 40]].forEach(([side, qty, size]) => {
-          addTdrAudit(polAudit, totalAuditStore, blockIndex, "MT", podIndex, side, tdrAuditLine(row, qty, size, "MT", classification));
+          if (classification.carrier !== DEFAULT_CARRIER_CODE) {
+            addTdrAudit(polAudit, totalAuditStore, blockIndex, "MT", podIndex, side, tdrAuditLine(row, qty, size, "MT", classification));
+          }
         });
         if (classification.carrier === DEFAULT_CARRIER_CODE && classification.category === "SOC") {
           const culStore = tdrEntryStore(direction, DEFAULT_CARRIER_CODE, multiCarrier);
@@ -4670,7 +4678,7 @@
         Object.entries(polAudit[auditStoreKey] || {}).forEach(([key, lines]) => {
           const [auditBlock, label, podText, side] = key.split("|");
           if (Number(auditBlock) !== blockIndex) return;
-          lines.filter((line) => line.startsWith(`${carrierCode} - `)).forEach((line) => {
+          visibleTdrAuditLines(label, lines).filter((line) => line.startsWith(`${carrierCode} - `)).forEach((line) => {
             const pod = pods[Number(podText)]?.port || `POD ${Number(podText) + 1}`;
             const size = side === "right" ? "40'" : "20'";
             notes.push(`${label} · ${pod} · ${size}：${line}`);
@@ -6278,12 +6286,13 @@
         if (!Number.isInteger(blockIndex) || !Number.isInteger(podIndex) || !Number.isInteger(offset)) return;
         const row = meta.blockStarts[blockIndex] + offset;
         const col = side === "right" ? meta.podRightCols[podIndex] : meta.podLeftCols[podIndex];
-        const text = [...new Set(lines)].join("\n");
+        const visibleLines = visibleTdrAuditLines(label, lines);
+        const text = [...new Set(visibleLines)].join("\n");
         if (!text) return;
         meta.ws.getCell(row, col).note = text;
         const totalKey = `${blockIndex}|${label}|${side}`;
         const accumulated = totalNotes.get(totalKey) || [];
-        lines.forEach((line) => {
+        visibleLines.forEach((line) => {
           if (!accumulated.includes(line)) accumulated.push(line);
         });
         totalNotes.set(totalKey, accumulated);
