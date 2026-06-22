@@ -1,21 +1,39 @@
 {
   "version": 1,
-  "updatedAt": "2026-06-18T13:09:28.005Z",
+  "updatedAt": "2026-06-22T06:45:53.119Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
       "lane": "CGX",
       "vesselName": "EXPRESS BERLIN",
-      "updatedAt": "2026-06-17T15:09:19.892Z",
+      "updatedAt": "2026-06-22T06:45:52.441Z",
+      "carriers": [
+        {
+          "code": "CUL",
+          "tonPerTeu": 12.2727,
+          "wbTeus": 8800,
+          "wbMt": 108000,
+          "wbRf": null,
+          "ebTeus": 8800,
+          "ebMt": 108000,
+          "ebRf": null
+        }
+      ],
       "allocation": {
-        "wbTeus": null,
-        "ebTeus": null,
-        "tonPerTeu": 14,
-        "wbMt": null,
-        "ebMt": null,
+        "wbTeus": 8800,
+        "ebTeus": 8800,
+        "tonPerTeu": 12.2727,
+        "wbMt": 108000,
+        "ebMt": 108000,
         "wbRf": null,
         "ebRf": null
       },
+      "entries": {
+        "WB": {},
+        "EB": {}
+      },
+      "tdrAudit": {},
+      "tdrImports": {},
       "selectedWbPodKeys": [
         "MYPKG::2026-07-13 21:00:00"
       ],
