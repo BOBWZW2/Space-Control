@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "updatedAt": "2026-06-22T06:45:53.119Z",
+  "updatedAt": "2026-06-22T06:46:15.566Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
       "lane": "CGX",
       "vesselName": "EXPRESS BERLIN",
-      "updatedAt": "2026-06-22T06:45:52.441Z",
+      "updatedAt": "2026-06-22T06:46:15.007Z",
       "carriers": [
         {
           "code": "CUL",
@@ -35,9 +35,19 @@
       "tdrAudit": {},
       "tdrImports": {},
       "selectedWbPodKeys": [
+        "CNTAO::2026-06-28 18:00:00",
+        "CNSHA::2026-07-03 05:00:00",
+        "CNNGB::2026-07-04 20:00:00",
+        "CNSHK::2026-07-07 15:00:00",
+        "CNNAS::2026-07-08 22:00:00",
         "MYPKG::2026-07-13 21:00:00"
       ],
       "selectedWbPodPorts": [
+        "CNTAO",
+        "CNSHA",
+        "CNNGB",
+        "CNSHK",
+        "CNNAS",
         "MYPKG"
       ]
     },
