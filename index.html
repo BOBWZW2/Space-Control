@@ -6566,9 +6566,9 @@
         title: "ROB_INPUT - paste previous ROB_OUTPUT values here",
         note: "Paste previous workbook ROB_OUTPUT D6 through the Weight row into D6. WB ROB reads this sheet automatically.",
         blockLabel: "WB ROB INPUT",
-        headerFill: "FFB6D7A8",
-        noteFill: "FFE2F0D9",
-        blockFill: "FFD9EAD3"
+        headerFill: "FF99CCFF",
+        noteFill: "FFDDEBF7",
+        blockFill: "FFDDEBF7"
       });
     }
 
@@ -6581,9 +6581,9 @@
         title: "ROB_OUTPUT - EB TOTAL to next cycle ROB_INPUT",
         note: "Copy D6 through the Weight row, then paste values to next workbook ROB_INPUT!D6. This copy area has no merged cells.",
         blockLabel: "EB TOTAL",
-        headerFill: "FFF9CB9C",
-        noteFill: "FFFCE4D6",
-        blockFill: "FFF4CCCC",
+        headerFill: "FF99CCFF",
+        noteFill: "FFDDEBF7",
+        blockFill: "FFDDEBF7",
         valueFormula: ({ offset, podIndex, side }) => {
           const ebLeft = ebMeta.podLeftCols[podIndex];
           const ebRight = ebMeta.podRightCols[podIndex];
@@ -6602,9 +6602,9 @@
       return addMultiCarrierRobTransferSheet(workbook, "ROB_INPUT", sections, {
         title: "ROB_INPUT - paste previous ROB_OUTPUT values here",
         note: "Paste each carrier section from previous ROB_OUTPUT into the matching carrier section here.",
-        headerFill: "FFB6D7A8",
-        noteFill: "FFE2F0D9",
-        blockFill: "FFD9EAD3"
+        headerFill: "FF99CCFF",
+        noteFill: "FFDDEBF7",
+        blockFill: "FFDDEBF7"
       });
     }
 
@@ -6627,9 +6627,9 @@
       return addMultiCarrierRobTransferSheet(workbook, "ROB_OUTPUT", sections, {
         title: "ROB_OUTPUT - EB TOTAL to next cycle ROB_INPUT",
         note: "Copy each carrier section through the Weight row, then paste values to next workbook ROB_INPUT.",
-        headerFill: "FFF9CB9C",
-        noteFill: "FFFCE4D6",
-        blockFill: "FFF4CCCC"
+        headerFill: "FF99CCFF",
+        noteFill: "FFDDEBF7",
+        blockFill: "FFDDEBF7"
       });
     }
 
