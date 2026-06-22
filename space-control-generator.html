@@ -3937,10 +3937,26 @@
         port: pol.port,
         etb: pol.etb,
         etd: pol.etd,
+        scheduleEtd: calls[polIndex]?.etd || pol.etd,
         vvd: calls[polIndex]?.vvd || (sheetName === "WB"
           ? state.currentLookup?.currentWVvd
           : state.currentLookup?.currentEVvd) || input.vvd
       }));
+    }
+
+    function formatTdrScheduleEtd(value) {
+      const text = normalizeText(value);
+      const full = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2}))?/);
+      if (full) {
+        const date = `${String(full[2]).padStart(2, "0")}/${String(full[3]).padStart(2, "0")}`;
+        return full[4] ? `${date} ${String(full[4]).padStart(2, "0")}:${String(full[5]).padStart(2, "0")}` : date;
+      }
+      const mmdd = text.match(/^(\d{1,2})\/(\d{1,2})(?:\s+(\d{1,2}):(\d{1,2}))?/);
+      if (mmdd) {
+        const date = `${String(mmdd[1]).padStart(2, "0")}/${String(mmdd[2]).padStart(2, "0")}`;
+        return mmdd[3] ? `${date} ${String(mmdd[3]).padStart(2, "0")}:${String(mmdd[4]).padStart(2, "0")}` : date;
+      }
+      return text || "-";
     }
 
     function tdrQueryChoices() {
@@ -4417,7 +4433,14 @@
       const queryChoices = [];
       choices.forEach((choice) => {
         if (departedAtLeastOneDay(choice.etd)) queryChoices.push(choice);
-        else preview.results.push({ choice, status: "not-departed", message: "未离港", rows: [], special: [], specialByKey: new Map() });
+        else preview.results.push({
+          choice,
+          status: "not-departed",
+          message: `未离港 · ETD ${formatTdrScheduleEtd(choice.scheduleEtd || choice.etd)}`,
+          rows: [],
+          special: [],
+          specialByKey: new Map()
+        });
       });
       renderTdrStatuses();
       const initialCompleted = choices.length - queryChoices.length;
@@ -5806,9 +5829,10 @@
       const ws = workbook.addWorksheet(sheetName, {
         views: [{ showGridLines: false, state: "frozen", ySplit: 5 }]
       });
-      if (/^WB(?:_|$)/i.test(sheetName)) {
+      const isTotalSheet = /_TOTAL$/i.test(sheetName);
+      if (!isTotalSheet && /^WB(?:_|$)/i.test(sheetName)) {
         ws.properties.tabColor = { argb: "FF5B9BD5" };
-      } else if (/^EB(?:_|$)/i.test(sheetName)) {
+      } else if (!isTotalSheet && /^EB(?:_|$)/i.test(sheetName)) {
         ws.properties.tabColor = { argb: "FFED7D31" };
       }
       ws.properties.defaultColWidth = 9;
@@ -6544,8 +6568,7 @@
         blockLabel: "WB ROB INPUT",
         headerFill: "FFB6D7A8",
         noteFill: "FFE2F0D9",
-        blockFill: "FFD9EAD3",
-        tabColor: "FF6AA84F"
+        blockFill: "FFD9EAD3"
       });
     }
 
@@ -6561,7 +6584,6 @@
         headerFill: "FFF9CB9C",
         noteFill: "FFFCE4D6",
         blockFill: "FFF4CCCC",
-        tabColor: "FFE69138",
         valueFormula: ({ offset, podIndex, side }) => {
           const ebLeft = ebMeta.podLeftCols[podIndex];
           const ebRight = ebMeta.podRightCols[podIndex];
@@ -6582,8 +6604,7 @@
         note: "Paste each carrier section from previous ROB_OUTPUT into the matching carrier section here.",
         headerFill: "FFB6D7A8",
         noteFill: "FFE2F0D9",
-        blockFill: "FFD9EAD3",
-        tabColor: "FF6AA84F"
+        blockFill: "FFD9EAD3"
       });
     }
 
@@ -6608,8 +6629,7 @@
         note: "Copy each carrier section through the Weight row, then paste values to next workbook ROB_INPUT.",
         headerFill: "FFF9CB9C",
         noteFill: "FFFCE4D6",
-        blockFill: "FFF4CCCC",
-        tabColor: "FFE69138"
+        blockFill: "FFF4CCCC"
       });
     }
 
