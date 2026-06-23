@@ -167,7 +167,7 @@
 
     .quick-tdr-form {
       display: grid;
-      grid-template-columns: minmax(190px, 1fr) minmax(190px, 1fr) auto;
+      grid-template-columns: auto minmax(190px, 1fr) minmax(190px, 1fr) auto;
       gap: 10px;
       align-items: end;
       margin-bottom: 12px;
@@ -1965,18 +1965,25 @@
       <div class="settings-dialog-body">
         <div class="quick-tdr-form">
           <div class="field">
+            <label>查询范围</label>
+            <div class="tabs" id="quickTdrModeTabs" aria-label="选择快速 TDR 查询范围">
+              <button class="tab active" type="button" data-quick-tdr-mode="single">单个港口</button>
+              <button class="tab" type="button" data-quick-tdr-mode="bound">整个 bound</button>
+            </div>
+          </div>
+          <div class="field">
             <label for="quickTdrVvd">VVD</label>
             <input id="quickTdrVvd" list="quickTdrVvdOptions" autocomplete="off" placeholder="例如 XPBL2618W">
             <datalist id="quickTdrVvdOptions"></datalist>
           </div>
-          <div class="field">
+          <div class="field" id="quickTdrPortField">
             <label for="quickTdrPort">PORT / POL</label>
             <input id="quickTdrPort" list="quickTdrPortOptions" autocomplete="off" placeholder="例如 CNTAO">
             <datalist id="quickTdrPortOptions"></datalist>
           </div>
           <button id="quickTdrQuery" type="button" class="primary">查询 TDR</button>
         </div>
-        <div class="quick-tdr-hint">候选来自 GitHub 船期；也可手工输入。快速查询按 TDR 原始 POD 展示，不改动当前控舱表，也不进行跳港 T/S 重映射。</div>
+        <div class="quick-tdr-hint">候选来自 GitHub 船期；单港可手工输入 PORT，整个 bound 按同一 VVD 的船期港口顺序查询。快速查询按 TDR 原始 POD 展示，不改动当前控舱表，也不进行跳港 T/S 重映射。</div>
         <div class="tdr-agent-line">
           <div id="quickTdrAgentStatus" class="tdr-agent-status">正在检测云端 TDR 服务...</div>
           <button id="quickTdrAccountSettings" class="tdr-account-settings" type="button">TDR 账号</button>
@@ -1992,6 +1999,7 @@
           <span id="quickTdrProgressPercent">0%</span>
         </div>
         <div id="quickTdrMessage" class="tdr-message" aria-live="polite">输入 VVD 和 PORT 后即可查询。</div>
+        <div id="quickTdrStatusGrid" class="tdr-status-grid"></div>
         <div id="quickTdrIssues" class="tdr-issues"></div>
         <div id="quickTdrManualWrap" class="tdr-manual-wrap hidden">
           <div class="tdr-manual-head">
@@ -2145,6 +2153,7 @@
       tdrMode: "bound",
       tdrSelectedPolIndex: 0,
       tdrManualBlocks: [],
+      quickTdrMode: "single",
       quickTdrPreview: null,
       quickTdrBlocks: [],
       draftSettings: { enabled: false, ports: {}, partnerOverrides: {} },
@@ -4114,7 +4123,18 @@
     }
 
     function scheduleDate(value) {
-      const match = normalizeText(value).match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+      const text = normalizeText(value);
+      const iso = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2}))?/);
+      if (iso) {
+        const year = Number(iso[1]);
+        const month = Number(iso[2]) - 1;
+        const day = Number(iso[3]);
+        const hour = iso[4] === undefined ? 23 : Number(iso[4]);
+        const minute = iso[5] === undefined ? 59 : Number(iso[5]);
+        const date = new Date(year, month, day, hour, minute, 59);
+        return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day ? date : null;
+      }
+      const match = text.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
       if (!match) return null;
       const now = new Date();
       const month = Number(match[1]) - 1;
@@ -4873,62 +4893,71 @@
         if (block.newCarrier && options.showNewCarrier !== false) {
           appendText(card, "div", `注意：${block.carrier} 是本次新增 Partner；旧工作簿若没有 ${block.sheetName}，需要重新导出整表。`, "tdr-manual-card-note");
         }
-        const tableWrap = appendText(card, "div", "", "tdr-excel-table-wrap");
-        const table = document.createElement("table");
-        table.className = "tdr-excel-table";
-        const headRow = table.createTHead().insertRow();
-        appendText(headRow, "th", "POD").colSpan = 3;
-        block.pods.forEach((pod) => {
-          const th = appendText(headRow, "th", `${pod.port}${pod.eta ? ` · ETA ${pod.eta}` : ""}`);
-          th.colSpan = 2;
-        });
-        appendText(headRow, "th", "TOTAL").colSpan = 2;
-        appendText(headRow, "th", "TTL");
-        const sizeRow = table.tHead.insertRow();
-        appendText(sizeRow, "th", "POL / ETB / ETD").colSpan = 2;
-        appendText(sizeRow, "th", "ROW");
-        block.pods.forEach(() => {
+        const sections = Array.isArray(block.sections) && block.sections.length
+          ? block.sections
+          : [{ choice, values: block.values, ttlValues: block.ttlValues, rowTotals: block.rowTotals }];
+        sections.forEach((section, sectionIndex) => {
+          const sectionChoice = section.choice || choice;
+          if (sections.length > 1) {
+            appendText(card, "div", `${sectionIndex + 1}. POL ${sectionChoice.port}${sectionChoice.etd ? ` · ETD ${sectionChoice.etd}` : ""}`, "tdr-manual-card-note");
+          }
+          const tableWrap = appendText(card, "div", "", "tdr-excel-table-wrap");
+          const table = document.createElement("table");
+          table.className = "tdr-excel-table";
+          const headRow = table.createTHead().insertRow();
+          appendText(headRow, "th", "POD").colSpan = 3;
+          block.pods.forEach((pod) => {
+            const th = appendText(headRow, "th", `${pod.port}${pod.eta ? ` · ETA ${pod.eta}` : ""}`);
+            th.colSpan = 2;
+          });
+          appendText(headRow, "th", "TOTAL").colSpan = 2;
+          appendText(headRow, "th", "TTL");
+          const sizeRow = table.tHead.insertRow();
+          appendText(sizeRow, "th", "POL / ETB / ETD").colSpan = 2;
+          appendText(sizeRow, "th", "ROW");
+          block.pods.forEach(() => {
+            appendText(sizeRow, "th", "20'");
+            appendText(sizeRow, "th", "40'");
+          });
           appendText(sizeRow, "th", "20'");
           appendText(sizeRow, "th", "40'");
+          appendText(sizeRow, "th", "TEUS");
+          const body = table.createTBody();
+          cargoLabels.forEach((label, rowIndex) => {
+            const row = body.insertRow();
+            if (rowIndex === 7) row.className = "ttl-row";
+            if (rowIndex === 0) {
+              const pol = appendText(row, "th", sectionChoice.port, "pol-cell");
+              pol.colSpan = 2;
+              pol.rowSpan = 5;
+            } else if (rowIndex === 5) {
+              appendText(row, "th", "ETB", "date-label");
+              appendText(row, "td", sectionChoice.etb || "", "date-value");
+            } else if (rowIndex === 6) {
+              appendText(row, "th", "ETD", "date-label");
+              appendText(row, "td", sectionChoice.etd || "", "date-value");
+            } else if (rowIndex === 7) {
+              appendText(row, "td", "").colSpan = 2;
+            }
+            appendText(row, "th", label, "row-label");
+            if (label === "Weight") {
+              block.pods.forEach((_pod, podIndex) => {
+                const cell = appendText(row, "td", section.values[rowIndex][podIndex * 2] || "");
+                cell.colSpan = 2;
+              });
+              const total = appendText(row, "td", cellText(section.rowTotals[rowIndex].left, 1), "total-cell");
+              total.colSpan = 2;
+              appendText(row, "td", "", "total-cell");
+            } else {
+              const values = label === "TTL" ? section.ttlValues : section.values[rowIndex];
+              values.forEach((value) => appendText(row, "td", value || ""));
+              appendText(row, "td", cellText(section.rowTotals[rowIndex].left), "total-cell");
+              appendText(row, "td", cellText(section.rowTotals[rowIndex].right), "total-cell");
+              appendText(row, "td", cellText(section.rowTotals[rowIndex].teus), "total-cell");
+            }
+          });
+          tableWrap.appendChild(table);
         });
-        appendText(sizeRow, "th", "20'");
-        appendText(sizeRow, "th", "40'");
-        appendText(sizeRow, "th", "TEUS");
-        const body = table.createTBody();
-        cargoLabels.forEach((label, rowIndex) => {
-          const row = body.insertRow();
-          if (rowIndex === 7) row.className = "ttl-row";
-          if (rowIndex === 0) {
-            const pol = appendText(row, "th", choice.port, "pol-cell");
-            pol.colSpan = 2;
-            pol.rowSpan = 5;
-          } else if (rowIndex === 5) {
-            appendText(row, "th", "ETB", "date-label");
-            appendText(row, "td", choice.etb || "", "date-value");
-          } else if (rowIndex === 6) {
-            appendText(row, "th", "ETD", "date-label");
-            appendText(row, "td", choice.etd || "", "date-value");
-          } else if (rowIndex === 7) {
-            appendText(row, "td", "").colSpan = 2;
-          }
-          appendText(row, "th", label, "row-label");
-          if (label === "Weight") {
-            block.pods.forEach((_pod, podIndex) => {
-              const cell = appendText(row, "td", block.values[rowIndex][podIndex * 2] || "");
-              cell.colSpan = 2;
-            });
-            const total = appendText(row, "td", cellText(block.rowTotals[rowIndex].left, 1), "total-cell");
-            total.colSpan = 2;
-            appendText(row, "td", "", "total-cell");
-          } else {
-            const values = label === "TTL" ? block.ttlValues : block.values[rowIndex];
-            values.forEach((value) => appendText(row, "td", value || ""));
-            appendText(row, "td", cellText(block.rowTotals[rowIndex].left), "total-cell");
-            appendText(row, "td", cellText(block.rowTotals[rowIndex].right), "total-cell");
-            appendText(row, "td", cellText(block.rowTotals[rowIndex].teus), "total-cell");
-          }
-        });
-        tableWrap.appendChild(table);
         if (block.notes.length) {
           appendText(card, "div", `批注参考：${block.notes.join("；")}`, "tdr-manual-card-note");
         }
@@ -5081,6 +5110,18 @@
       }
     }
 
+    function updateQuickTdrModeUi() {
+      const mode = state.quickTdrMode === "bound" ? "bound" : "single";
+      state.quickTdrMode = mode;
+      document.querySelectorAll("#quickTdrModeTabs .tab[data-quick-tdr-mode]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.quickTdrMode === mode);
+      });
+      const bound = mode === "bound";
+      $("quickTdrPortField").classList.toggle("hidden", bound);
+      $("quickTdrPort").disabled = bound;
+      $("quickTdrQuery").textContent = bound ? "查询整个 bound" : "查询 TDR";
+    }
+
     function populateQuickTdrCandidates() {
       const rows = state.scheduleRows || [];
       const vvdList = $("quickTdrVvdOptions");
@@ -5119,10 +5160,53 @@
       return (state.scheduleRows || []).find((row) => row.vvd === vvd && row.port === port) || null;
     }
 
+    function quickTdrScheduleRows(vvd) {
+      const seen = new Set();
+      return (state.scheduleRows || []).filter((row) => cleanVvd(row.vvd) === vvd)
+        .filter((row) => {
+          const port = normalizePort(row.port);
+          if (!port || seen.has(port)) return false;
+          seen.add(port);
+          return true;
+        });
+    }
+
+    function quickTdrSingleChoice(vvd, port) {
+      const schedule = quickTdrScheduleRow(vvd, port);
+      return {
+        vvd,
+        port,
+        polIndex: 0,
+        sheetName: "QUICK",
+        etb: schedule?.etb || "",
+        etd: schedule?.etd || "",
+        scheduleEtd: schedule?.etd || ""
+      };
+    }
+
+    function quickTdrBoundChoices(vvd) {
+      return quickTdrScheduleRows(vvd).map((row, index) => ({
+        vvd,
+        port: normalizePort(row.port),
+        polIndex: index,
+        sheetName: "QUICK_BOUND",
+        etb: row.etb || "",
+        etd: row.etd || "",
+        scheduleEtd: row.etd || ""
+      }));
+    }
+
+    function quickTdrQueryChoices(vvd, port) {
+      return state.quickTdrMode === "bound"
+        ? quickTdrBoundChoices(vvd)
+        : [quickTdrSingleChoice(vvd, port)];
+    }
+
     function resetQuickTdrResult() {
       state.quickTdrPreview = null;
       state.quickTdrBlocks = [];
       $("quickTdrIssues").replaceChildren();
+      $("quickTdrStatusGrid").replaceChildren();
       $("quickTdrManualBlocks").replaceChildren();
       $("quickTdrManualWrap").classList.add("hidden");
       $("quickTdrExport").disabled = true;
@@ -5134,7 +5218,8 @@
       if (!dialog.open) dialog.showModal();
       const mainVvd = cleanVvd($("vvd")?.value || "");
       if (!$("quickTdrVvd").value && /[WE]$/.test(mainVvd)) $("quickTdrVvd").value = mainVvd;
-      setQuickTdrProgress(0, "输入 VVD 和 PORT 后即可查询。", false);
+      updateQuickTdrModeUi();
+      setQuickTdrProgress(0, state.quickTdrMode === "bound" ? "输入 VVD 后即可查询整个 bound。" : "输入 VVD 和 PORT 后即可查询。", false);
       populateQuickTdrAccountFields();
       checkQuickTdrAgent();
       try {
@@ -5151,9 +5236,15 @@
       if (dialog?.open) dialog.close();
     }
 
-    function quickTdrPods(payload, vvd) {
+    function quickTdrPayloadRows(payloads) {
+      return (Array.isArray(payloads) ? payloads : [payloads])
+        .filter(Boolean)
+        .flatMap((payload) => [...(payload.rows || []), ...(payload.special || [])]);
+    }
+
+    function quickTdrPods(payloads, vvd) {
       const pods = [];
-      [...(payload.rows || []), ...(payload.special || [])].forEach((row) => {
+      quickTdrPayloadRows(payloads).forEach((row) => {
         const port = normalizePort(row.pod);
         if (!port || pods.some((pod) => pod.port === port)) return;
         const schedule = quickTdrScheduleRow(vvd, port);
@@ -5162,9 +5253,9 @@
       return pods;
     }
 
-    function quickTdrCarriers(payload) {
+    function quickTdrCarriers(payloads) {
       const codes = [];
-      [...(payload.rows || []), ...(payload.special || [])].forEach((row) => {
+      quickTdrPayloadRows(payloads).forEach((row) => {
         const code = carrierCode(row.so, DEFAULT_CARRIER_CODE);
         if (code && !codes.includes(code)) codes.push(code);
       });
@@ -5173,46 +5264,76 @@
     }
 
     function quickTdrTotalBlock(blocks, pods) {
-      const values = cargoLabels.slice(0, 7).map((_label, rowIndex) => pods.flatMap((_pod, podIndex) => {
-        if (rowIndex === 6) {
-          const weight = blocks.reduce((sum, block) => sum + parseCellNumber(block.values[rowIndex][podIndex * 2]), 0);
-          return [cellText(weight, 1), ""];
-        }
-        const left = blocks.reduce((sum, block) => sum + parseCellNumber(block.values[rowIndex][podIndex * 2]), 0);
-        const right = blocks.reduce((sum, block) => sum + parseCellNumber(block.values[rowIndex][podIndex * 2 + 1]), 0);
-        return [cellText(left), cellText(right)];
-      }));
-      const manual = buildTdrManualBlock(values, pods);
+      const sectionCount = Math.max(0, ...blocks.map((block) => block.sections?.length || 0));
+      const sections = Array.from({ length: sectionCount }, (_item, sectionIndex) => {
+        const source = blocks.find((block) => block.sections?.[sectionIndex])?.sections?.[sectionIndex];
+        const values = cargoLabels.slice(0, 7).map((_label, rowIndex) => pods.flatMap((_pod, podIndex) => {
+          if (rowIndex === 6) {
+            const weight = blocks.reduce((sum, block) => sum + parseCellNumber(block.sections?.[sectionIndex]?.values?.[rowIndex]?.[podIndex * 2]), 0);
+            return [cellText(weight, 1), ""];
+          }
+          const left = blocks.reduce((sum, block) => sum + parseCellNumber(block.sections?.[sectionIndex]?.values?.[rowIndex]?.[podIndex * 2]), 0);
+          const right = blocks.reduce((sum, block) => sum + parseCellNumber(block.sections?.[sectionIndex]?.values?.[rowIndex]?.[podIndex * 2 + 1]), 0);
+          return [cellText(left), cellText(right)];
+        }));
+        const manual = buildTdrManualBlock(values, pods);
+        return { choice: source?.choice, values: manual.values, ttlValues: manual.ttlValues, rowTotals: manual.rowTotals };
+      });
+      const first = sections[0] || buildTdrManualBlock(cargoLabels.slice(0, 7).map(() => pods.flatMap(() => ["", ""])), pods);
       return {
         carrier: "TOTAL",
         sheetName: "TOTAL",
-        values: manual.values,
-        ttlValues: manual.ttlValues,
-        rowTotals: manual.rowTotals,
+        values: first.values,
+        ttlValues: first.ttlValues,
+        rowTotals: first.rowTotals,
+        sections,
         pods,
         newCarrier: false,
         notes: [...new Set(blocks.flatMap((block) => block.notes || []))]
       };
     }
 
-    function buildQuickTdrBlocks(preview, result) {
+    function quickTdrIncludedResults(preview) {
+      return (preview?.results || []).filter((result) => (
+        result.status === "ok"
+        || (result.status === "terminal" && issueValue(`pol:${result.choice.polIndex}`, preview) === "zero")
+      ));
+    }
+
+    function buildQuickTdrBlocks(preview) {
       const carriers = preview.carriers;
       const pods = preview.pods;
-      const payload = buildTdrPolPayload(preview, result, carriers, pods);
       const multiCarrier = carriers.length > 1;
+      const included = quickTdrIncludedResults(preview);
       const blocks = carriers.map((carrier) => {
         const storeKey = tdrEntryStore(preview.sheetName, carrier.code, multiCarrier);
-        const manual = buildTdrManualBlock(tdrManualValueMatrix(payload.polEntries[storeKey] || {}, payload.blockIndex, pods), pods);
+        const sections = included.map((result) => {
+          const blockIndex = result.choice.polIndex + 1;
+          const payload = result.status === "ok"
+            ? buildTdrPolPayload(preview, result, carriers, pods)
+            : { polEntries: {}, polAudit: {}, blockIndex, totalAuditStore: multiCarrier ? `${preview.sheetName}_TOTAL` : preview.sheetName };
+          const manual = buildTdrManualBlock(tdrManualValueMatrix(payload.polEntries[storeKey] || {}, payload.blockIndex, pods), pods);
+          const notes = tdrManualNotes(payload.polAudit, storeKey, payload.totalAuditStore, payload.blockIndex, carrier.code, pods);
+          return {
+            choice: result.choice,
+            values: manual.values,
+            ttlValues: manual.ttlValues,
+            rowTotals: manual.rowTotals,
+            notes
+          };
+        });
+        const first = sections[0] || buildTdrManualBlock(cargoLabels.slice(0, 7).map(() => pods.flatMap(() => ["", ""])), pods);
         return {
           carrier: carrier.code,
           sheetName: carrier.code,
           storeKey,
-          values: manual.values,
-          ttlValues: manual.ttlValues,
-          rowTotals: manual.rowTotals,
+          values: first.values,
+          ttlValues: first.ttlValues,
+          rowTotals: first.rowTotals,
+          sections,
           pods,
           newCarrier: false,
-          notes: tdrManualNotes(payload.polAudit, storeKey, payload.totalAuditStore, payload.blockIndex, carrier.code, pods)
+          notes: [...new Set(sections.flatMap((section) => section.notes || []))]
         };
       });
       if (blocks.length > 1) blocks.push(quickTdrTotalBlock(blocks, pods));
@@ -5248,14 +5369,33 @@
       });
     }
 
+    function renderQuickTdrStatuses() {
+      const grid = $("quickTdrStatusGrid");
+      grid.replaceChildren();
+      const preview = state.quickTdrPreview;
+      if (!preview) return;
+      preview.results.forEach((result) => {
+        const decision = issueValue(`pol:${result.choice.polIndex}`, preview);
+        const card = document.createElement("div");
+        const resolved = decision === "skip" || decision === "zero";
+        const bad = ["error", "missing", "terminal", "auth"].includes(result.status) && !resolved;
+        card.className = `tdr-status-card ${bad ? "error" : result.status === "not-departed" ? "pending" : ""}`;
+        appendText(card, "strong", `${result.choice.port} · ${result.choice.vvd}`);
+        const suffix = decision === "skip" ? " · 已确认跳过" : decision === "zero" ? " · 已确认 0" : "";
+        appendText(card, "span", `${result.message}${suffix}`);
+        grid.appendChild(card);
+      });
+    }
+
     function renderQuickTdrResult() {
       const preview = state.quickTdrPreview;
       resetQuickTdrResultViewOnly();
       if (!preview) return;
       state.quickTdrPreview = preview;
       renderQuickTdrIssues();
-      const result = preview.results.find((item) => item.status === "ok");
-      if (!result) {
+      renderQuickTdrStatuses();
+      const included = quickTdrIncludedResults(preview);
+      if (!included.length) {
         $("quickTdrMessage").textContent = preview.results[0]?.message || "未取得可导出的 TDR 数据。";
         return;
       }
@@ -5264,16 +5404,23 @@
         $("quickTdrMessage").textContent = `查询完成，需确认 ${unresolved} 项后生成蓝色预览。`;
         return;
       }
-      const blocks = buildQuickTdrBlocks(preview, result);
+      const blocks = buildQuickTdrBlocks(preview);
       state.quickTdrBlocks = blocks;
-      renderTdrBlueBlocks($("quickTdrManualBlocks"), blocks, result.choice, {
-        subtitle: (block) => block.sheetName === "TOTAL" ? "全部 Partner 汇总" : `SO ${block.carrier} 对应的独立 Sheet`,
+      renderTdrBlueBlocks($("quickTdrManualBlocks"), blocks, included[0].choice, {
+        subtitle: (block) => block.sheetName === "TOTAL"
+          ? "全部 Partner 汇总"
+          : `${preview.mode === "quick-bound" ? "整个 bound · " : ""}SO ${block.carrier} 对应的独立 Sheet`,
         showNewCarrier: false
       });
-      $("quickTdrManualSummary").textContent = `${result.choice.vvd} · ${result.choice.port} · ${preview.pods.length} 个 POD · ${blocks.length} 个 Sheet`;
+      const okRows = preview.results.reduce((sum, result) => sum + (result.rows?.length || 0), 0);
+      const rfRows = preview.results.reduce((sum, result) => sum + (result.special?.length || 0), 0);
+      const scope = preview.mode === "quick-bound"
+        ? `${included[0].choice.vvd} · 整个 bound · ${included.length}/${preview.choices.length} 个 POL`
+        : `${included[0].choice.vvd} · ${included[0].choice.port}`;
+      $("quickTdrManualSummary").textContent = `${scope} · ${preview.pods.length} 个 POD · ${blocks.length} 个 Sheet`;
       $("quickTdrManualWrap").classList.remove("hidden");
       $("quickTdrExport").disabled = false;
-      $("quickTdrMessage").textContent = `查询完成：${result.rows.length} 条货量 · RF ${result.special.length} 条，可导出蓝色 Excel。`;
+      $("quickTdrMessage").textContent = `查询完成：${okRows} 条货量 · RF ${rfRows} 条，可导出蓝色 Excel。`;
     }
 
     function resetQuickTdrResultViewOnly() {
@@ -5284,13 +5431,56 @@
       $("quickTdrExport").disabled = true;
     }
 
+    async function readQuickTdrBatchLines(response, queryChoices) {
+      const lines = [];
+      const parseText = (text) => {
+        text.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).forEach((item) => {
+          lines.push(JSON.parse(item));
+        });
+      };
+      if (!response.body?.getReader) {
+        parseText(await response.text());
+        return lines;
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        const parts = buffer.split("\n");
+        buffer = done ? "" : parts.pop();
+        parts.map((item) => item.trim()).filter(Boolean).forEach((item) => {
+          lines.push(JSON.parse(item));
+        });
+        setQuickTdrProgress(
+          Math.min(85, 25 + Math.round((lines.length / Math.max(1, queryChoices.length)) * 55)),
+          `云端已返回 ${Math.min(lines.length, queryChoices.length)}/${queryChoices.length} 个 POL`,
+          true
+        );
+        if (done) break;
+      }
+      if (buffer.trim()) parseText(buffer);
+      return lines;
+    }
+
+    function filterQuickTdrIssues(preview) {
+      return preview.issues.filter((issue) => {
+        if (issue.type === "pod" || issue.type === "so") return false;
+        if (preview.mode !== "quick-bound" && issue.type !== "co") return false;
+        return true;
+      });
+    }
+
     async function queryQuickTdr() {
+      updateQuickTdrModeUi();
+      const mode = state.quickTdrMode === "bound" ? "bound" : "single";
       const vvd = cleanVvd($("quickTdrVvd").value);
       const port = normalizePort($("quickTdrPort").value);
       $("quickTdrVvd").value = vvd;
       $("quickTdrPort").value = port;
-      if (!vvd || !port) {
-        $("quickTdrMessage").textContent = "请同时输入 VVD 和 PORT。";
+      if (!vvd || (mode === "single" && !port)) {
+        $("quickTdrMessage").textContent = mode === "bound" ? "请输入 VVD。" : "请同时输入 VVD 和 PORT。";
         return;
       }
       const credentials = currentQuickTdrCredentials();
@@ -5300,50 +5490,86 @@
         $("quickTdrUsername").focus();
         return;
       }
+      const choices = quickTdrQueryChoices(vvd, port);
+      if (!choices.length) {
+        $("quickTdrMessage").textContent = `未在船期中找到 ${vvd} 的 bound 港口；请确认 VVD 或先等待船期数据更新。`;
+        return;
+      }
       resetQuickTdrResult();
       $("quickTdrQuery").disabled = true;
-      setQuickTdrProgress(15, `正在查询 ${vvd} · ${port}`, true);
-      const schedule = quickTdrScheduleRow(vvd, port);
-      const choice = {
-        vvd,
-        port,
-        polIndex: 0,
-        sheetName: "QUICK",
-        etb: schedule?.etb || "",
-        etd: schedule?.etd || "",
-        scheduleEtd: schedule?.etd || ""
+      const preview = {
+        querying: true,
+        authFailed: false,
+        mode: mode === "bound" ? "quick-bound" : "quick",
+        sheetName: mode === "bound" ? "QUICK_BOUND" : "QUICK",
+        choices,
+        pods: [],
+        carriers: [defaultCarrier(DEFAULT_CARRIER_CODE)],
+        results: [],
+        issues: []
       };
-      try {
-        const response = await fetch(`${TDR_API_BASE}/api/tdr/batch`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...credentials, queries: [{ vvd, pol: port }] })
+      state.quickTdrPreview = preview;
+      const queryChoices = [];
+      choices.forEach((choice) => {
+        if (departedAtLeastOneDay(choice.etd)) queryChoices.push(choice);
+        else preview.results.push({
+          choice,
+          status: "not-departed",
+          message: `未离港 · ETD ${formatTdrScheduleEtd(choice.scheduleEtd || choice.etd)}`,
+          rows: [],
+          special: [],
+          specialByKey: new Map()
         });
-        if (!response.ok) {
-          const errorPayload = await response.json().catch(() => ({}));
-          const error = new Error(errorPayload.error || `TDR 查询失败 (${response.status})`);
-          error.code = errorPayload.code || "TDR_QUERY_FAILED";
-          throw error;
+      });
+      renderQuickTdrStatuses();
+      setQuickTdrProgress(15, mode === "bound" ? `准备查询 ${queryChoices.length}/${choices.length} 个已离港 POL` : `正在查询 ${vvd} · ${port}`, true);
+      try {
+        const lines = [];
+        if (queryChoices.length) {
+          const response = await fetch(`${TDR_API_BASE}/api/tdr/batch`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...credentials,
+              queries: queryChoices.map((choice) => ({ vvd: choice.vvd, pol: choice.port }))
+            })
+          });
+          if (!response.ok) {
+            const errorPayload = await response.json().catch(() => ({}));
+            const error = new Error(errorPayload.error || `TDR 查询失败 (${response.status})`);
+            error.code = errorPayload.code || "TDR_QUERY_FAILED";
+            throw error;
+          }
+          lines.push(...await readQuickTdrBatchLines(response, queryChoices));
         }
-        setQuickTdrProgress(60, "TDR 已返回，正在整理蓝色模板", true);
-        const text = await response.text();
-        const line = text.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).map((item) => JSON.parse(item)).find((item) => Number(item.index) === 0);
-        if (!line) throw new Error("TDR 服务未返回查询结果");
-        const payload = line.result || {};
-        const preview = {
-          querying: false,
-          authFailed: false,
-          mode: "quick",
-          sheetName: "QUICK",
-          choices: [choice],
-          pods: quickTdrPods(payload, vvd),
-          carriers: quickTdrCarriers(payload),
-          results: [],
-          issues: []
-        };
-        recordTdrBatchLine(preview, choice, line);
-        preview.issues = preview.issues.filter((issue) => issue.type === "co");
-        state.quickTdrPreview = preview;
+        setQuickTdrProgress(88, "TDR 已返回，正在整理蓝色模板", true);
+        const payloads = lines.filter((line) => line?.ok).map((line) => line.result || {});
+        preview.pods = quickTdrPods(payloads, vvd);
+        preview.carriers = quickTdrCarriers(payloads);
+        const processed = new Set();
+        lines.forEach((line) => {
+          const index = Number(line.index);
+          const choice = queryChoices[index];
+          if (!choice || processed.has(index)) return;
+          processed.add(index);
+          recordTdrBatchLine(preview, choice, line);
+        });
+        queryChoices.forEach((choice, index) => {
+          if (processed.has(index)) return;
+          preview.results.push({
+            choice,
+            status: "error",
+            message: "TDR 服务未返回查询结果",
+            rows: [],
+            special: [],
+            specialByKey: new Map()
+          });
+          preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "pol-error", `${choice.port}：TDR 服务未返回查询结果`, [
+            { value: "skip", label: "确认跳过该 POL，不导入" }
+          ]));
+        });
+        preview.issues = filterQuickTdrIssues(preview);
+        preview.querying = false;
         if (preview.authFailed) {
           $("quickTdrAccountPanel").classList.remove("hidden");
           $("quickTdrMessage").textContent = "Allegro 登录失败，请修改 TDR 账号后重试。";
@@ -5352,6 +5578,20 @@
         renderQuickTdrResult();
       } catch (error) {
         console.error(error);
+        preview.querying = false;
+        if (error.code === "AUTH_FAILED" || error.code === "AUTH_REQUIRED") preview.authFailed = true;
+        queryChoices.forEach((choice) => {
+          if (preview.results.some((result) => result.choice === choice)) return;
+          preview.results.push({
+            choice,
+            status: error.code === "AUTH_FAILED" ? "auth" : "error",
+            message: error.message || String(error),
+            rows: [],
+            special: [],
+            specialByKey: new Map()
+          });
+        });
+        renderQuickTdrStatuses();
         $("quickTdrMessage").textContent = error.code === "AUTH_FAILED" ? "Allegro 登录失败，请修改账号后重试。" : `查询失败：${error.message || error}`;
         setQuickTdrProgress(100, $("quickTdrMessage").textContent, true);
       } finally {
@@ -6014,6 +6254,15 @@
       };
     }
 
+    function noBorder() {
+      return {
+        top: {},
+        left: {},
+        bottom: {},
+        right: {}
+      };
+    }
+
     function setRowBottomBorder(ws, row, lastCol, style = "medium") {
       for (let col = 1; col <= lastCol; col += 1) {
         const cell = ws.getCell(row, col);
@@ -6277,8 +6526,10 @@
     }
 
     function addQuickTdrExcelSheet(workbook, block, preview) {
-      const result = preview.results.find((item) => item.status === "ok");
-      const choice = result.choice;
+      const sections = Array.isArray(block.sections) && block.sections.length
+        ? block.sections
+        : [{ choice: preview.results.find((item) => item.status === "ok")?.choice || preview.choices?.[0], values: block.values, ttlValues: block.ttlValues, rowTotals: block.rowTotals }];
+      const choice = sections[0]?.choice || preview.choices?.[0] || {};
       const safeName = String(block.sheetName || "TDR").replace(/[\\/:*?\[\]]+/g, "-").slice(0, 31) || "TDR";
       const ws = workbook.addWorksheet(safeName, {
         views: [{ showGridLines: false, state: "frozen", ySplit: 5 }],
@@ -6295,16 +6546,17 @@
       const totalStyle = { fill: "FFF2F4F7", bold: true };
       const noteStyle = { fill: "FFDDEBF7", alignment: { horizontal: "left", vertical: "middle", wrapText: true } };
       const generatedAt = new Date().toLocaleString("zh-CN", { hour12: false });
+      const scopeLabel = preview.mode === "quick-bound" ? `BOUND ${choice.vvd}` : `POL ${choice.port}`;
 
       ws.getColumn(1).width = 9;
       ws.getColumn(2).width = 13;
       ws.getColumn(3).width = 11;
       for (let col = 4; col <= lastCol; col += 1) ws.getColumn(col).width = col === ttlCol ? 10 : 8.5;
-      for (let row = 1; row <= 13; row += 1) ws.getRow(row).height = row <= 5 ? 22 : 20;
+      for (let row = 1; row <= 5 + sections.length * 9; row += 1) ws.getRow(row).height = row <= 5 ? 22 : 20;
 
       safeMerge(ws, 1, 1, 1, lastCol);
       safeMerge(ws, 2, 1, 2, lastCol);
-      setCell(ws, 1, 1, `TDR BLUE TEMPLATE · ${choice.vvd} · POL ${choice.port} · ${block.sheetName}`, headerStyle);
+      setCell(ws, 1, 1, `TDR BLUE TEMPLATE · ${choice.vvd} · ${scopeLabel} · ${block.sheetName}`, headerStyle);
       setCell(ws, 2, 1, `Allegro TDR · 查询时间 ${generatedAt} · POD 按 TDR 原始目的港显示`, noteStyle);
 
       safeMerge(ws, 3, 1, 3, 3);
@@ -6331,48 +6583,56 @@
       setCell(ws, 3, ttlCol, "TTL", headerStyle);
       setCell(ws, 5, ttlCol, "TEUS", headerStyle);
 
-      safeMerge(ws, 6, 1, 10, 2);
-      setCell(ws, 6, 1, choice.port, { ...bodyStyle, bold: true });
-      setCell(ws, 11, 1, "ETB", bodyStyle);
-      setCell(ws, 11, 2, choice.etb || null, bodyStyle);
-      setCell(ws, 12, 1, "ETD", bodyStyle);
-      setCell(ws, 12, 2, choice.etd || null, bodyStyle);
-      safeMerge(ws, 13, 1, 13, 2);
-      setCell(ws, 13, 1, null, totalStyle);
+      sections.forEach((section, sectionIndex) => {
+        const sectionChoice = section.choice || choice;
+        const startRow = 6 + sectionIndex * 9;
+        if (sectionIndex > 0) {
+          safeMerge(ws, startRow - 1, 1, startRow - 1, lastCol);
+          setCell(ws, startRow - 1, 1, null, { fill: "FFFFFFFF", border: noBorder() });
+        }
+        safeMerge(ws, startRow, 1, startRow + 4, 2);
+        setCell(ws, startRow, 1, sectionChoice.port, { ...bodyStyle, bold: true });
+        setCell(ws, startRow + 5, 1, "ETB", bodyStyle);
+        setCell(ws, startRow + 5, 2, sectionChoice.etb || null, bodyStyle);
+        setCell(ws, startRow + 6, 1, "ETD", bodyStyle);
+        setCell(ws, startRow + 6, 2, sectionChoice.etd || null, bodyStyle);
+        safeMerge(ws, startRow + 7, 1, startRow + 7, 2);
+        setCell(ws, startRow + 7, 1, null, totalStyle);
 
-      cargoLabels.forEach((label, rowIndex) => {
-        const row = 6 + rowIndex;
-        const rowStyle = label === "TTL" ? totalStyle : bodyStyle;
-        setCell(ws, row, 3, label, { ...rowStyle, bold: true, alignment: { horizontal: "left", vertical: "middle" } });
-        pods.forEach((_pod, podIndex) => {
-          const left = podStart + podIndex * 2;
-          const right = left + 1;
+        cargoLabels.forEach((label, rowIndex) => {
+          const row = startRow + rowIndex;
+          const rowStyle = label === "TTL" ? totalStyle : bodyStyle;
+          setCell(ws, row, 3, label, { ...rowStyle, bold: true, alignment: { horizontal: "left", vertical: "middle" } });
+          pods.forEach((_pod, podIndex) => {
+            const left = podStart + podIndex * 2;
+            const right = left + 1;
+            if (label === "Weight") {
+              safeMerge(ws, row, left, row, right);
+              const value = parseCellNumber(section.values[rowIndex][podIndex * 2]);
+              setCell(ws, row, left, value || null, { ...bodyStyle, numFmt: "0.0;-0.0;;@" });
+            } else {
+              const values = label === "TTL" ? section.ttlValues : section.values[rowIndex];
+              const leftValue = parseCellNumber(values[podIndex * 2]);
+              const rightValue = parseCellNumber(values[podIndex * 2 + 1]);
+              setCell(ws, row, left, leftValue || null, { ...rowStyle, numFmt: "0;-0;;@" });
+              setCell(ws, row, right, rightValue || null, { ...rowStyle, numFmt: "0;-0;;@" });
+            }
+          });
+          const totals = section.rowTotals[rowIndex];
           if (label === "Weight") {
-            safeMerge(ws, row, left, row, right);
-            const value = parseCellNumber(block.values[rowIndex][podIndex * 2]);
-            setCell(ws, row, left, value || null, { ...bodyStyle, numFmt: "0.0;-0.0;;@" });
+            safeMerge(ws, row, total20, row, total40);
+            setCell(ws, row, total20, totals.left || null, { ...totalStyle, numFmt: "0.0;-0.0;;@" });
+            setCell(ws, row, ttlCol, null, totalStyle);
           } else {
-            const values = label === "TTL" ? block.ttlValues : block.values[rowIndex];
-            const leftValue = parseCellNumber(values[podIndex * 2]);
-            const rightValue = parseCellNumber(values[podIndex * 2 + 1]);
-            setCell(ws, row, left, leftValue || null, { ...rowStyle, numFmt: "0;-0;;@" });
-            setCell(ws, row, right, rightValue || null, { ...rowStyle, numFmt: "0;-0;;@" });
+            setCell(ws, row, total20, totals.left || null, { ...totalStyle, numFmt: "0;-0;;@" });
+            setCell(ws, row, total40, totals.right || null, { ...totalStyle, numFmt: "0;-0;;@" });
+            setCell(ws, row, ttlCol, totals.teus || null, { ...totalStyle, numFmt: "0;-0;;@" });
           }
         });
-        const totals = block.rowTotals[rowIndex];
-        if (label === "Weight") {
-          safeMerge(ws, row, total20, row, total40);
-          setCell(ws, row, total20, totals.left || null, { ...totalStyle, numFmt: "0.0;-0.0;;@" });
-          setCell(ws, row, ttlCol, null, totalStyle);
-        } else {
-          setCell(ws, row, total20, totals.left || null, { ...totalStyle, numFmt: "0;-0;;@" });
-          setCell(ws, row, total40, totals.right || null, { ...totalStyle, numFmt: "0;-0;;@" });
-          setCell(ws, row, ttlCol, totals.teus || null, { ...totalStyle, numFmt: "0;-0;;@" });
-        }
       });
 
       if (block.notes.length) {
-        const noteRow = 15;
+        const noteRow = 6 + sections.length * 9;
         safeMerge(ws, noteRow, 1, noteRow, lastCol);
         setCell(ws, noteRow, 1, `批注参考：${block.notes.join("；")}`, {
           fill: "FFFFFAEB",
@@ -6386,8 +6646,8 @@
     async function exportQuickTdrExcel() {
       const preview = state.quickTdrPreview;
       const blocks = state.quickTdrBlocks || [];
-      const result = preview?.results?.find((item) => item.status === "ok");
-      if (!window.ExcelJS || !preview || !result || !blocks.length) return;
+      const included = quickTdrIncludedResults(preview);
+      if (!window.ExcelJS || !preview || !included.length || !blocks.length) return;
       $("quickTdrExport").disabled = true;
       try {
         $("quickTdrMessage").textContent = "正在生成蓝色 Excel...";
@@ -6399,7 +6659,9 @@
         const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
         const link = document.createElement("a");
         link.href = URL.createObjectURL(blob);
-        link.download = `TDR - ${result.choice.vvd} - ${result.choice.port}.xlsx`.replace(/[\\/:*?"<>|]+/g, "-");
+        const firstChoice = included[0].choice;
+        const suffix = preview.mode === "quick-bound" ? "BOUND" : firstChoice.port;
+        link.download = `TDR - ${firstChoice.vvd} - ${suffix}.xlsx`.replace(/[\\/:*?"<>|]+/g, "-");
         document.body.appendChild(link);
         link.click();
         link.remove();
@@ -7576,12 +7838,25 @@
     $("quickTdrPassword").addEventListener("keydown", (event) => {
       if (event.key === "Enter") saveQuickTdrAccountSettings();
     });
+    document.querySelectorAll("#quickTdrModeTabs .tab[data-quick-tdr-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.quickTdrMode = button.dataset.quickTdrMode === "bound" ? "bound" : "single";
+        resetQuickTdrResult();
+        updateQuickTdrModeUi();
+        setQuickTdrProgress(0, state.quickTdrMode === "bound" ? "输入 VVD 后即可查询整个 bound。" : "输入 VVD 和 PORT 后即可查询。", false);
+      });
+    });
     $("quickTdrVvd").addEventListener("input", () => {
       $("quickTdrVvd").value = $("quickTdrVvd").value.toUpperCase().replace(/\s+/g, "");
       populateQuickTdrPortCandidates();
+      resetQuickTdrResult();
     });
     $("quickTdrPort").addEventListener("input", () => {
       $("quickTdrPort").value = $("quickTdrPort").value.toUpperCase().replace(/\s+/g, "");
+      resetQuickTdrResult();
+    });
+    $("quickTdrVvd").addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && state.quickTdrMode === "bound") queryQuickTdr();
     });
     $("quickTdrPort").addEventListener("keydown", (event) => {
       if (event.key === "Enter") queryQuickTdr();
