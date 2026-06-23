@@ -4899,7 +4899,10 @@
         sections.forEach((section, sectionIndex) => {
           const sectionChoice = section.choice || choice;
           if (sections.length > 1) {
-            appendText(card, "div", `${sectionIndex + 1}. POL ${sectionChoice.port}${sectionChoice.etd ? ` · ETD ${sectionChoice.etd}` : ""}`, "tdr-manual-card-note");
+            const sectionLabel = section.isSummary
+              ? "BOUND TOTAL"
+              : `POL ${sectionChoice.port}${sectionChoice.etd ? ` · ETD ${sectionChoice.etd}` : ""}`;
+            appendText(card, "div", `${sectionIndex + 1}. ${sectionLabel}`, "tdr-manual-card-note");
           }
           const tableWrap = appendText(card, "div", "", "tdr-excel-table-wrap");
           const table = document.createElement("table");
@@ -5263,6 +5266,38 @@
       return (codes.length ? codes : [DEFAULT_CARRIER_CODE]).map((code) => defaultCarrier(code));
     }
 
+    function quickTdrAggregateSection(sections, pods, choice = {}) {
+      const values = cargoLabels.slice(0, 7).map((_label, rowIndex) => pods.flatMap((_pod, podIndex) => {
+        if (rowIndex === 6) {
+          const weight = sections.reduce((sum, section) => sum + parseCellNumber(section.values?.[rowIndex]?.[podIndex * 2]), 0);
+          return [cellText(weight, 1), ""];
+        }
+        const left = sections.reduce((sum, section) => sum + parseCellNumber(section.values?.[rowIndex]?.[podIndex * 2]), 0);
+        const right = sections.reduce((sum, section) => sum + parseCellNumber(section.values?.[rowIndex]?.[podIndex * 2 + 1]), 0);
+        return [cellText(left), cellText(right)];
+      }));
+      const manual = buildTdrManualBlock(values, pods);
+      return {
+        choice: {
+          ...choice,
+          port: "BOUND TOTAL",
+          etb: "",
+          etd: ""
+        },
+        values: manual.values,
+        ttlValues: manual.ttlValues,
+        rowTotals: manual.rowTotals,
+        notes: [],
+        isSummary: true
+      };
+    }
+
+    function withQuickTdrBoundTotal(sections, pods, preview) {
+      if (preview?.mode !== "quick-bound" || sections.length <= 1) return sections;
+      const vvd = sections[0]?.choice?.vvd || preview.choices?.[0]?.vvd || "";
+      return [...sections, quickTdrAggregateSection(sections, pods, { vvd })];
+    }
+
     function quickTdrTotalBlock(blocks, pods) {
       const sectionCount = Math.max(0, ...blocks.map((block) => block.sections?.length || 0));
       const sections = Array.from({ length: sectionCount }, (_item, sectionIndex) => {
@@ -5277,7 +5312,13 @@
           return [cellText(left), cellText(right)];
         }));
         const manual = buildTdrManualBlock(values, pods);
-        return { choice: source?.choice, values: manual.values, ttlValues: manual.ttlValues, rowTotals: manual.rowTotals };
+        return {
+          choice: source?.choice,
+          values: manual.values,
+          ttlValues: manual.ttlValues,
+          rowTotals: manual.rowTotals,
+          isSummary: Boolean(source?.isSummary)
+        };
       });
       const first = sections[0] || buildTdrManualBlock(cargoLabels.slice(0, 7).map(() => pods.flatMap(() => ["", ""])), pods);
       return {
@@ -5307,7 +5348,7 @@
       const included = quickTdrIncludedResults(preview);
       const blocks = carriers.map((carrier) => {
         const storeKey = tdrEntryStore(preview.sheetName, carrier.code, multiCarrier);
-        const sections = included.map((result) => {
+        const rawSections = included.map((result) => {
           const blockIndex = result.choice.polIndex + 1;
           const payload = result.status === "ok"
             ? buildTdrPolPayload(preview, result, carriers, pods)
@@ -5322,6 +5363,7 @@
             notes
           };
         });
+        const sections = withQuickTdrBoundTotal(rawSections, pods, preview);
         const first = sections[0] || buildTdrManualBlock(cargoLabels.slice(0, 7).map(() => pods.flatMap(() => ["", ""])), pods);
         return {
           carrier: carrier.code,
