@@ -7286,6 +7286,172 @@
       );
     }
 
+    function balanceSortValue(block) {
+      const parsed = parseDateValue(block?.etb || block?.eta || block?.etd || "");
+      return parsed ? parsed.getTime() : Number.MAX_SAFE_INTEGER;
+    }
+
+    function displayCallDate(value) {
+      const text = normalizeText(value);
+      return text ? formatMmDd(text) : "";
+    }
+
+    function findMovePodIndexForBlock(meta, block) {
+      const exact = findDischargePodIndex(meta.model.sheet.pods, block);
+      if (exact >= 0) return exact;
+      const port = normalizePort(block?.port);
+      if (!port) return -1;
+      const candidates = meta.model.sheet.pods
+        .map((pod, index) => ({ pod, index }))
+        .filter(({ pod }) => normalizePort(pod.port) === port);
+      return candidates.length === 1 ? candidates[0].index : -1;
+    }
+
+    function addBalanceToLoadSheet(workbook, carrierMetaGroups) {
+      const groups = carrierMetaGroups
+        .map((group) => {
+          const metas = [group.wbMeta, group.ebMeta].filter(Boolean);
+          const wbPorts = new Set((group.wbMeta?.model.blocks || [])
+            .filter((block) => block.type === "POL")
+            .map((block) => normalizePort(block.port))
+            .filter(Boolean));
+          const rows = metas.flatMap((meta) => {
+            const direction = meta.model.sheet.direction || (/^EB/i.test(meta.ws.name) ? "EB" : "WB");
+            return meta.model.blocks
+              .map((block, blockIndex) => ({ block, blockIndex }))
+              .filter(({ block }) => block.type === "POL")
+              .map(({ block, blockIndex }) => {
+                const start = meta.blockStarts[blockIndex];
+                const port = normalizePort(block.port);
+                const movePodIndex = findMovePodIndexForBlock(meta, block);
+                const moveCol = movePodIndex >= 0 ? meta.podLeftCols[movePodIndex] : null;
+                return {
+                  meta,
+                  direction,
+                  block,
+                  blockIndex,
+                  sortValue: balanceSortValue(block),
+                  port,
+                  displayPort: direction === "EB" && wbPorts.has(port) ? `${port}（EB）` : port,
+                  etb: displayCallDate(block.etb),
+                  etd: displayCallDate(block.etd),
+                  avlTeuRef: `${excelSheetRef(meta.ws.name)}!${excelCell(meta.summary.avlTeu, start + meta.labelIndex.TTL)}`,
+                  avlWeightRef: `${excelSheetRef(meta.ws.name)}!${excelCell(meta.summary.avlWeight, start + meta.labelIndex.Weight)}`,
+                  rfRef: `${excelSheetRef(meta.ws.name)}!${excelCell(meta.summary.rf, start + meta.labelIndex.RF)}`,
+                  moveLimitRef: moveCol ? `${excelSheetRef(meta.ws.name)}!${excelCell(moveCol, meta.moveLimitRow)}` : "",
+                  moveBalanceRef: moveCol ? `${excelSheetRef(meta.ws.name)}!${excelCell(moveCol, meta.moveBalanceRow)}` : ""
+                };
+              });
+          }).sort((a, b) => (
+            a.sortValue - b.sortValue
+            || (a.direction === b.direction ? 0 : a.direction === "WB" ? -1 : 1)
+            || a.port.localeCompare(b.port)
+          ));
+          return {
+            partner: normalizeText(group.carrier?.code) || DEFAULT_CARRIER_CODE,
+            rows
+          };
+        })
+        .filter((group) => group.rows.length);
+      if (!groups.length) return null;
+
+      const ws = workbook.addWorksheet("Balance to Load", {
+        views: [{ showGridLines: false, state: "frozen", xSplit: 1, ySplit: 3 }]
+      });
+      const headerStyle = {
+        fill: "FF99CCFF",
+        bold: true,
+        alignment: { horizontal: "center", vertical: "middle", wrapText: true }
+      };
+      const titleStyle = {
+        fill: "FF99CCFF",
+        bold: true,
+        alignment: { horizontal: "center", vertical: "middle" }
+      };
+      const partnerStyle = {
+        fill: "FFDDEBF7",
+        bold: true,
+        alignment: { horizontal: "center", vertical: "middle" }
+      };
+      const portStyle = {
+        fill: "FFFFFFFF",
+        alignment: { horizontal: "left", vertical: "middle" }
+      };
+      const valueStyle = { fill: "FFFFFFFF", numFmt: "0;-0;;@" };
+      const weightStyle = { fill: "FFFFFFFF", numFmt: "0.0;-0.0;;@" };
+      const mutedStyle = {
+        fill: "FFFFFFFF",
+        font: { name: "Calibri", size: 11, color: { argb: "FF666666" } }
+      };
+      const lastCol = 8;
+      ws.columns = [
+        { width: 12 },
+        { width: 15 },
+        { width: 10 },
+        { width: 10 },
+        { width: 14 },
+        { width: 17 },
+        { width: 16 },
+        { width: 20 }
+      ];
+      ws.getRow(1).height = 24;
+      ws.getRow(3).height = 28;
+      safeMerge(ws, 1, 1, 1, lastCol);
+      setCell(ws, 1, 1, "Balance to Load", titleStyle);
+      ["Partner", "POL", "ETB", "ETD", "Balance TEU", "Balance Weight", "Balance RF Plug", "Balance Move Count"].forEach((label, index) => {
+        setCell(ws, 3, index + 1, label, headerStyle);
+      });
+
+      let row = 4;
+      groups.forEach((group) => {
+        const startRow = row;
+        group.rows.forEach((item) => {
+          setCell(ws, row, 1, group.partner, partnerStyle);
+          setCell(ws, row, 2, item.displayPort, portStyle);
+          setCell(ws, row, 3, item.etb, mutedStyle);
+          setCell(ws, row, 4, item.etd, mutedStyle);
+          setFormulaCell(ws, row, 5, `N(${item.avlTeuRef})`, valueStyle);
+          setFormulaCell(ws, row, 6, `N(${item.avlWeightRef})`, weightStyle);
+          setFormulaCell(ws, row, 7, `N(${item.rfRef})`, valueStyle);
+          if (item.moveLimitRef && item.moveBalanceRef) {
+            setFormulaCell(ws, row, 8, `IF(${item.moveLimitRef}="","",${item.moveBalanceRef})`, valueStyle);
+          } else {
+            setCell(ws, row, 8, "", valueStyle);
+          }
+          row += 1;
+        });
+        if (row - startRow > 1) {
+          safeMerge(ws, startRow, 1, row - 1, 1);
+          applyExcelStyle(ws.getCell(startRow, 1), partnerStyle);
+        }
+        setRowBottomBorder(ws, row - 1, lastCol, "medium");
+      });
+
+      for (let currentRow = 1; currentRow < row; currentRow += 1) {
+        for (let col = 1; col <= lastCol; col += 1) {
+          const cell = ws.getCell(currentRow, col);
+          cell.border = cell.border || fullBorder("thin");
+        }
+      }
+      if (typeof ws.addConditionalFormatting === "function") {
+        ws.addConditionalFormatting({
+          ref: `E4:H${row - 1}`,
+          rules: [
+            {
+              type: "cellIs",
+              operator: "lessThan",
+              formulae: ["0"],
+              style: {
+                fill: conditionalFill("FFFF0000"),
+                font: { color: { argb: "FFFFFF00" }, bold: true }
+              }
+            }
+          ]
+        });
+      }
+      return ws;
+    }
+
     function applyTdrComments(meta, storeKey) {
       const audit = state.tdrAudit[storeKey] || {};
       const totalNotes = new Map();
@@ -7727,7 +7893,7 @@
         const isMultiCarrier = carriers.length > 1;
         migrateDirectionEntries("WB", carriers);
         migrateDirectionEntries("EB", carriers);
-        const buildUnits = isMultiCarrier ? 3 + carriers.length * 2 : 3;
+        const buildUnits = isMultiCarrier ? 4 + carriers.length * 2 : 4;
         let completedUnits = 0;
         const markBuilt = async (label) => {
           completedUnits += 1;
@@ -7753,6 +7919,8 @@
           applyEbRobCarryover(wbMeta, ebMeta);
           applyTdrComments(wbMeta, "WB");
           applyTdrComments(ebMeta, "EB");
+          addBalanceToLoadSheet(workbook, [{ carrier, wbMeta, ebMeta }]);
+          await markBuilt("Balance to Load 已生成");
           addRobInputSheet(workbook, wbMeta);
           addRobOutputSheet(workbook, ebMeta);
           await markBuilt("ROB 公式和传递表已生成");
@@ -7816,6 +7984,12 @@
           const ebCul = ebCarrierMetas.find((item) => item.carrier.code === DEFAULT_CARRIER_CODE);
           if (wbCul) applyTdrComments(wbCul.meta, "WB_CUL");
           if (ebCul) applyTdrComments(ebCul.meta, "EB_CUL");
+          addBalanceToLoadSheet(workbook, carriers.map((carrier, index) => ({
+            carrier,
+            wbMeta: wbCarrierMetas[index]?.meta,
+            ebMeta: ebCarrierMetas[index]?.meta
+          })));
+          await markBuilt("Balance to Load 已生成");
           addMultiCarrierRobInputSheet(workbook, wbCarrierMetas);
           addMultiCarrierRobOutputSheet(workbook, ebCarrierMetas);
           await markBuilt("TOTAL、ROB 公式和传递表已生成");
