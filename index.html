@@ -7398,7 +7398,7 @@
       ws.getRow(3).height = 28;
       safeMerge(ws, 1, 1, 1, lastCol);
       setCell(ws, 1, 1, "Balance to Load", titleStyle);
-      ["Partner", "POL", "ETB", "ETD", "Balance TEU", "Balance Weight", "Balance RF Plug", "Balance Move Count"].forEach((label, index) => {
+      ["Partner", "POL", "ETB", "ETD", "Balance TEU", "Balance Weight (Ton)", "Balance RF Plug", "Balance Move Count"].forEach((label, index) => {
         setCell(ws, 3, index + 1, label, headerStyle);
       });
 
