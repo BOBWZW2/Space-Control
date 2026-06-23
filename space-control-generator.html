@@ -2049,7 +2049,11 @@
   <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
   <script>
     const cargoLabels = ["LILIAN", "SUL", "T/S", "SOC", "RF", "MT", "Weight", "TTL"];
-    const totalCargoLabels = ["LILIAN", "SUL", "T/S", "SOC", "Partner", "RF", "MT", "Weight", "TTL"];
+    const partnerCargoLabels = ["COC", "T/S", "DG", "RF", "MT", "Weight", "TTL"];
+    const totalCargoLabels = ["LILIAN", "SUL", "T/S", "SOC", "Partner", "DG", "RF", "MT", "Weight", "TTL"];
+    const partnerEntryLabelMap = { COC: "LILIAN", DG: "SOC" };
+    const partnerAuditLabelMap = { LILIAN: "COC", SOC: "DG" };
+    const partnerRobTransferLabelMap = { LILIAN: "COC", SUL: null, SOC: "DG" };
     const NORMAL_CUL_CO = new Set(["CUL", "CUS", "CUM"]);
     const TDR_API_BASE = "https://space-control-tdr.2119990716.workers.dev";
     const TDR_CREDENTIALS_KEY = "spaceControl.tdrCredentials";
@@ -4768,6 +4772,7 @@
 
         let totalLabel = classification.category;
         if (classification.carrier !== DEFAULT_CARRIER_CODE && classification.category === "LILIAN") totalLabel = "Partner";
+        else if (classification.carrier !== DEFAULT_CARRIER_CODE && classification.category === "SOC") totalLabel = "DG";
         [["left", row.qty20, 20], ["right", row.qty40, 40]].forEach(([side, qty, size]) => {
           if (classification.carrier !== DEFAULT_CARRIER_CODE || classification.category !== "LILIAN") {
             addTdrAudit(polAudit, totalAuditStore, blockIndex, totalLabel, podIndex, side, tdrAuditLine(row, qty, size, totalLabel, classification));
@@ -6229,7 +6234,7 @@
             operator: "lessThan",
             formulae: ["0"],
             style: {
-              fill: conditionalFill("FFC00000"),
+              fill: conditionalFill("FFFF0000"),
               font: { color: { argb: "FFFFFF00" }, bold: true }
             }
           }
@@ -6435,6 +6440,7 @@
         views: [{ showGridLines: false, state: "frozen", ySplit: 5 }]
       });
       const isTotalSheet = /_TOTAL$/i.test(sheetName);
+      const isPartnerSheet = !isTotalSheet && model.sheet.carrierCode !== DEFAULT_CARRIER_CODE;
       if (!isTotalSheet && /^WB(?:_|$)/i.test(sheetName)) {
         ws.properties.tabColor = { argb: "FF5B9BD5" };
       } else if (!isTotalSheet && /^EB(?:_|$)/i.test(sheetName)) {
@@ -6591,7 +6597,17 @@
         }
         model.labels.forEach((label, offset) => {
           const row = start + offset;
-          setCell(ws, row, 3, label, { ...baseStyle, bold: true, alignment: { horizontal: "left", vertical: "middle" } });
+          const storedLabel = model.sheet.entryLabelMap?.[label] || label;
+          const storedIndex = cargoLabels.indexOf(storedLabel);
+          const entryOffset = storedIndex >= 0 ? storedIndex : offset;
+          const labelStyle = isPartnerSheet && ["DG", "RF"].includes(label)
+            ? {
+                ...baseStyle,
+                font: { name: "Calibri", size: 11, bold: true, color: { argb: "FFFF0000" } },
+                alignment: { horizontal: "left", vertical: "middle" }
+              }
+            : { ...baseStyle, bold: true, alignment: { horizontal: "left", vertical: "middle" } };
+          setCell(ws, row, 3, label, labelStyle);
           model.sheet.pods.forEach((_pod, podIndex) => {
             const left = podLeftCols[podIndex];
             const right = left + 1;
@@ -6606,9 +6622,9 @@
                   { ...computedStyle, numFmt: weightFmt }
                 );
               } else {
-                const manualWeight = entryNumberValue(entryStore, blockIndex, offset, podIndex, "weight");
+                const manualWeight = entryNumberValue(entryStore, blockIndex, entryOffset, podIndex, "weight");
                 if (isWbSheet && block.type === "ROB" && manualWeight === null) {
-                  setFormulaCell(ws, row, left, robInputFormula(left, row, robInputRowShift), { ...baseStyle, numFmt: weightFmt });
+                  setFormulaCell(ws, row, left, robInputFormula(left, 6 + entryOffset, robInputRowShift), { ...baseStyle, numFmt: weightFmt });
                 } else {
                   setCell(ws, row, left, manualWeight, { ...baseStyle, numFmt: weightFmt });
                 }
@@ -6634,15 +6650,15 @@
               setFormulaCell(ws, row, left, `SUM(${excelCell(left, start)}:${excelCell(left, start + weightIndex - 1)})`, { ...computedStyle, numFmt: countFmt });
               setFormulaCell(ws, row, right, `SUM(${excelCell(right, start)}:${excelCell(right, start + weightIndex - 1)})`, { ...computedStyle, numFmt: countFmt });
             } else {
-              const manualLeft = entryNumberValue(entryStore, blockIndex, offset, podIndex, "left");
-              const manualRight = entryNumberValue(entryStore, blockIndex, offset, podIndex, "right");
+              const manualLeft = entryNumberValue(entryStore, blockIndex, entryOffset, podIndex, "left");
+              const manualRight = entryNumberValue(entryStore, blockIndex, entryOffset, podIndex, "right");
               if (isWbSheet && block.type === "ROB" && manualLeft === null) {
-                setFormulaCell(ws, row, left, robInputFormula(left, row, robInputRowShift), { ...baseStyle, numFmt: countFmt });
+                setFormulaCell(ws, row, left, robInputFormula(left, 6 + entryOffset, robInputRowShift), { ...baseStyle, numFmt: countFmt });
               } else {
                 setCell(ws, row, left, manualLeft, { ...baseStyle, numFmt: countFmt });
               }
               if (isWbSheet && block.type === "ROB" && manualRight === null) {
-                setFormulaCell(ws, row, right, robInputFormula(right, row, robInputRowShift), { ...baseStyle, numFmt: countFmt });
+                setFormulaCell(ws, row, right, robInputFormula(right, 6 + entryOffset, robInputRowShift), { ...baseStyle, numFmt: countFmt });
               } else {
                 setCell(ws, row, right, manualRight, { ...baseStyle, numFmt: countFmt });
               }
@@ -6804,10 +6820,15 @@
     }
 
     function sheetDataForCarrier(baseInput, direction, carrier, isMultiCarrier) {
+      const isPartner = carrier.code !== DEFAULT_CARRIER_CODE;
       return {
         ...baseInput[direction],
         direction,
         carrierCode: carrier.code,
+        cargoLabels: isPartner ? partnerCargoLabels : cargoLabels,
+        entryLabelMap: isPartner ? partnerEntryLabelMap : null,
+        auditLabelMap: isPartner ? partnerAuditLabelMap : null,
+        robTransferLabelMap: isPartner ? partnerRobTransferLabelMap : null,
         entryStoreKey: isMultiCarrier ? `${direction}_${carrier.code}` : direction,
         allocationLabel: isMultiCarrier || carrier.code !== DEFAULT_CARRIER_CODE
           ? `${direction} ${carrier.code}`
@@ -6848,7 +6869,10 @@
         let sourceLabel = label;
         if (label === "Partner") {
           if (code === DEFAULT_CARRIER_CODE) return [];
-          sourceLabel = "LILIAN";
+          sourceLabel = "COC";
+        } else if (label === "DG") {
+          if (code === DEFAULT_CARRIER_CODE) return [];
+          sourceLabel = "DG";
         } else if (["LILIAN", "SUL", "SOC"].includes(label) && code !== DEFAULT_CARRIER_CODE) {
           return [];
         }
@@ -6911,7 +6935,8 @@
         const [blockText, label, podText, side] = key.split("|");
         const blockIndex = Number(blockText);
         const podIndex = Number(podText);
-        const offset = meta.labelIndex[label];
+        const exportLabel = meta.model.sheet.auditLabelMap?.[label] || label;
+        const offset = meta.labelIndex[exportLabel];
         if (!Number.isInteger(blockIndex) || !Number.isInteger(podIndex) || !Number.isInteger(offset)) return;
         const row = meta.blockStarts[blockIndex] + offset;
         const col = side === "right" ? meta.podRightCols[podIndex] : meta.podLeftCols[podIndex];
@@ -6919,7 +6944,7 @@
         const text = [...new Set(visibleLines)].join("\n");
         if (!text) return;
         meta.ws.getCell(row, col).note = text;
-        const totalKey = `${blockIndex}|${label}|${side}`;
+        const totalKey = `${blockIndex}|${exportLabel}|${side}`;
         const accumulated = totalNotes.get(totalKey) || [];
         visibleLines.forEach((line) => {
           if (!accumulated.includes(line)) accumulated.push(line);
@@ -7190,10 +7215,16 @@
         noteFill: "FFDDEBF7",
         blockFill: "FFDDEBF7",
         valueFormula: ({ offset, podIndex, side }) => {
+          const transferLabel = cargoLabels[offset];
+          const sourceLabel = Object.prototype.hasOwnProperty.call(ebMeta.model.sheet.robTransferLabelMap || {}, transferLabel)
+            ? ebMeta.model.sheet.robTransferLabelMap[transferLabel]
+            : transferLabel;
+          const sourceOffset = sourceLabel ? ebMeta.labelIndex[sourceLabel] : null;
+          if (!Number.isInteger(sourceOffset)) return "";
           const ebLeft = ebMeta.podLeftCols[podIndex];
           const ebRight = ebMeta.podRightCols[podIndex];
-          if (offset === 6) return side === "left" ? `${sourceSheet}!${excelCell(ebLeft, totalStart + offset)}` : "";
-          return `${sourceSheet}!${excelCell(side === "left" ? ebLeft : ebRight, totalStart + offset)}`;
+          if (transferLabel === "Weight") return side === "left" ? `${sourceSheet}!${excelCell(ebLeft, totalStart + sourceOffset)}` : "";
+          return `${sourceSheet}!${excelCell(side === "left" ? ebLeft : ebRight, totalStart + sourceOffset)}`;
         }
       });
     }
@@ -7222,10 +7253,16 @@
           pods: meta?.model?.sheet?.pods || [],
           blockLabel: `${carrier.code} EB TOTAL`,
           valueFormula: ({ offset, podIndex, side }) => {
+            const transferLabel = cargoLabels[offset];
+            const sourceLabel = Object.prototype.hasOwnProperty.call(meta.model.sheet.robTransferLabelMap || {}, transferLabel)
+              ? meta.model.sheet.robTransferLabelMap[transferLabel]
+              : transferLabel;
+            const sourceOffset = sourceLabel ? meta.labelIndex[sourceLabel] : null;
+            if (!Number.isInteger(sourceOffset)) return "";
             const ebLeft = meta.podLeftCols[podIndex];
             const ebRight = meta.podRightCols[podIndex];
-            if (offset === 6) return side === "left" ? `${sourceSheet}!${excelCell(ebLeft, totalStart + offset)}` : "";
-            return `${sourceSheet}!${excelCell(side === "left" ? ebLeft : ebRight, totalStart + offset)}`;
+            if (transferLabel === "Weight") return side === "left" ? `${sourceSheet}!${excelCell(ebLeft, totalStart + sourceOffset)}` : "";
+            return `${sourceSheet}!${excelCell(side === "left" ? ebLeft : ebRight, totalStart + sourceOffset)}`;
           }
         };
       });
@@ -7259,22 +7296,29 @@
         const wbLeft = wbMeta.podLeftCols[wbPodIndex];
         const wbRight = wbMeta.podRightCols[wbPodIndex];
 
-        for (let offset = 0; offset < 6; offset += 1) {
-          const row = 6 + offset;
+        ebMeta.model.labels.filter((label) => !["Weight", "TTL"].includes(label)).forEach((label) => {
+          const wbOffset = wbMeta.labelIndex[label];
+          const ebOffset = ebMeta.labelIndex[label];
+          if (!Number.isInteger(wbOffset) || !Number.isInteger(ebOffset)) return;
+          const row = 6 + ebOffset;
           setFormulaOnly(
             ebMeta.ws.getCell(row, ebLeft),
-            `${wbSheetRef}!${excelCell(wbLeft, wbMeta.totalStart + offset)}`
+            `${wbSheetRef}!${excelCell(wbLeft, wbMeta.totalStart + wbOffset)}`
           );
           setFormulaOnly(
             ebMeta.ws.getCell(row, ebRight),
-            `${wbSheetRef}!${excelCell(wbRight, wbMeta.totalStart + offset)}`
+            `${wbSheetRef}!${excelCell(wbRight, wbMeta.totalStart + wbOffset)}`
+          );
+        });
+        const wbWeightOffset = wbMeta.labelIndex.Weight;
+        const ebWeightOffset = ebMeta.labelIndex.Weight;
+        if (Number.isInteger(wbWeightOffset) && Number.isInteger(ebWeightOffset)) {
+          setFormulaOnly(
+            ebMeta.ws.getCell(6 + ebWeightOffset, ebLeft),
+            `${wbSheetRef}!${excelCell(wbLeft, wbMeta.totalStart + wbWeightOffset)}`,
+            "0.0;-0.0;;@"
           );
         }
-        setFormulaOnly(
-          ebMeta.ws.getCell(12, ebLeft),
-          `${wbSheetRef}!${excelCell(wbLeft, wbMeta.totalStart + 6)}`,
-          "0.0;-0.0;;@"
-        );
       });
     }
 
