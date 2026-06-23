@@ -481,6 +481,32 @@
       gap: 10px;
     }
 
+    .tdr-sheet-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 6px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #f8fafc;
+    }
+
+    .tdr-sheet-tab {
+      min-width: 76px;
+      padding: 7px 12px;
+      border: 1px solid #b9c7d8;
+      border-radius: 7px 7px 0 0;
+      background: #ffffff;
+      color: #344054;
+      font-weight: 700;
+    }
+
+    .tdr-sheet-tab.active {
+      border-color: #0f766e;
+      background: #0f766e;
+      color: #ffffff;
+    }
+
     .tdr-manual-card {
       padding: 10px;
       border: 1px solid var(--line);
@@ -4884,8 +4910,34 @@
 
     function renderTdrBlueBlocks(wrap, blocks, choice, options = {}) {
       wrap.replaceChildren();
+      const useSheetTabs = options.sheetTabs && blocks.length > 1;
+      const cards = [];
+      let activeIndex = 0;
+      let tabs = null;
+      const activateSheet = (index) => {
+        activeIndex = Math.max(0, Math.min(cards.length - 1, Number(index) || 0));
+        cards.forEach((card, cardIndex) => card.classList.toggle("hidden", useSheetTabs && cardIndex !== activeIndex));
+        tabs?.querySelectorAll(".tdr-sheet-tab").forEach((button, buttonIndex) => {
+          button.classList.toggle("active", buttonIndex === activeIndex);
+          button.setAttribute("aria-selected", buttonIndex === activeIndex ? "true" : "false");
+        });
+      };
+      if (useSheetTabs) {
+        tabs = appendText(wrap, "div", "", "tdr-sheet-tabs");
+        tabs.setAttribute("role", "tablist");
+        blocks.forEach((block, index) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "tdr-sheet-tab";
+          button.textContent = block.sheetName;
+          button.setAttribute("role", "tab");
+          button.addEventListener("click", () => activateSheet(index));
+          tabs.appendChild(button);
+        });
+      }
       blocks.forEach((block) => {
         const card = appendText(wrap, "section", "", "tdr-manual-card");
+        cards.push(card);
         const head = appendText(card, "div", "", "tdr-manual-card-head");
         const title = appendText(head, "div", "");
         appendText(title, "div", block.sheetName, "tdr-manual-card-title");
@@ -4965,6 +5017,7 @@
           appendText(card, "div", `批注参考：${block.notes.join("；")}`, "tdr-manual-card-note");
         }
       });
+      if (useSheetTabs) activateSheet(0);
     }
 
     function renderTdrManualPreview() {
@@ -5452,7 +5505,8 @@
         subtitle: (block) => block.sheetName === "TOTAL"
           ? "全部 Partner 汇总"
           : `${preview.mode === "quick-bound" ? "整个 bound · " : ""}SO ${block.carrier} 对应的独立 Sheet`,
-        showNewCarrier: false
+        showNewCarrier: false,
+        sheetTabs: true
       });
       const okRows = preview.results.reduce((sum, result) => sum + (result.rows?.length || 0), 0);
       const rfRows = preview.results.reduce((sum, result) => sum + (result.special?.length || 0), 0);
