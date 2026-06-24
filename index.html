@@ -2136,6 +2136,9 @@
     const DEFAULT_CARRIER_CODE = "CUL";
     const DEFAULT_TON_PER_TEU = 14;
     const ROB_TRANSFER_SECTION_STEP = 10;
+    const SCHEDULE_UPDATE_SHEET = "Schedule Update";
+    const SCHEDULE_UPDATE_START_ROW = 5;
+    const SCHEDULE_UPDATE_MAX_ROWS = 260;
 
     const sample = {
       vesselName: "EXPRESS BERLIN",
@@ -6472,6 +6475,24 @@
       return clean.length ? clean.join("+") : "0";
     }
 
+    function excelFormulaString(value) {
+      return String(value ?? "").replace(/"/g, '""');
+    }
+
+    function scheduleUpdateKey(direction, section, seq) {
+      return `${direction}|${section}|${seq}`;
+    }
+
+    function scheduleUpdateLookupFormula(direction, section, seq, field, fallback = "") {
+      const fieldCols = { Port: 4, ETA: 5, ETB: 6, ETD: 7 };
+      const valueCol = fieldCols[field] || 4;
+      const valueRange = `${excelSheetRef(SCHEDULE_UPDATE_SHEET)}!$${excelCol(valueCol)}$${SCHEDULE_UPDATE_START_ROW}:$${excelCol(valueCol)}$${SCHEDULE_UPDATE_MAX_ROWS}`;
+      const keyRange = `${excelSheetRef(SCHEDULE_UPDATE_SHEET)}!$H$${SCHEDULE_UPDATE_START_ROW}:$H$${SCHEDULE_UPDATE_MAX_ROWS}`;
+      const key = excelFormulaString(scheduleUpdateKey(direction, section, seq));
+      const fallbackText = excelFormulaString(fallback);
+      return `IFERROR(INDEX(${valueRange},MATCH("${key}",${keyRange},0)),"${fallbackText}")`;
+    }
+
     function safeExcelFormula(formula) {
       const raw = String(formula || "0").trim();
       const body = raw.startsWith("=") ? raw.slice(1) : raw;
@@ -6744,7 +6765,7 @@
 
     function setCell(ws, row, col, value, style = {}) {
       const cell = ws.getCell(row, col);
-      cell.value = value;
+      cell.value = value === "" ? null : value;
       applyExcelStyle(cell, style);
       return cell;
     }
@@ -6754,6 +6775,24 @@
       cell.value = { formula: safeExcelFormula(formula), result: 0 };
       applyExcelStyle(cell, style);
       return cell;
+    }
+
+    function setFormulaResultCell(ws, row, col, formula, result, style = {}) {
+      const cell = ws.getCell(row, col);
+      cell.value = { formula: safeExcelFormula(formula), result: result || null };
+      applyExcelStyle(cell, style);
+      return cell;
+    }
+
+    function setScheduleLookupCell(ws, row, col, direction, section, seq, field, fallback, style = {}) {
+      return setFormulaResultCell(
+        ws,
+        row,
+        col,
+        scheduleUpdateLookupFormula(direction, section, seq, field, fallback),
+        fallback,
+        style
+      );
     }
 
     function applyExcelStyle(cell, style = {}) {
@@ -6944,6 +6983,7 @@
       const ttlIndex = labelIndex.TTL;
       const blockHeight = model.labels.length;
       const entryStore = model.sheet.entryStoreKey || sheetName;
+      const scheduleDirection = model.sheet.direction || (/^EB/i.test(sheetName) ? "EB" : "WB");
       const ws = workbook.addWorksheet(sheetName, {
         views: [{ showGridLines: false, state: "frozen", ySplit: 5 }]
       });
@@ -7048,8 +7088,18 @@
         const left = podLeftCols[index];
         safeMerge(ws, 3, left, 3, left + 1);
         safeMerge(ws, 4, left, 4, left + 1);
-        setCell(ws, 3, left, pod.port, headerStyle);
-        setCell(ws, 4, left, pod.eta, String(pod.eta).toUpperCase() === "SKIP" ? skipStyle : headerStyle);
+        setScheduleLookupCell(ws, 3, left, scheduleDirection, "POD", index + 1, "Port", pod.port, headerStyle);
+        setScheduleLookupCell(
+          ws,
+          4,
+          left,
+          scheduleDirection,
+          "POD",
+          index + 1,
+          "ETA",
+          pod.eta,
+          String(pod.eta).toUpperCase() === "SKIP" ? skipStyle : headerStyle
+        );
         setCell(ws, 5, left, "20'", headerStyle);
         setCell(ws, 5, left + 1, "40'", headerStyle);
       });
@@ -7097,12 +7147,34 @@
         if (block.type === "TOTAL") safeMerge(ws, start, 1, start + weightIndex - 1, 2);
         else safeMerge(ws, start, 1, start + mtIndex - 1, 2);
         safeMerge(ws, start + ttlIndex, 1, start + ttlIndex, 2);
-        setCell(ws, start, 1, block.port, { ...baseStyle, bold: true });
+        if (block.type === "POL") {
+          setScheduleLookupCell(
+            ws,
+            start,
+            1,
+            scheduleDirection,
+            "POL",
+            blockIndex,
+            "Port",
+            block.port,
+            { ...baseStyle, bold: true }
+          );
+        } else {
+          setCell(ws, start, 1, block.port, { ...baseStyle, bold: true });
+        }
         if (block.type !== "TOTAL") {
           setCell(ws, start + mtIndex, 1, "ETB", baseStyle);
-          setCell(ws, start + mtIndex, 2, block.etb || "", baseStyle);
+          if (block.type === "POL") {
+            setScheduleLookupCell(ws, start + mtIndex, 2, scheduleDirection, "POL", blockIndex, "ETB", block.etb || "", baseStyle);
+          } else {
+            setCell(ws, start + mtIndex, 2, block.etb || null, baseStyle);
+          }
           setCell(ws, start + weightIndex, 1, "ETD", baseStyle);
-          setCell(ws, start + weightIndex, 2, block.etd || "", baseStyle);
+          if (block.type === "POL") {
+            setScheduleLookupCell(ws, start + weightIndex, 2, scheduleDirection, "POL", blockIndex, "ETD", block.etd || "", baseStyle);
+          } else {
+            setCell(ws, start + weightIndex, 2, block.etd || null, baseStyle);
+          }
         }
         model.labels.forEach((label, offset) => {
           const row = start + offset;
@@ -7439,6 +7511,75 @@
       );
     }
 
+    function addScheduleUpdateSheet(workbook, input) {
+      const ws = workbook.addWorksheet(SCHEDULE_UPDATE_SHEET, {
+        views: [{ showGridLines: false, state: "frozen", ySplit: 4 }]
+      });
+      ws.properties.tabColor = { argb: "FF5B9BD5" };
+      const headerStyle = {
+        fill: "FF99CCFF",
+        bold: true,
+        alignment: { horizontal: "center", vertical: "middle", wrapText: true }
+      };
+      const noteStyle = {
+        fill: "FFFFFFFF",
+        font: { name: "Calibri", size: 11, color: { argb: "FF1F2937" } },
+        alignment: { horizontal: "left", vertical: "middle", wrapText: true }
+      };
+      const inputStyle = { fill: "FFFFFFCC" };
+      const lockedStyle = { fill: "FFF2F4F7" };
+      const rows = [];
+      ["WB", "EB"].forEach((direction) => {
+        (input[direction]?.pods || []).forEach((pod, index) => {
+          const seq = index + 1;
+          rows.push([direction, "POD", seq, pod.port || null, pod.eta || null, null, null, scheduleUpdateKey(direction, "POD", seq)]);
+        });
+        (input[direction]?.pols || []).forEach((pol, index) => {
+          const seq = index + 1;
+          rows.push([direction, "POL", seq, pol.port || null, null, pol.etb || null, pol.etd || null, scheduleUpdateKey(direction, "POL", seq)]);
+        });
+      });
+
+      [12, 10, 8, 14, 12, 12, 12, 18].forEach((width, index) => {
+        ws.getColumn(index + 1).width = width;
+      });
+      ws.getColumn(8).width = 0.1;
+      ws.getColumn(8).hidden = true;
+      ws.getRow(1).height = 24;
+      ws.getRow(2).height = 34;
+      safeMerge(ws, 1, 1, 1, 8);
+      safeMerge(ws, 2, 1, 2, 8);
+      setCell(ws, 1, 1, "Schedule Update", headerStyle);
+      setCell(
+        ws,
+        2,
+        1,
+        "Paste latest schedule into yellow columns D:G. Other sheets update automatically; load figures stay unchanged.",
+        noteStyle
+      );
+      ["Direction", "Section", "Seq", "Port", "ETA", "ETB", "ETD", null].forEach((label, index) => {
+        setCell(ws, 4, index + 1, label, headerStyle);
+      });
+      rows.forEach((values, rowIndex) => {
+        const row = SCHEDULE_UPDATE_START_ROW + rowIndex;
+        values.forEach((value, colIndex) => {
+          const col = colIndex + 1;
+          const style = col >= 4 && col <= 7 ? inputStyle : lockedStyle;
+          setCell(ws, row, col, value, style);
+        });
+      });
+      for (let row = 1; row <= Math.max(SCHEDULE_UPDATE_START_ROW + rows.length - 1, 12); row += 1) {
+        for (let col = 1; col <= 8; col += 1) {
+          const cell = ws.getCell(row, col);
+          cell.border = cell.border || fullBorder("thin");
+          cell.alignment = cell.alignment || { horizontal: col >= 4 && row >= SCHEDULE_UPDATE_START_ROW ? "left" : "center", vertical: "middle", wrapText: row <= 2 };
+          cell.font = cell.font || { name: "Calibri", size: 11, color: { argb: "FF000000" } };
+          if (col === 8 && row >= 4) cell.font = { ...cell.font, color: { argb: "FFFFFFFF" } };
+        }
+      }
+      return ws;
+    }
+
     function balanceSortValue(block) {
       const parsed = parseDateValue(block?.etb || block?.eta || block?.etd || "");
       return parsed ? parsed.getTime() : Number.MAX_SAFE_INTEGER;
@@ -7486,8 +7627,10 @@
                   sortValue: balanceSortValue(block),
                   port,
                   displayPort: direction === "EB" && wbPorts.has(port) ? `${port}（EB）` : port,
-                  etb: displayCallDate(block.etb),
-                  etd: displayCallDate(block.etd),
+                  displaySuffix: direction === "EB" && wbPorts.has(port) ? "（EB）" : "",
+                  sourcePortRef: `${excelSheetRef(meta.ws.name)}!${excelCell(1, start)}`,
+                  sourceEtbRef: `${excelSheetRef(meta.ws.name)}!${excelCell(2, start + meta.labelIndex.MT)}`,
+                  sourceEtdRef: `${excelSheetRef(meta.ws.name)}!${excelCell(2, start + meta.labelIndex.Weight)}`,
                   avlTeuRef: `${excelSheetRef(meta.ws.name)}!${excelCell(meta.summary.avlTeu, start + meta.labelIndex.TTL)}`,
                   avlWeightRef: `${excelSheetRef(meta.ws.name)}!${excelCell(meta.summary.avlWeight, start + meta.labelIndex.Weight)}`,
                   rfRef: `${excelSheetRef(meta.ws.name)}!${excelCell(meta.summary.rf, start + meta.labelIndex.RF)}`,
@@ -7560,9 +7703,9 @@
         const startRow = row;
         group.rows.forEach((item) => {
           setCell(ws, row, 1, group.partner, partnerStyle);
-          setCell(ws, row, 2, item.displayPort, portStyle);
-          setCell(ws, row, 3, item.etb, mutedStyle);
-          setCell(ws, row, 4, item.etd, mutedStyle);
+          setFormulaResultCell(ws, row, 2, item.displaySuffix ? `${item.sourcePortRef}&"${item.displaySuffix}"` : item.sourcePortRef, item.displayPort, portStyle);
+          setFormulaResultCell(ws, row, 3, item.sourceEtbRef, item.block.etb || null, mutedStyle);
+          setFormulaResultCell(ws, row, 4, item.sourceEtdRef, item.block.etd || null, mutedStyle);
           setFormulaCell(ws, row, 5, `N(${item.avlTeuRef})`, valueStyle);
           setFormulaCell(ws, row, 6, `N(${item.avlWeightRef})`, weightStyle);
           setFormulaCell(ws, row, 7, `N(${item.rfRef})`, valueStyle);
@@ -7687,8 +7830,8 @@
         const right = left + 1;
         safeMerge(ws, 3, left, 3, right);
         safeMerge(ws, 4, left, 4, right);
-        setCell(ws, 3, left, pod.port, headerStyle);
-        setCell(ws, 4, left, pod.eta, headerStyle);
+        setScheduleLookupCell(ws, 3, left, options.direction || "WB", "POD", podIndex + 1, "Port", pod.port, headerStyle);
+        setScheduleLookupCell(ws, 4, left, options.direction || "WB", "POD", podIndex + 1, "ETA", pod.eta, headerStyle);
         setCell(ws, 5, left, "20'", headerStyle);
         setCell(ws, 5, right, "40'", headerStyle);
       });
@@ -7790,6 +7933,7 @@
         const headerStart = 3 + sectionIndex * ROB_TRANSFER_SECTION_STEP;
         const dataStart = 6 + sectionIndex * ROB_TRANSFER_SECTION_STEP;
         const sectionPods = section.pods || pods;
+        const direction = section.direction || options.direction || "WB";
         safeMerge(ws, headerStart, 1, headerStart, 3);
         safeMerge(ws, headerStart + 1, 1, headerStart + 1, 3);
         safeMerge(ws, headerStart + 2, 1, headerStart + 2, 3);
@@ -7801,8 +7945,8 @@
           const right = left + 1;
           safeMerge(ws, headerStart, left, headerStart, right);
           safeMerge(ws, headerStart + 1, left, headerStart + 1, right);
-          setCell(ws, headerStart, left, pod.port, headerStyle);
-          setCell(ws, headerStart + 1, left, pod.eta, headerStyle);
+          setScheduleLookupCell(ws, headerStart, left, direction, "POD", podIndex + 1, "Port", pod.port, headerStyle);
+          setScheduleLookupCell(ws, headerStart + 1, left, direction, "POD", podIndex + 1, "ETA", pod.eta, headerStyle);
           setCell(ws, headerStart + 2, left, "20'", headerStyle);
           setCell(ws, headerStart + 2, right, "40'", headerStyle);
         });
@@ -7873,6 +8017,7 @@
         title: "ROB_INPUT - paste previous ROB_OUTPUT values here",
         note: "Paste previous workbook ROB_OUTPUT D6 through the Weight row into D6. WB ROB reads this sheet automatically.",
         blockLabel: "WB ROB INPUT",
+        direction: "WB",
         headerFill: "FF99CCFF",
         noteFill: "FFDDEBF7",
         blockFill: "FFDDEBF7"
@@ -7888,6 +8033,7 @@
         title: "ROB_OUTPUT - EB TOTAL to next cycle ROB_INPUT",
         note: "Copy D6 through the Weight row, then paste values to next workbook ROB_INPUT!D6. This copy area has no merged cells.",
         blockLabel: "EB TOTAL",
+        direction: "EB",
         headerFill: "FF99CCFF",
         noteFill: "FFDDEBF7",
         blockFill: "FFDDEBF7",
@@ -7909,6 +8055,7 @@
     function addMultiCarrierRobInputSheet(workbook, wbMetas) {
       const sections = wbMetas.map(({ carrier, meta }) => ({
         code: carrier.code,
+        direction: "WB",
         pods: meta?.model?.sheet?.pods || [],
         blockLabel: `${carrier.code} ROB INPUT`
       }));
@@ -7927,6 +8074,7 @@
         const totalStart = meta.totalStart;
         return {
           code: carrier.code,
+          direction: "EB",
           pods: meta?.model?.sheet?.pods || [],
           blockLabel: `${carrier.code} EB TOTAL`,
           valueFormula: ({ offset, podIndex, side }) => {
@@ -8046,12 +8194,15 @@
         const isMultiCarrier = carriers.length > 1;
         migrateDirectionEntries("WB", carriers);
         migrateDirectionEntries("EB", carriers);
-        const buildUnits = isMultiCarrier ? 4 + carriers.length * 2 : 4;
+        const buildUnits = isMultiCarrier ? 5 + carriers.length * 2 : 5;
         let completedUnits = 0;
         const markBuilt = async (label) => {
           completedUnits += 1;
           await updateExportProgress(8 + (completedUnits / buildUnits) * 68, label);
         };
+
+        addScheduleUpdateSheet(workbook, input);
+        await markBuilt("Schedule Update 已生成");
 
         if (!isMultiCarrier) {
           const carrier = carriers[0];
