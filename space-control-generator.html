@@ -1830,6 +1830,7 @@
             <button id="quickTdr" type="button" class="tdr-button">快速查 TDR</button>
             <button id="saveSync" type="button" class="sync-save">保存并同步</button>
             <button id="copyTable" type="button">复制预览</button>
+            <button id="copyScheduleUpdate" type="button">复制 Schedule Update</button>
             <button id="exportXls" type="button" class="primary export-button">导出 Excel</button>
             <span class="status" id="status">Ready</span>
           </div>
@@ -6452,6 +6453,34 @@
       }
     }
 
+    async function writeClipboardText(text) {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+      }
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.style.position = "fixed";
+      area.style.left = "-9999px";
+      document.body.appendChild(area);
+      area.focus();
+      area.select();
+      document.execCommand("copy");
+      area.remove();
+    }
+
+    async function copyScheduleUpdateTemplate() {
+      saveEntriesFromCurrentTable();
+      const input = readInputs();
+      const rows = scheduleUpdateRows(input);
+      if (!rows.length) {
+        $("status").textContent = "No schedule rows to copy";
+        return;
+      }
+      await writeClipboardText(scheduleUpdateClipboardText(input));
+      $("status").textContent = "Schedule Update copied. Paste into Schedule Update!A4";
+    }
+
     function excelCol(col) {
       let name = "";
       while (col > 0) {
@@ -6481,6 +6510,29 @@
 
     function scheduleUpdateKey(direction, section, seq) {
       return `${direction}|${section}|${seq}`;
+    }
+
+    function scheduleUpdateRows(input) {
+      const rows = [];
+      ["WB", "EB"].forEach((direction) => {
+        (input[direction]?.pods || []).forEach((pod, index) => {
+          const seq = index + 1;
+          rows.push([direction, "POD", seq, pod.port || null, pod.eta || null, null, null, scheduleUpdateKey(direction, "POD", seq)]);
+        });
+        (input[direction]?.pols || []).forEach((pol, index) => {
+          const seq = index + 1;
+          rows.push([direction, "POL", seq, pol.port || null, null, pol.etb || null, pol.etd || null, scheduleUpdateKey(direction, "POL", seq)]);
+        });
+      });
+      return rows;
+    }
+
+    function scheduleUpdateClipboardText(input) {
+      const header = ["Direction", "Section", "Seq", "Port", "ETA", "ETB", "ETD"];
+      const rows = scheduleUpdateRows(input).map((row) => row.slice(0, 7));
+      return [header, ...rows]
+        .map((row) => row.map((cell) => cell ?? "").join("\t"))
+        .join("\n");
     }
 
     function scheduleUpdateLookupFormula(direction, section, seq, field, fallback = "") {
@@ -7528,17 +7580,7 @@
       };
       const inputStyle = { fill: "FFFFFFCC" };
       const lockedStyle = { fill: "FFF2F4F7" };
-      const rows = [];
-      ["WB", "EB"].forEach((direction) => {
-        (input[direction]?.pods || []).forEach((pod, index) => {
-          const seq = index + 1;
-          rows.push([direction, "POD", seq, pod.port || null, pod.eta || null, null, null, scheduleUpdateKey(direction, "POD", seq)]);
-        });
-        (input[direction]?.pols || []).forEach((pol, index) => {
-          const seq = index + 1;
-          rows.push([direction, "POL", seq, pol.port || null, null, pol.etb || null, pol.etd || null, scheduleUpdateKey(direction, "POL", seq)]);
-        });
-      });
+      const rows = scheduleUpdateRows(input);
 
       [12, 10, 8, 14, 12, 12, 12, 18].forEach((width, index) => {
         ws.getColumn(index + 1).width = width;
@@ -8201,9 +8243,6 @@
           await updateExportProgress(8 + (completedUnits / buildUnits) * 68, label);
         };
 
-        addScheduleUpdateSheet(workbook, input);
-        await markBuilt("Schedule Update 已生成");
-
         if (!isMultiCarrier) {
           const carrier = carriers[0];
           const wbName = carrierSheetName("WB", carrier, false);
@@ -8298,6 +8337,9 @@
           addMultiCarrierRobOutputSheet(workbook, ebCarrierMetas);
           await markBuilt("TOTAL、ROB 公式和传递表已生成");
         }
+
+        addScheduleUpdateSheet(workbook, input);
+        await markBuilt("Schedule Update 已生成");
 
         await updateExportProgress(82, "正在写入 Excel 文件");
         const buffer = await workbook.xlsx.writeBuffer();
@@ -8446,6 +8488,7 @@
       renderMoveCountControls();
     });
     $("copyTable").addEventListener("click", copyTable);
+    $("copyScheduleUpdate").addEventListener("click", copyScheduleUpdateTemplate);
     $("exportXls").addEventListener("click", exportXls);
     $("saveSync").addEventListener("click", saveAndSyncCurrentVvd);
     $("settingsButton").addEventListener("click", openSettings);
