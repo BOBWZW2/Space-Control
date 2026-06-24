@@ -651,6 +651,25 @@
       border-top-color: #8064a2 !important;
     }
 
+    .move-count-panel {
+      grid-column: 1 / -1;
+      background: #fff8e6;
+      border-top-color: #d3ad43 !important;
+    }
+
+    .move-count-panel .draft-port-field {
+      border-color: #dfbd5f;
+    }
+
+    .move-count-panel .draft-port-grid {
+      grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    }
+
+    .move-count-panel .draft-port-field input {
+      border-color: #d3ad43;
+      background: #fffdf2;
+    }
+
     .draft-toggle {
       display: inline-flex;
       align-items: center;
@@ -1850,6 +1869,18 @@
           <div class="draft-port-grid hidden" id="draftPortInputs"></div>
         </div>
 
+        <div class="section control-panel move-count-panel">
+          <div class="section-heading">
+            <h2>Move Count Limit</h2>
+            <label class="draft-toggle" for="moveCountEnabled">
+              <input id="moveCountEnabled" type="checkbox">
+              <span>This VVD has Move Count limit</span>
+            </label>
+          </div>
+          <div class="subtle" id="moveCountHelp">Disabled: Step Up/Down Move Count stays blank in exported sheets.</div>
+          <div class="draft-port-grid hidden" id="moveCountPortInputs"></div>
+        </div>
+
         <details class="section control-panel history-panel" id="historyPanel">
           <summary>历史记录 <span class="history-count" id="historyCount">0</span></summary>
           <div class="history-tools">
@@ -2183,6 +2214,7 @@
       quickTdrPreview: null,
       quickTdrBlocks: [],
       draftSettings: { enabled: false, ports: {}, partnerOverrides: {} },
+      moveCountSettings: { enabled: false, limits: {} },
       initialized: false
     };
 
@@ -2469,6 +2501,7 @@
         tdrAudit: state.tdrAudit,
         tdrImports: state.tdrImports,
         draft: normalizeDraftSettings(state.draftSettings),
+        moveCount: normalizeMoveCountSettings(state.moveCountSettings),
         selectedWbPodKeys,
         selectedWbPodPorts: selectedWbPodKeys.map((key) => key.split("::")[0]).filter(Boolean)
       };
@@ -2508,7 +2541,9 @@
           ? structuredClone(record.tdrImports)
           : {};
         state.draftSettings = normalizeDraftSettings(record.draft);
+        state.moveCountSettings = normalizeMoveCountSettings(record.moveCount);
 
+        if (state.currentLookup) renderWbPodOptions(state.currentLookup);
         if (Array.isArray(record.selectedWbPodKeys)) {
           const selectedKeys = new Set(record.selectedWbPodKeys);
           const selectedPorts = new Set(record.selectedWbPodPorts || []);
@@ -2521,6 +2556,7 @@
         }
         updateScheduleTextareasFromLookup();
         renderDraftControls();
+        renderMoveCountControls();
       } finally {
         state.applyingCache = false;
       }
@@ -2551,6 +2587,7 @@
       state.tdrAudit = {};
       state.tdrImports = {};
       state.draftSettings = normalizeDraftSettings(null);
+      state.moveCountSettings = normalizeMoveCountSettings(null);
       state.tableData = { WB: null, EB: null };
       renderCarrierRows([defaultCarrier()]);
       ["serviceLane", "vvd", "vesselName", "reportDate", "selection", "wbTeus", "wbMt", "wbRf", "ebTeus", "ebMt", "ebRf"].forEach((id) => {
@@ -2563,6 +2600,7 @@
       });
       $("wbPodOptions").replaceChildren();
       renderDraftControls();
+      renderMoveCountControls();
       $("scheduleSummary").textContent = "尚未读取船期";
       $("summaryLine").textContent = "Schedule preview";
       $("sheetWrap").replaceChildren();
@@ -2802,6 +2840,28 @@
       };
     }
 
+    function moveCountLimitKey(port, dateValue = "") {
+      const normalizedPort = normalizePort(port);
+      if (!normalizedPort) return "";
+      const normalizedDate = dateValueKey(dateValue) || normalizeText(dateValue).toUpperCase();
+      return `${normalizedPort}::${normalizedDate}`;
+    }
+
+    function normalizeMoveCountSettings(settings) {
+      const limits = {};
+      Object.entries(settings?.limits || {}).forEach(([rawKey, rawLimit]) => {
+        const limit = Math.round(Number(rawLimit));
+        if (!rawKey || !Number.isFinite(limit) || limit <= 0) return;
+        const [rawPort, rawDate = ""] = String(rawKey).split("::");
+        const key = moveCountLimitKey(rawPort, rawDate);
+        if (key) limits[key] = limit;
+      });
+      return {
+        enabled: Boolean(settings?.enabled),
+        limits
+      };
+    }
+
     function currentDraftPorts() {
       const lookup = state.currentLookup;
       const calls = lookup
@@ -2815,6 +2875,86 @@
         if (!port || seen.has(port)) return false;
         seen.add(port);
         return true;
+      });
+    }
+
+    function currentMoveCountCalls() {
+      let rows = [
+        ...textToRows($("wbPods")?.value || "", 2),
+        ...textToRows($("ebPods")?.value || "", 2)
+      ];
+      if (!rows.length && state.currentLookup) {
+        const wbPodCalls = dedupeCallsByPortDate([...selectedWbPodCalls(state.currentLookup), ...(state.currentLookup.ebCalls || [])]);
+        rows = [...wbPodCalls, ...(state.currentLookup.ebRouteCalls || [])].map((call) => [call.port, callDateKey(call)]);
+      }
+      const seen = new Set();
+      return rows
+        .map(([rawPort, rawDate]) => {
+          const port = normalizePort(rawPort);
+          const key = moveCountLimitKey(port, rawDate);
+          const dateKey = key.split("::")[1] || "";
+          return {
+            port,
+            date: normalizeText(rawDate),
+            dateKey,
+            key,
+            sortValue: parseDateValue(rawDate)?.getTime() ?? Number.MAX_SAFE_INTEGER
+          };
+        })
+        .filter((item) => {
+          if (!item.port || !item.key || seen.has(item.key)) return false;
+          seen.add(item.key);
+          return true;
+        })
+        .sort((a, b) => a.sortValue - b.sortValue || a.port.localeCompare(b.port));
+    }
+
+    function renderMoveCountControls() {
+      const toggle = $("moveCountEnabled");
+      const container = $("moveCountPortInputs");
+      const help = $("moveCountHelp");
+      if (!toggle || !container || !help) return;
+      state.moveCountSettings = normalizeMoveCountSettings(state.moveCountSettings);
+      toggle.checked = state.moveCountSettings.enabled;
+      container.classList.toggle("hidden", !state.moveCountSettings.enabled);
+      container.replaceChildren();
+      if (!state.moveCountSettings.enabled) {
+        help.textContent = "Disabled: Step Up/Down Move Count stays blank in exported sheets.";
+        return;
+      }
+      const calls = currentMoveCountCalls();
+      help.textContent = calls.length
+        ? "Saved by VVD. Same port and date share one Move Count limit across WB and EB."
+        : "Read schedule first, then enter one Move Count limit per port/date.";
+      calls.forEach((item) => {
+        const label = document.createElement("label");
+        label.className = "draft-port-field";
+        const name = document.createElement("span");
+        const dateText = item.date ? formatMmDd(item.date) : "";
+        name.textContent = dateText ? `${item.port} ${dateText}` : item.port;
+        const input = document.createElement("input");
+        input.type = "number";
+        input.min = "1";
+        input.step = "1";
+        input.inputMode = "numeric";
+        input.placeholder = "No limit";
+        input.value = state.moveCountSettings.limits[item.key] || "";
+        input.dataset.moveCountKey = item.key;
+        input.dataset.moveCountPort = item.port;
+        input.dataset.moveCountDate = item.dateKey;
+        input.addEventListener("input", () => {
+          const text = input.value.trim();
+          const value = Math.round(Number(text));
+          if (!text || !Number.isFinite(value) || value <= 0) delete state.moveCountSettings.limits[item.key];
+          else state.moveCountSettings.limits[item.key] = value;
+          saveLocalDraftForCurrentVvd();
+        });
+        input.addEventListener("change", () => {
+          input.value = state.moveCountSettings.limits[item.key] || "";
+        });
+        label.appendChild(name);
+        label.appendChild(input);
+        container.appendChild(label);
       });
     }
 
@@ -3403,6 +3543,7 @@
         checkbox.checked = true;
         checkbox.addEventListener("change", () => {
           updateScheduleTextareasFromLookup();
+          renderMoveCountControls();
           render();
           saveLocalDraftForCurrentVvd();
         });
@@ -3421,6 +3562,7 @@
         state.tdrAudit = {};
         state.tdrImports = {};
         state.draftSettings = normalizeDraftSettings(null);
+        state.moveCountSettings = normalizeMoveCountSettings(null);
       }
       state.lookupSignature = signature;
       state.currentLookup = lookup;
@@ -3434,6 +3576,7 @@
       renderWbPodOptions(lookup);
       updateScheduleTextareasFromLookup();
       renderDraftControls();
+      renderMoveCountControls();
       updateDirectionUi();
       $("scheduleSummary").textContent =
         `${lookup.vesselName} / ${lookup.inputVvd} · ${lookup.lane} · ` +
@@ -3655,6 +3798,12 @@
     function draftLimitValue(settings, port) {
       if (!settings?.enabled) return null;
       const value = Number(settings.ports?.[normalizePort(port)]);
+      return Number.isFinite(value) && value > 0 ? value : null;
+    }
+
+    function moveCountLimitValue(settings, port, dateValue = "") {
+      if (!settings?.enabled) return null;
+      const value = Number(settings.limits?.[moveCountLimitKey(port, dateValue)]);
       return Number.isFinite(value) && value > 0 ? value : null;
     }
 
@@ -3921,6 +4070,7 @@
         tonPerTeu: carriers[0]?.tonPerTeu ?? DEFAULT_TON_PER_TEU,
         carriers,
         draft: normalizeDraftSettings(state.draftSettings),
+        moveCount: normalizeMoveCountSettings(state.moveCountSettings),
         WB: {
           allocationLabel: carriers.length > 1 ? "WB TOTAL" : "WB ALLOCATION",
           allocation: wbAlloc,
@@ -6848,6 +6998,7 @@
       const computedStyle = { fill: whiteFill };
       const moveLabelStyle = { fill: whiteFill, bold: true };
       const moveValueStyle = { fill: whiteFill, bold: true };
+      const moveInputStyle = { fill: yellowFill, font: headerFont };
 
       for (let col = 1; col <= summary.last; col += 1) {
         let width = 7.5;
@@ -7128,7 +7279,9 @@
         ));
         return `=${sumFormula([dischargeCount, ...loadCounts])}`;
       });
-      addMoveRow(moveSummaryStart + 5, "Step Up/Down Move Count", () => null);
+      addMoveRow(moveSummaryStart + 5, "Step Up/Down Move Count", ({ pod }) => (
+        moveCountLimitValue(input.moveCount, pod.port, podCallDate(pod))
+      ), moveInputStyle);
       addMoveRow(moveSummaryStart + 6, "Balance Move Count", ({ left }) => (
         `=${excelCell(left, moveSummaryStart + 5)}-${excelCell(left, moveSummaryStart + 4)}`
       ));
@@ -8134,9 +8287,13 @@
     $("clearInputs").addEventListener("click", clearCurrentInputs);
     $("loadSample").addEventListener("click", () => {
       setSample();
+      renderMoveCountControls();
       render();
     });
-    $("parseBulk").addEventListener("click", parseBulkInput);
+    $("parseBulk").addEventListener("click", () => {
+      parseBulkInput();
+      renderMoveCountControls();
+    });
     $("copyTable").addEventListener("click", copyTable);
     $("exportXls").addEventListener("click", exportXls);
     $("saveSync").addEventListener("click", saveAndSyncCurrentVvd);
@@ -8199,6 +8356,11 @@
       renderDraftControls();
       saveLocalDraftForCurrentVvd();
     });
+    $("moveCountEnabled").addEventListener("change", () => {
+      state.moveCountSettings.enabled = $("moveCountEnabled").checked;
+      renderMoveCountControls();
+      saveLocalDraftForCurrentVvd();
+    });
     $("carrierRows").addEventListener("input", (event) => {
       const input = event.target.closest("input[data-field]");
       if (!input) return;
@@ -8239,6 +8401,7 @@
 
     renderCarrierRows([defaultCarrier()]);
     renderDraftControls();
+    renderMoveCountControls();
     updateDirectionUi();
     initializePage();
     if (window.lucide) window.lucide.createIcons();
