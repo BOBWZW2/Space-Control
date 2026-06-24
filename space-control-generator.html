@@ -2140,6 +2140,7 @@
     const SCHEDULE_UPDATE_SHEET = "Schedule Update";
     const SCHEDULE_UPDATE_START_ROW = 5;
     const SCHEDULE_UPDATE_MAX_ROWS = 260;
+    const SCHEDULE_DATE_NUM_FMT = "mm/dd";
 
     const sample = {
       vesselName: "EXPRESS BERLIN",
@@ -3039,6 +3040,8 @@
       }
       const mmdd = normalized.match(/^(\d{1,2})-(\d{1,2})$/);
       if (mmdd) return new Date(2026, Number(mmdd[1]) - 1, Number(mmdd[2]));
+      const cnMmDd = text.match(/^(\d{1,2})\s*月\s*(\d{1,2})\s*日?$/);
+      if (cnMmDd) return new Date(2026, Number(cnMmDd[1]) - 1, Number(cnMmDd[2]));
       return null;
     }
 
@@ -6512,26 +6515,37 @@
       return `${direction}|${section}|${seq}`;
     }
 
+    function scheduleUpdateDateValue(value) {
+      const text = formatMmDd(value);
+      return text || null;
+    }
+
     function scheduleUpdateRows(input) {
       const rows = [];
       ["WB", "EB"].forEach((direction) => {
         (input[direction]?.pods || []).forEach((pod, index) => {
           const seq = index + 1;
-          rows.push([direction, "POD", seq, pod.port || null, pod.eta || null, null, null, scheduleUpdateKey(direction, "POD", seq)]);
+          rows.push([direction, "POD", seq, pod.port || null, scheduleUpdateDateValue(pod.eta), null, null, scheduleUpdateKey(direction, "POD", seq)]);
         });
         (input[direction]?.pols || []).forEach((pol, index) => {
           const seq = index + 1;
-          rows.push([direction, "POL", seq, pol.port || null, null, pol.etb || null, pol.etd || null, scheduleUpdateKey(direction, "POL", seq)]);
+          rows.push([direction, "POL", seq, pol.port || null, null, scheduleUpdateDateValue(pol.etb), scheduleUpdateDateValue(pol.etd), scheduleUpdateKey(direction, "POL", seq)]);
         });
       });
       return rows;
+    }
+
+    function scheduleClipboardCell(cell, index) {
+      const text = cell ?? "";
+      if (index >= 4 && index <= 6 && /^\d{1,2}\/\d{1,2}$/.test(String(text))) return `'${text}`;
+      return text;
     }
 
     function scheduleUpdateClipboardText(input) {
       const header = ["Direction", "Section", "Seq", "Port", "ETA", "ETB", "ETD"];
       const rows = scheduleUpdateRows(input).map((row) => row.slice(0, 7));
       return [header, ...rows]
-        .map((row) => row.map((cell) => cell ?? "").join("\t"))
+        .map((row) => row.map((cell, index) => scheduleClipboardCell(cell, index)).join("\t"))
         .join("\n");
     }
 
@@ -6837,13 +6851,18 @@
     }
 
     function setScheduleLookupCell(ws, row, col, direction, section, seq, field, fallback, style = {}) {
+      const isDateField = ["ETA", "ETB", "ETD"].includes(field);
+      const displayValue = isDateField ? scheduleUpdateDateValue(fallback) : fallback;
+      const displayStyle = isDateField
+        ? { ...style, numFmt: style.numFmt || SCHEDULE_DATE_NUM_FMT }
+        : style;
       return setFormulaResultCell(
         ws,
         row,
         col,
-        scheduleUpdateLookupFormula(direction, section, seq, field, fallback),
-        fallback,
-        style
+        scheduleUpdateLookupFormula(direction, section, seq, field, displayValue),
+        displayValue,
+        displayStyle
       );
     }
 
@@ -7579,6 +7598,7 @@
         alignment: { horizontal: "left", vertical: "middle", wrapText: true }
       };
       const inputStyle = { fill: "FFFFFFCC" };
+      const dateInputStyle = { ...inputStyle, numFmt: SCHEDULE_DATE_NUM_FMT };
       const lockedStyle = { fill: "FFF2F4F7" };
       const rows = scheduleUpdateRows(input);
 
@@ -7606,7 +7626,7 @@
         const row = SCHEDULE_UPDATE_START_ROW + rowIndex;
         values.forEach((value, colIndex) => {
           const col = colIndex + 1;
-          const style = col >= 4 && col <= 7 ? inputStyle : lockedStyle;
+          const style = col >= 5 && col <= 7 ? dateInputStyle : col === 4 ? inputStyle : lockedStyle;
           setCell(ws, row, col, value, style);
         });
       });
@@ -7721,6 +7741,7 @@
         fill: "FFFFFFFF",
         font: { name: "Calibri", size: 11, color: { argb: "FF666666" } }
       };
+      const mutedDateStyle = { ...mutedStyle, numFmt: SCHEDULE_DATE_NUM_FMT };
       const lastCol = 8;
       ws.columns = [
         { width: 12 },
@@ -7746,8 +7767,8 @@
         group.rows.forEach((item) => {
           setCell(ws, row, 1, group.partner, partnerStyle);
           setFormulaResultCell(ws, row, 2, item.displaySuffix ? `${item.sourcePortRef}&"${item.displaySuffix}"` : item.sourcePortRef, item.displayPort, portStyle);
-          setFormulaResultCell(ws, row, 3, item.sourceEtbRef, item.block.etb || null, mutedStyle);
-          setFormulaResultCell(ws, row, 4, item.sourceEtdRef, item.block.etd || null, mutedStyle);
+          setFormulaResultCell(ws, row, 3, item.sourceEtbRef, scheduleUpdateDateValue(item.block.etb), mutedDateStyle);
+          setFormulaResultCell(ws, row, 4, item.sourceEtdRef, scheduleUpdateDateValue(item.block.etd), mutedDateStyle);
           setFormulaCell(ws, row, 5, `N(${item.avlTeuRef})`, valueStyle);
           setFormulaCell(ws, row, 6, `N(${item.avlWeightRef})`, weightStyle);
           setFormulaCell(ws, row, 7, `N(${item.rfRef})`, valueStyle);
