@@ -2139,6 +2139,7 @@
     const GITHUB_CACHE_BRANCH = "main";
     const LOCAL_DRAFTS_KEY = "spaceControl.cacheDrafts";
     const LOCAL_HISTORY_KEY = "spaceControl.inputHistory";
+    const LOCAL_QUICK_TDR_DECISIONS_KEY = "spaceControl.quickTdrDecisions";
     const GITHUB_TOKEN_KEY = "spaceControl.githubToken";
     const PORT_ALIASES = { CNNSA: "CNNAS" };
     const DEFAULT_CARRIER_CODE = "CUL";
@@ -5630,6 +5631,67 @@
       return pageCarriers;
     }
 
+    function quickTdrDecisionVoyageKey(vvdInput) {
+      return quickTdrCacheKeys(vvdInput)[0] || cleanVvd(vvdInput);
+    }
+
+    function loadQuickTdrDecisionStore() {
+      const store = loadStorageJson(LOCAL_QUICK_TDR_DECISIONS_KEY, {});
+      return store && typeof store === "object" ? store : {};
+    }
+
+    function saveQuickTdrDecisionStore(store) {
+      saveStorageJson(LOCAL_QUICK_TDR_DECISIONS_KEY, store && typeof store === "object" ? store : {});
+    }
+
+    function quickTdrIssueDecisionKey(preview, issue) {
+      if (!preview || !issue || !["so", "co"].includes(issue.type)) return "";
+      if (issue.type === "so") return issue.key;
+      const parts = String(issue.key || "").split(":");
+      if (parts.length < 4) return "";
+      const polIndex = parts[2];
+      const co = parts.slice(3).join(":");
+      const choice = (preview.choices || []).find((item) => String(item.polIndex) === String(polIndex));
+      return `co:${normalizePort(choice?.port) || polIndex}:${co}`;
+    }
+
+    function validIssueValue(issue, value) {
+      return Boolean(value && (issue.options || []).some((option) => option.value === value));
+    }
+
+    function applyQuickTdrSavedDecisions(preview) {
+      const key = preview?.decisionVvdKey;
+      if (!key) return 0;
+      const decisions = loadQuickTdrDecisionStore()[key]?.decisions || {};
+      let applied = 0;
+      (preview.issues || []).forEach((issue) => {
+        if (issue.value) return;
+        const decisionKey = quickTdrIssueDecisionKey(preview, issue);
+        const savedValue = decisionKey ? decisions[decisionKey] : "";
+        if (!validIssueValue(issue, savedValue)) return;
+        issue.value = savedValue;
+        applied += 1;
+      });
+      preview.savedDecisionCount = applied;
+      return applied;
+    }
+
+    function saveQuickTdrIssueDecision(preview, issue) {
+      const voyageKey = preview?.decisionVvdKey;
+      const decisionKey = quickTdrIssueDecisionKey(preview, issue);
+      if (!voyageKey || !decisionKey) return;
+      const store = loadQuickTdrDecisionStore();
+      const bucket = store[voyageKey] && typeof store[voyageKey] === "object"
+        ? store[voyageKey]
+        : { decisions: {} };
+      bucket.decisions = bucket.decisions && typeof bucket.decisions === "object" ? bucket.decisions : {};
+      if (issue.value) bucket.decisions[decisionKey] = issue.value;
+      else delete bucket.decisions[decisionKey];
+      bucket.updatedAt = new Date().toISOString();
+      store[voyageKey] = bucket;
+      saveQuickTdrDecisionStore(store);
+    }
+
     function quickTdrPartnerIssueOptions(preview) {
       const carriers = activeCarriers(preview?.maintainedCarriers || quickTdrMaintainedCarriers());
       return (carriers.length ? carriers : [defaultCarrier(DEFAULT_CARRIER_CODE)]).map((carrier) => ({
@@ -5816,6 +5878,7 @@
         });
         select.addEventListener("change", () => {
           issue.value = select.value;
+          saveQuickTdrIssueDecision(preview, issue);
           renderQuickTdrResult();
         });
         row.appendChild(select);
@@ -5959,6 +6022,7 @@
         authFailed: false,
         mode: mode === "bound" ? "quick-bound" : "quick",
         sheetName: mode === "bound" ? "QUICK_BOUND" : "QUICK",
+        decisionVvdKey: quickTdrDecisionVoyageKey(vvd),
         choices,
         pods: [],
         maintainedCarriers,
@@ -6027,6 +6091,7 @@
           ]));
         });
         preview.issues = filterQuickTdrIssues(preview);
+        applyQuickTdrSavedDecisions(preview);
         preview.querying = false;
         if (preview.authFailed) {
           $("quickTdrAccountPanel").classList.remove("hidden");
