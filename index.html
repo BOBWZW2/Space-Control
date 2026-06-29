@@ -4531,7 +4531,10 @@
         category = NORMAL_CUL_CO.has(co) ? "LILIAN" : issueValue(`co:${choice.sheetName}:${choice.polIndex}:${co}`, preview);
       } else if (!known.has(so)) {
         const decision = issueValue(`so:${so}`, preview);
-        if (decision === "cul-soc") {
+        if ((preview.mode === "quick" || preview.mode === "quick-bound") && decision && decision !== "partner" && decision !== "cul-soc") {
+          carrier = decision;
+          category = "SOC";
+        } else if (decision === "cul-soc") {
           carrier = DEFAULT_CARRIER_CODE;
           category = "SOC";
         }
@@ -4662,10 +4665,15 @@
         const so = carrierCode(row.so, "");
         const known = preview.carriers.some((carrier) => carrier.code === so);
         if (so && so !== DEFAULT_CARRIER_CODE && !known && !issueKeys.has(`so:${so}`)) {
-          preview.issues.push(tdrIssue(`so:${so}`, "so", `SO ${so} 未在 Partner / BSA 维护`, [
-            { value: "partner", label: `新增 ${so} Partner` },
-            { value: "cul-soc", label: "计入 CUL / SOC" }
-          ]));
+          const quickOptions = (preview.mode === "quick" || preview.mode === "quick-bound")
+            ? quickTdrPartnerIssueOptions(preview)
+            : null;
+          preview.issues.push(tdrIssue(`so:${so}`, "so", quickOptions
+            ? `SO ${so} 未在已维护 Partner 中：确认该 SOC 计入哪个 Partner`
+            : `SO ${so} 未在 Partner / BSA 维护`, quickOptions || [
+              { value: "partner", label: `新增 ${so} Partner` },
+              { value: "cul-soc", label: "计入 CUL / SOC" }
+            ]));
           issueKeys.add(`so:${so}`);
         }
         const co = carrierCode(row.co, "");
@@ -5466,14 +5474,56 @@
       return pods;
     }
 
-    function quickTdrCarriers(payloads) {
+    function quickTdrMaintainedCarriers() {
+      const carriers = activeCarriers(readCarrierRows());
+      return carriers.length ? carriers : [defaultCarrier(DEFAULT_CARRIER_CODE)];
+    }
+
+    function quickTdrPartnerIssueOptions(preview) {
+      const carriers = activeCarriers(preview?.maintainedCarriers || quickTdrMaintainedCarriers());
+      return (carriers.length ? carriers : [defaultCarrier(DEFAULT_CARRIER_CODE)]).map((carrier) => ({
+        value: carrier.code,
+        label: `计入 ${carrier.code} / SOC`
+      }));
+    }
+
+    function quickTdrCarriers(payloads, maintainedCarriers = quickTdrMaintainedCarriers()) {
+      const maintained = activeCarriers(maintainedCarriers);
+      const maintainedByCode = new Map(maintained.map((carrier) => [carrier.code, carrier]));
       const codes = [];
       quickTdrPayloadRows(payloads).forEach((row) => {
         const code = carrierCode(row.so, DEFAULT_CARRIER_CODE);
+        if (!maintainedByCode.has(code)) return;
         if (code && !codes.includes(code)) codes.push(code);
       });
-      codes.sort((a, b) => (a === DEFAULT_CARRIER_CODE ? -1 : b === DEFAULT_CARRIER_CODE ? 1 : a.localeCompare(b)));
-      return (codes.length ? codes : [DEFAULT_CARRIER_CODE]).map((code) => defaultCarrier(code));
+      if (!codes.length && maintainedByCode.has(DEFAULT_CARRIER_CODE)) codes.push(DEFAULT_CARRIER_CODE);
+      codes.sort((a, b) => {
+        if (a === DEFAULT_CARRIER_CODE) return -1;
+        if (b === DEFAULT_CARRIER_CODE) return 1;
+        return maintained.findIndex((carrier) => carrier.code === a) - maintained.findIndex((carrier) => carrier.code === b);
+      });
+      return (codes.length ? codes : [DEFAULT_CARRIER_CODE]).map((code) => maintainedByCode.get(code) || defaultCarrier(code));
+    }
+
+    function quickTdrResolvedCarriers(preview) {
+      const maintained = activeCarriers(preview?.maintainedCarriers || quickTdrMaintainedCarriers());
+      const maintainedByCode = new Map(maintained.map((carrier) => [carrier.code, carrier]));
+      const carriers = [...(preview?.carriers || [])];
+      const addCarrier = (code) => {
+        const normalized = carrierCode(code, "");
+        if (!normalized || carriers.some((carrier) => carrier.code === normalized)) return;
+        carriers.push(maintainedByCode.get(normalized) || defaultCarrier(normalized));
+      };
+      (preview?.issues || []).filter((issue) => issue.type === "so" && issue.value).forEach((issue) => addCarrier(issue.value));
+      if (!carriers.length) addCarrier(DEFAULT_CARRIER_CODE);
+      return activeCarriers(carriers).sort((a, b) => {
+        if (a.code === DEFAULT_CARRIER_CODE) return -1;
+        if (b.code === DEFAULT_CARRIER_CODE) return 1;
+        const ai = maintained.findIndex((carrier) => carrier.code === a.code);
+        const bi = maintained.findIndex((carrier) => carrier.code === b.code);
+        if (ai !== -1 || bi !== -1) return (ai === -1 ? 9999 : ai) - (bi === -1 ? 9999 : bi);
+        return a.code.localeCompare(b.code);
+      });
     }
 
     function quickTdrAggregateSection(sections, pods, choice = {}) {
@@ -5552,7 +5602,8 @@
     }
 
     function buildQuickTdrBlocks(preview) {
-      const carriers = preview.carriers;
+      const carriers = quickTdrResolvedCarriers(preview);
+      preview.carriers = carriers;
       const pods = preview.pods;
       const multiCarrier = carriers.length > 1;
       const included = quickTdrIncludedResults(preview);
@@ -5719,8 +5770,8 @@
 
     function filterQuickTdrIssues(preview) {
       return preview.issues.filter((issue) => {
-        if (issue.type === "pod" || issue.type === "so") return false;
-        if (preview.mode !== "quick-bound" && issue.type !== "co") return false;
+        if (issue.type === "pod") return false;
+        if (preview.mode !== "quick-bound" && !["co", "so"].includes(issue.type)) return false;
         return true;
       });
     }
@@ -5750,6 +5801,7 @@
       }
       resetQuickTdrResult();
       $("quickTdrQuery").disabled = true;
+      const maintainedCarriers = quickTdrMaintainedCarriers();
       const preview = {
         querying: true,
         authFailed: false,
@@ -5757,7 +5809,8 @@
         sheetName: mode === "bound" ? "QUICK_BOUND" : "QUICK",
         choices,
         pods: [],
-        carriers: [defaultCarrier(DEFAULT_CARRIER_CODE)],
+        maintainedCarriers,
+        carriers: quickTdrCarriers([], maintainedCarriers),
         results: [],
         issues: []
       };
@@ -5798,7 +5851,7 @@
         setQuickTdrProgress(88, "TDR 已返回，正在整理蓝色模板", true);
         const payloads = lines.filter((line) => line?.ok).map((line) => line.result || {});
         preview.pods = quickTdrPods(payloads, vvd);
-        preview.carriers = quickTdrCarriers(payloads);
+        preview.carriers = quickTdrCarriers(payloads, preview.maintainedCarriers);
         const processed = new Set();
         lines.forEach((line) => {
           const index = Number(line.index);
