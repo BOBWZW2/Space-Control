@@ -5556,6 +5556,80 @@
       return carriers.length ? carriers : [defaultCarrier(DEFAULT_CARRIER_CODE)];
     }
 
+    function quickTdrCacheKeys(vvdInput) {
+      const raw = cleanVvd(vvdInput);
+      const keys = [];
+      const add = (value) => {
+        const key = cleanVvd(value);
+        if (key && !keys.includes(key)) keys.push(key);
+      };
+      try {
+        const { code, cycle, suffix } = vvdParts(raw);
+        const stem = `${code}${cycle}`;
+        if (suffix === "W" || suffix === "E") {
+          add(`${stem}WE`);
+          add(`${stem}EW`);
+          add(raw);
+        } else if (suffix === "WE" || suffix === "EW") {
+          add(raw);
+          add(`${stem}WE`);
+          add(`${stem}EW`);
+        } else {
+          add(raw);
+          if (suffix.includes("W") || suffix.includes("E")) {
+            add(`${stem}WE`);
+            add(`${stem}EW`);
+          }
+        }
+        quickTdrInputVvds(raw).forEach(add);
+      } catch {
+        add(raw);
+      }
+      return keys;
+    }
+
+    function cacheRecordCarriers(record) {
+      if (!record) return [];
+      const carriers = Array.isArray(record.carriers) && record.carriers.length
+        ? record.carriers
+        : (record.allocation ? [legacyCarrierFromAllocation(record.allocation)] : []);
+      return activeCarriers(carriers);
+    }
+
+    async function quickTdrSavedCarrierRecord(vvdInput) {
+      const keys = quickTdrCacheKeys(vvdInput);
+      if (!keys.length) return null;
+      const localDrafts = getLocalDrafts();
+      let sharedRecords = {};
+      try {
+        sharedRecords = (await loadSharedCache())?.records || {};
+      } catch (error) {
+        console.warn(error);
+      }
+      for (const key of keys) {
+        const localRecord = localDrafts[key] || null;
+        const sharedRecord = sharedRecords[key] || null;
+        const record = localRecord && recordTime(localRecord) > recordTime(sharedRecord)
+          ? localRecord
+          : sharedRecord;
+        if (cacheRecordCarriers(record).length) return record;
+      }
+      return null;
+    }
+
+    async function quickTdrMaintainedCarriersForInput(vvdInput) {
+      const pageCarriers = quickTdrMaintainedCarriers();
+      const pageVvd = cleanVvd($("vvd")?.value || "");
+      const cacheKeys = quickTdrCacheKeys(vvdInput);
+      const savedRecord = await quickTdrSavedCarrierRecord(vvdInput);
+      const savedCarriers = cacheRecordCarriers(savedRecord);
+      const pageHasMeaningfulPartners = pageCarriers.length > 1
+        || pageCarriers.some((carrier) => carrier.code !== DEFAULT_CARRIER_CODE);
+      if (pageVvd && cacheKeys.includes(pageVvd) && pageHasMeaningfulPartners) return pageCarriers;
+      if (savedCarriers.length) return savedCarriers;
+      return pageCarriers;
+    }
+
     function quickTdrPartnerIssueOptions(preview) {
       const carriers = activeCarriers(preview?.maintainedCarriers || quickTdrMaintainedCarriers());
       return (carriers.length ? carriers : [defaultCarrier(DEFAULT_CARRIER_CODE)]).map((carrier) => ({
@@ -5878,7 +5952,8 @@
       }
       resetQuickTdrResult();
       $("quickTdrQuery").disabled = true;
-      const maintainedCarriers = quickTdrMaintainedCarriers();
+      setQuickTdrProgress(5, "正在读取对应整圈 VVD 的 Partner/BSA...", true);
+      const maintainedCarriers = await quickTdrMaintainedCarriersForInput(vvd);
       const preview = {
         querying: true,
         authFailed: false,
