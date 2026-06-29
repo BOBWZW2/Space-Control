@@ -2034,6 +2034,13 @@
             <input id="quickTdrVvd" list="quickTdrVvdOptions" autocomplete="off" placeholder="例如 XPBL2618W">
             <datalist id="quickTdrVvdOptions"></datalist>
           </div>
+          <div class="field">
+            <label for="quickTdrBoundDirection">Bound</label>
+            <select id="quickTdrBoundDirection">
+              <option value="W">WB / W</option>
+              <option value="E">EB / E</option>
+            </select>
+          </div>
           <div class="field" id="quickTdrPortField">
             <label for="quickTdrPort">PORT / POL</label>
             <input id="quickTdrPort" list="quickTdrPortOptions" autocomplete="off" placeholder="例如 CNTAO">
@@ -5343,36 +5350,105 @@
       $("quickTdrQuery").textContent = bound ? "查询整个 bound" : "查询 TDR";
     }
 
+    function quickTdrSelectedBound() {
+      return $("quickTdrBoundDirection")?.value === "E" ? "E" : "W";
+    }
+
+    function quickTdrInputVvds(vvdInput) {
+      const vvd = cleanVvd(vvdInput);
+      if (!vvd) return [];
+      try {
+        const current = currentDirectionVvds(vvd);
+        return [current.w, current.e].filter(Boolean);
+      } catch {
+        return [vvd];
+      }
+    }
+
+    function quickTdrDirectionVvd(vvdInput, direction = quickTdrSelectedBound()) {
+      const vvds = quickTdrInputVvds(vvdInput);
+      if (!vvds.length) return cleanVvd(vvdInput);
+      return vvds.find((vvd) => vvd.endsWith(direction)) || vvds[0];
+    }
+
+    function updateQuickTdrBoundDirectionUi() {
+      const select = $("quickTdrBoundDirection");
+      if (!select) return;
+      const dirs = new Set(quickTdrInputVvds($("quickTdrVvd")?.value || "")
+        .map((vvd) => vvd.slice(-1))
+        .filter((direction) => direction === "W" || direction === "E"));
+      if (dirs.size === 1) {
+        select.value = [...dirs][0];
+        select.disabled = true;
+        return;
+      }
+      select.disabled = false;
+      if (select.value !== "W" && select.value !== "E") select.value = state.activeSheet === "EB" ? "E" : "W";
+    }
+
+    function quickTdrRowsForVvdInput(vvdInput) {
+      const rows = state.scheduleRows || [];
+      const vvds = quickTdrInputVvds(vvdInput);
+      if (!vvds.length) return rows;
+      return rows.filter((row) => vvds.includes(cleanVvd(row.vvd)));
+    }
+
+    function quickTdrResolvedVvdForPort(vvdInput, port) {
+      const normalizedPort = normalizePort(port);
+      const matchingVvds = [...new Set(
+        quickTdrRowsForVvdInput(vvdInput)
+          .filter((row) => normalizePort(row.port) === normalizedPort)
+          .map((row) => cleanVvd(row.vvd))
+          .filter(Boolean)
+      )];
+      if (matchingVvds.length === 1) return matchingVvds[0];
+      const selected = quickTdrDirectionVvd(vvdInput);
+      if (matchingVvds.includes(selected)) return selected;
+      return selected || matchingVvds[0] || cleanVvd(vvdInput);
+    }
+
     function populateQuickTdrCandidates() {
       const rows = state.scheduleRows || [];
       const vvdList = $("quickTdrVvdOptions");
       const vvdMap = new Map();
       rows.forEach((row) => {
-        const lanes = vvdMap.get(row.vvd) || new Set();
-        lanes.add(row.lane);
-        vvdMap.set(row.vvd, lanes);
+        const match = cleanVvd(row.vvd).match(/^([A-Z]+\d+)([WE])$/);
+        const key = match ? match[1] : cleanVvd(row.vvd);
+        if (!vvdMap.has(key)) vvdMap.set(key, { lanes: new Set(), dirs: new Set() });
+        vvdMap.get(key).lanes.add(row.lane);
+        if (match) vvdMap.get(key).dirs.add(match[2]);
       });
-      vvdList.replaceChildren(...[...vvdMap.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([vvd, lanes]) => {
+      vvdList.replaceChildren(...[...vvdMap.entries()].map(([stem, info]) => ({
+        value: makeVvdOptionValue(stem, info.dirs),
+        label: [...info.lanes].sort().join("/")
+      })).sort((a, b) => a.value.localeCompare(b.value)).map((item) => {
         const option = document.createElement("option");
-        option.value = vvd;
-        option.label = [...lanes].sort().join("/");
+        option.value = item.value;
+        option.label = item.label;
         return option;
       }));
+      updateQuickTdrBoundDirectionUi();
       populateQuickTdrPortCandidates();
     }
 
     function populateQuickTdrPortCandidates() {
-      const rows = state.scheduleRows || [];
+      updateQuickTdrBoundDirectionUi();
       const vvd = cleanVvd($("quickTdrVvd")?.value || "");
-      const candidates = rows.filter((row) => !vvd || row.vvd === vvd);
+      const candidates = quickTdrRowsForVvdInput(vvd);
       const ports = new Map();
       candidates.forEach((row) => {
-        if (!ports.has(row.port)) ports.set(row.port, row);
+        const port = normalizePort(row.port);
+        if (!port) return;
+        if (!ports.has(port)) ports.set(port, []);
+        ports.get(port).push(row);
       });
-      $("quickTdrPortOptions").replaceChildren(...[...ports.values()].map((row) => {
+      $("quickTdrPortOptions").replaceChildren(...[...ports.entries()].map(([port, rows]) => {
         const option = document.createElement("option");
-        option.value = row.port;
-        option.label = `${row.lane}${row.etd ? ` · ETD ${row.etd}` : ""}`;
+        option.value = port;
+        const vvds = [...new Set(rows.map((row) => cleanVvd(row.vvd)).filter(Boolean))].join("/");
+        const lanes = [...new Set(rows.map((row) => row.lane).filter(Boolean))].join("/");
+        const etd = rows.find((row) => row.etd)?.etd || "";
+        option.label = `${vvds}${lanes ? ` · ${lanes}` : ""}${etd ? ` · ETD ${etd}` : ""}`;
         return option;
       }));
     }
@@ -5418,9 +5494,8 @@
     }
 
     function quickTdrQueryChoices(vvd, port) {
-      return state.quickTdrMode === "bound"
-        ? quickTdrBoundChoices(vvd)
-        : [quickTdrSingleChoice(vvd, port)];
+      if (state.quickTdrMode === "bound") return quickTdrBoundChoices(quickTdrDirectionVvd(vvd));
+      return [quickTdrSingleChoice(quickTdrResolvedVvdForPort(vvd, port), port)];
     }
 
     function resetQuickTdrResult() {
@@ -5439,7 +5514,9 @@
       if (!dialog.open) dialog.showModal();
       const mainVvd = cleanVvd($("vvd")?.value || "");
       if (!$("quickTdrVvd").value && /[WE]$/.test(mainVvd)) $("quickTdrVvd").value = mainVvd;
+      if ($("quickTdrBoundDirection") && !$("quickTdrBoundDirection").disabled) $("quickTdrBoundDirection").value = state.activeSheet === "EB" ? "E" : "W";
       updateQuickTdrModeUi();
+      updateQuickTdrBoundDirectionUi();
       setQuickTdrProgress(0, state.quickTdrMode === "bound" ? "输入 VVD 后即可查询整个 bound。" : "输入 VVD 和 PORT 后即可查询。", false);
       populateQuickTdrAccountFields();
       checkQuickTdrAgent();
@@ -8533,11 +8610,18 @@
         state.quickTdrMode = button.dataset.quickTdrMode === "bound" ? "bound" : "single";
         resetQuickTdrResult();
         updateQuickTdrModeUi();
+        updateQuickTdrBoundDirectionUi();
+        populateQuickTdrPortCandidates();
         setQuickTdrProgress(0, state.quickTdrMode === "bound" ? "输入 VVD 后即可查询整个 bound。" : "输入 VVD 和 PORT 后即可查询。", false);
       });
     });
     $("quickTdrVvd").addEventListener("input", () => {
       $("quickTdrVvd").value = $("quickTdrVvd").value.toUpperCase().replace(/\s+/g, "");
+      updateQuickTdrBoundDirectionUi();
+      populateQuickTdrPortCandidates();
+      resetQuickTdrResult();
+    });
+    $("quickTdrBoundDirection").addEventListener("change", () => {
       populateQuickTdrPortCandidates();
       resetQuickTdrResult();
     });
