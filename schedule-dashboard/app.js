@@ -365,7 +365,7 @@ function saveSettings(settings) {
 }
 
 async function fetchScheduleRows(force = false) {
-  const url = `${SCHEDULE_URL}?refresh=${force ? Date.now() : localDateKey()}`;
+  const url = `${SCHEDULE_URL}?refresh=${Date.now()}`;
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`GitHub schedule request failed: HTTP ${response.status}`);
   const buffer = await response.arrayBuffer();
