@@ -417,11 +417,52 @@ function makeItem(row, group, eventDate, eventField) {
     template: `${row.lane} - ${row.vvd} - ${row.port}`,
     vesselCode: row.vesselCode,
     vesselName: row.vesselName,
+    etbTime: toIsoLocal(row.etbDate),
+    etdTime: toIsoLocal(row.etdDate),
     etbLabel: displayDateTime(row.etbDate),
     etdLabel: displayDateTime(row.etdDate),
     eventField,
     eventTime: toIsoLocal(eventDate),
   };
+}
+
+function duplicateCallKey(item) {
+  const vessel = item.vesselCode || item.vvd.replace(/\d.*$/, "");
+  return [
+    vessel,
+    item.port,
+    item.etbTime || item.eventTime || "",
+    item.etdTime || item.eventTime || "",
+  ].join("|");
+}
+
+function shouldReplaceDuplicate(existing, candidate) {
+  return existing.direction === "E" && candidate.direction === "W";
+}
+
+function dedupeCalls(items) {
+  const byCall = new Map();
+  for (const item of items) {
+    const key = duplicateCallKey(item);
+    const existing = byCall.get(key);
+    if (!existing || shouldReplaceDuplicate(existing, item)) {
+      byCall.set(key, item);
+    }
+  }
+  return [...byCall.values()];
+}
+
+function splitByDirection(groups) {
+  const directions = {
+    W: { departed: [], today: [], future: [] },
+    E: { departed: [], today: [], future: [] },
+  };
+  for (const key of ["departed", "today", "future"]) {
+    for (const item of groups[key]) {
+      directions[item.direction === "E" ? "E" : "W"][key].push(item);
+    }
+  }
+  return directions;
 }
 
 function buildGroups(rows, settings, now = new Date()) {
@@ -433,38 +474,42 @@ function buildGroups(rows, settings, now = new Date()) {
   const departed = [];
   const today = [];
   const future = [];
-  const directions = {
-    W: { departed: [], today: [], future: [] },
-    E: { departed: [], today: [], future: [] },
-  };
-
-  function addItem(bucket, key, item) {
-    bucket.push(item);
-    directions[item.direction === "E" ? "E" : "W"][key].push(item);
-  }
 
   for (const row of focusedRows) {
     if (row.etdDate && row.etdDate >= departedStart && row.etdDate <= now) {
-      addItem(departed, "departed", makeItem(row, "departed", row.etdDate, "ETD"));
+      departed.push(makeItem(row, "departed", row.etdDate, "ETD"));
     }
     if (row.etbDate && row.etbDate >= todayStart && row.etbDate < tomorrowStart) {
-      addItem(today, "today", makeItem(row, "today", row.etbDate, "ETB"));
+      today.push(makeItem(row, "today", row.etbDate, "ETB"));
     }
     if (row.etbDate && row.etbDate >= tomorrowStart && row.etbDate < futureEnd) {
-      addItem(future, "future", makeItem(row, "future", row.etbDate, "ETB"));
+      future.push(makeItem(row, "future", row.etbDate, "ETB"));
     }
   }
 
-  departed.sort((a, b) => b.eventTime.localeCompare(a.eventTime));
-  today.sort((a, b) => a.eventTime.localeCompare(b.eventTime));
-  future.sort((a, b) => a.eventTime.localeCompare(b.eventTime));
+  const deduped = {
+    departed: dedupeCalls(departed),
+    today: dedupeCalls(today),
+    future: dedupeCalls(future),
+  };
+  const directions = splitByDirection(deduped);
+
+  deduped.departed.sort((a, b) => b.eventTime.localeCompare(a.eventTime));
+  deduped.today.sort((a, b) => a.eventTime.localeCompare(b.eventTime));
+  deduped.future.sort((a, b) => a.eventTime.localeCompare(b.eventTime));
   for (const direction of Object.values(directions)) {
     direction.departed.sort((a, b) => b.eventTime.localeCompare(a.eventTime));
     direction.today.sort((a, b) => a.eventTime.localeCompare(b.eventTime));
     direction.future.sort((a, b) => a.eventTime.localeCompare(b.eventTime));
   }
 
-  return { departed, today, future, directions, focusedRows };
+  return {
+    departed: deduped.departed,
+    today: deduped.today,
+    future: deduped.future,
+    directions,
+    focusedRows,
+  };
 }
 
 function buildOptions(rows) {

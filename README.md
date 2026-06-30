@@ -4,6 +4,8 @@ Online workbook generator: https://bobwzw2.github.io/Space-Control/
 
 Schedule reminder dashboard: https://bobwzw2.github.io/Space-Control/schedule-dashboard/
 
+The schedule dashboard reads `schedule_latest.xlsx` directly in the browser and merges duplicate W/E representations of the same vessel port call by vessel code, port, ETB, and ETD.
+
 ## Main files
 
 - `index.html` / `space-control-generator.html`: browser application and Excel export logic.
