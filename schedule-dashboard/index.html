@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>船期提醒</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <header class="brand">
+          <div class="brand-mark">船</div>
+          <div>
+            <h1>船期提醒</h1>
+            <p>Space Control</p>
+          </div>
+        </header>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>关注航线</h2>
+          </div>
+          <div id="laneList" class="toggle-list"></div>
+          <form id="laneForm" class="inline-form" autocomplete="off">
+            <input id="laneInput" name="lane" list="laneOptions" aria-label="航线" placeholder="输入航线">
+            <datalist id="laneOptions"></datalist>
+            <button type="submit" class="icon-button primary" title="添加航线" aria-label="添加航线">+</button>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>关注船名</h2>
+          </div>
+          <div id="vesselList" class="chip-list empty"></div>
+          <form id="vesselForm" class="inline-form" autocomplete="off">
+            <input id="vesselInput" name="vessel" list="vesselOptions" aria-label="船名" placeholder="输入船名或代码">
+            <datalist id="vesselOptions"></datalist>
+            <button type="submit" class="icon-button primary" title="添加船名" aria-label="添加船名">+</button>
+          </form>
+        </section>
+
+        <section class="panel compact">
+          <div class="panel-heading">
+            <h2>数据刷新</h2>
+          </div>
+          <button id="refreshButton" class="wide-button" type="button">手动刷新船期</button>
+          <p class="hint">会强制重新读取 GitHub 最新船期表。</p>
+        </section>
+
+        <footer class="source-card">
+          <div>
+            <span class="label">读取时间</span>
+            <strong id="sourceDate">--</strong>
+          </div>
+          <span id="sourceStatus" class="status-pill">读取中</span>
+        </footer>
+      </aside>
+
+      <main class="dashboard">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">航线 - VVD - PORT</p>
+            <h2>离港与到港看板</h2>
+          </div>
+          <div class="clock-card">
+            <span id="clockDate">--</span>
+            <strong id="clockTime">--</strong>
+          </div>
+        </header>
+
+        <section class="status-tabs" role="tablist" aria-label="提醒类型">
+          <button class="status-tab active accent-departed" type="button" data-tab="departed">
+            <span>已离港</span>
+            <strong id="departedCount">0</strong>
+            <small>ETD</small>
+          </button>
+          <button class="status-tab accent-today" type="button" data-tab="today">
+            <span>今日</span>
+            <strong id="todayCount">0</strong>
+            <small>ETB</small>
+          </button>
+          <button class="status-tab accent-future" type="button" data-tab="future">
+            <span>未来五天到港</span>
+            <strong id="futureCount">0</strong>
+            <small>ETB</small>
+          </button>
+          <div class="focus-total">
+            <span>关注记录</span>
+            <strong id="focusCount">0</strong>
+          </div>
+        </section>
+
+        <section class="notice-bar" id="noticeBar" hidden>
+          <span id="noticeText"></span>
+        </section>
+
+        <section id="statusView" class="status-view departed-column">
+          <header class="column-header">
+            <div>
+              <h3 id="activeStatusTitle">已离港</h3>
+              <p id="activeStatusSubtitle">过去五天 ETD</p>
+            </div>
+          </header>
+          <div class="direction-split">
+            <section class="mini-column">
+              <h4>W</h4>
+              <div id="activeWList" class="card-list compact-list"></div>
+            </section>
+            <section class="mini-column">
+              <h4>E</h4>
+              <div id="activeEList" class="card-list compact-list"></div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>

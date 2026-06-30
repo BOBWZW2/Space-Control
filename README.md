@@ -2,6 +2,8 @@
 
 Online workbook generator: https://bobwzw2.github.io/Space-Control/
 
+Schedule reminder dashboard: https://bobwzw2.github.io/Space-Control/schedule-dashboard/
+
 ## Main files
 
 - `index.html` / `space-control-generator.html`: browser application and Excel export logic.
