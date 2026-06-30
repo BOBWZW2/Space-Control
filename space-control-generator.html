@@ -2144,6 +2144,7 @@
     const PORT_ALIASES = { CNNSA: "CNNAS" };
     const DEFAULT_CARRIER_CODE = "CUL";
     const DEFAULT_TON_PER_TEU = 14;
+    const QUICK_TDR_EXPAND_SO_VALUE = "__quick_expand_so__";
     const ROB_TRANSFER_SECTION_STEP = 10;
     const SCHEDULE_UPDATE_SHEET = "Schedule Update";
     const SCHEDULE_UPDATE_START_ROW = 5;
@@ -4539,7 +4540,10 @@
         category = NORMAL_CUL_CO.has(co) ? "LILIAN" : issueValue(`co:${choice.sheetName}:${choice.polIndex}:${co}`, preview);
       } else if (!known.has(so)) {
         const decision = issueValue(`so:${so}`, preview);
-        if ((preview.mode === "quick" || preview.mode === "quick-bound") && decision && decision !== "partner" && decision !== "cul-soc") {
+        if ((preview.mode === "quick" || preview.mode === "quick-bound") && decision === QUICK_TDR_EXPAND_SO_VALUE) {
+          carrier = so;
+          category = "LILIAN";
+        } else if ((preview.mode === "quick" || preview.mode === "quick-bound") && decision && decision !== "partner" && decision !== "cul-soc") {
           carrier = decision;
           category = "SOC";
         } else if (decision === "cul-soc") {
@@ -4674,7 +4678,7 @@
         const known = preview.carriers.some((carrier) => carrier.code === so);
         if (so && so !== DEFAULT_CARRIER_CODE && !known && !issueKeys.has(`so:${so}`)) {
           const quickOptions = (preview.mode === "quick" || preview.mode === "quick-bound")
-            ? quickTdrPartnerIssueOptions(preview)
+            ? quickTdrPartnerIssueOptions(preview, so)
             : null;
           preview.issues.push(tdrIssue(`so:${so}`, "so", quickOptions
             ? `SO ${so} 未在已维护 Partner 中：确认该 SOC 计入哪个 Partner`
@@ -5692,12 +5696,18 @@
       saveQuickTdrDecisionStore(store);
     }
 
-    function quickTdrPartnerIssueOptions(preview) {
+    function quickTdrPartnerIssueOptions(preview, so = "") {
       const carriers = activeCarriers(preview?.maintainedCarriers || quickTdrMaintainedCarriers());
-      return (carriers.length ? carriers : [defaultCarrier(DEFAULT_CARRIER_CODE)]).map((carrier) => ({
+      const options = (carriers.length ? carriers : [defaultCarrier(DEFAULT_CARRIER_CODE)]).map((carrier) => ({
         value: carrier.code,
         label: `计入 ${carrier.code} / SOC`
       }));
+      const code = carrierCode(so, "");
+      options.push({
+        value: QUICK_TDR_EXPAND_SO_VALUE,
+        label: code ? `跳过，按 ${code} 独立 SO 显示` : "跳过，按原 SO 独立显示"
+      });
+      return options;
     }
 
     function quickTdrCarriers(payloads, maintainedCarriers = quickTdrMaintainedCarriers()) {
@@ -5727,7 +5737,13 @@
         if (!normalized || carriers.some((carrier) => carrier.code === normalized)) return;
         carriers.push(maintainedByCode.get(normalized) || defaultCarrier(normalized));
       };
-      (preview?.issues || []).filter((issue) => issue.type === "so" && issue.value).forEach((issue) => addCarrier(issue.value));
+      (preview?.issues || []).filter((issue) => issue.type === "so" && issue.value).forEach((issue) => {
+        if (issue.value === QUICK_TDR_EXPAND_SO_VALUE) {
+          addCarrier(String(issue.key || "").replace(/^so:/, ""));
+        } else {
+          addCarrier(issue.value);
+        }
+      });
       if (!carriers.length) addCarrier(DEFAULT_CARRIER_CODE);
       return activeCarriers(carriers).sort((a, b) => {
         if (a.code === DEFAULT_CARRIER_CODE) return -1;
