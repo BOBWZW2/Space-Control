@@ -1,30 +1,40 @@
 {
   "version": 1,
-  "updatedAt": "2026-06-22T13:07:53.309Z",
+  "updatedAt": "2026-06-30T06:01:55.178Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
       "lane": "CGX",
       "vesselName": "EXPRESS BERLIN",
-      "updatedAt": "2026-06-22T06:46:15.007Z",
+      "updatedAt": "2026-06-30T06:01:48.240Z",
       "carriers": [
         {
           "code": "CUL",
-          "tonPerTeu": 12.2727,
-          "wbTeus": 8800,
-          "wbMt": 108000,
+          "tonPerTeu": 12.0513,
+          "wbTeus": 7800,
+          "wbMt": 94000,
           "wbRf": null,
-          "ebTeus": 8800,
-          "ebMt": 108000,
+          "ebTeus": 7800,
+          "ebMt": 94000,
+          "ebRf": null
+        },
+        {
+          "code": "RCL",
+          "tonPerTeu": 14,
+          "wbTeus": 1000,
+          "wbMt": 14000,
+          "wbRf": null,
+          "ebTeus": 1000,
+          "ebMt": 14000,
           "ebRf": null
         }
       ],
       "allocation": {
-        "wbTeus": 8800,
-        "ebTeus": 8800,
-        "tonPerTeu": 12.2727,
-        "wbMt": 108000,
-        "ebMt": 108000,
+        "wbTeus": 7800,
+        "ebTeus": 7800,
+        "tonPerTeu": 12.0513,
+        "wbMt": 94000,
+        "ebMt": 94000,
         "wbRf": null,
         "ebRf": null
       },
@@ -34,13 +44,24 @@
       },
       "tdrAudit": {},
       "tdrImports": {},
+      "draft": {
+        "enabled": true,
+        "ports": {
+          "CNSHA": 56000
+        },
+        "partnerOverrides": {}
+      },
+      "moveCount": {
+        "enabled": false,
+        "limits": {}
+      },
       "selectedWbPodKeys": [
-        "CNTAO::2026-06-28 18:00:00",
-        "CNSHA::2026-07-03 05:00:00",
-        "CNNGB::2026-07-04 20:00:00",
-        "CNSHK::2026-07-07 15:00:00",
-        "CNNAS::2026-07-08 22:00:00",
-        "MYPKG::2026-07-13 21:00:00"
+        "CNTAO::2026-06-29 16:00:00",
+        "CNSHA::2026-07-03 11:00:00",
+        "CNNGB::2026-07-05 02:00:00",
+        "CNSHK::2026-07-07 21:00:00",
+        "CNNAS::2026-07-09 04:00:00",
+        "MYPKG::2026-07-14 03:00:00"
       ],
       "selectedWbPodPorts": [
         "CNTAO",
