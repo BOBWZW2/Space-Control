@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-01T02:56:45.089Z",
+  "updatedAt": "2026-07-01T11:01:53.462Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -92,21 +92,50 @@
     "ZGNJ2627WE": {
       "vvd": "ZGNJ2627WE",
       "lane": "HLX",
-      "vesselName": "ZGNJ",
-      "updatedAt": "2026-06-18T03:15:35.809Z",
+      "vesselName": "ZHONG GU NAN JING",
+      "updatedAt": "2026-07-01T11:01:52.630Z",
+      "carriers": [
+        {
+          "code": "CUL",
+          "tonPerTeu": 14,
+          "wbTeus": 655,
+          "wbMt": 9170,
+          "wbRf": 58,
+          "ebTeus": 655,
+          "ebMt": 9170,
+          "ebRf": 58
+        }
+      ],
       "allocation": {
-        "wbTeus": 400,
-        "ebTeus": 400,
+        "wbTeus": 655,
+        "ebTeus": 655,
         "tonPerTeu": 14,
-        "wbMt": 5600,
-        "ebMt": 5600,
-        "wbRf": null,
-        "ebRf": null
+        "wbMt": 9170,
+        "ebMt": 9170,
+        "wbRf": 58,
+        "ebRf": 58
+      },
+      "entries": {
+        "WB": {},
+        "EB": {}
+      },
+      "tdrAudit": {},
+      "tdrImports": {},
+      "draft": {
+        "enabled": false,
+        "ports": {},
+        "partnerOverrides": {}
+      },
+      "moveCount": {
+        "enabled": true,
+        "limits": {
+          "INNSA::2026-07-20": 409
+        }
       },
       "selectedWbPodKeys": [
-        "THLCH::2026-07-05 23:00:00",
-        "SGSIN::2026-07-10 03:00:00",
-        "MYPKG::2026-07-12 09:00:00"
+        "THLCH::2026-07-12 03:00:00",
+        "SGSIN::2026-07-14 04:00:00",
+        "MYPKG::2026-07-15 18:00:00"
       ],
       "selectedWbPodPorts": [
         "THLCH",
