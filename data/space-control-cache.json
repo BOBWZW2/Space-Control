@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-01T11:01:53.462Z",
+  "updatedAt": "2026-07-03T01:50:43.328Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -443,6 +443,68 @@
         "CNNGB",
         "CNSHK",
         "CNNAS"
+      ]
+    },
+    "XD882622WE": {
+      "vvd": "XD882622WE",
+      "lane": "CGS",
+      "vesselName": "XING DONG 88",
+      "updatedAt": "2026-07-03T01:50:42.728Z",
+      "carriers": [
+        {
+          "code": "CUL",
+          "tonPerTeu": 13.2743,
+          "wbTeus": 1130,
+          "wbMt": 15000,
+          "wbRf": null,
+          "ebTeus": 1130,
+          "ebMt": 15000,
+          "ebRf": null
+        }
+      ],
+      "allocation": {
+        "wbTeus": 1130,
+        "ebTeus": 1130,
+        "tonPerTeu": 13.2743,
+        "wbMt": 15000,
+        "ebMt": 15000,
+        "wbRf": null,
+        "ebRf": null
+      },
+      "entries": {
+        "WB": {
+          "1|0|1|left": "174",
+          "1|0|1|right": "477",
+          "1|6|1|weight": "13209.4"
+        },
+        "EB": {}
+      },
+      "tdrAudit": {
+        "WB": {}
+      },
+      "tdrImports": {
+        "WB|XD882622W|MYPKG": {
+          "sheetName": "WB",
+          "vvd": "XD882622W",
+          "port": "MYPKG",
+          "importedAt": "2026-07-03T01:50:15.887Z",
+          "detail": ""
+        }
+      },
+      "draft": {
+        "enabled": false,
+        "ports": {},
+        "partnerOverrides": {}
+      },
+      "moveCount": {
+        "enabled": false,
+        "limits": {}
+      },
+      "selectedWbPodKeys": [
+        "MYPKG::2026-06-13 22:40:00"
+      ],
+      "selectedWbPodPorts": [
+        "MYPKG"
       ]
     }
   }
