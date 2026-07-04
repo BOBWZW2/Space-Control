@@ -731,6 +731,81 @@
       font-weight: 400;
     }
 
+    .draft-partner-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .draft-partner-controls .subtle {
+      line-height: 1.3;
+    }
+
+    .draft-partner-overrides {
+      margin-top: 9px;
+      overflow: auto;
+      border: 1px solid #c8bdd8;
+      border-radius: 6px;
+      background: #ffffff;
+    }
+
+    .draft-override-section {
+      min-width: 520px;
+      padding: 8px;
+    }
+
+    .draft-override-section + .draft-override-section {
+      border-top: 1px solid #e1d9ef;
+    }
+
+    .draft-override-title {
+      margin-bottom: 6px;
+      color: #4b3471;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .draft-override-table {
+      width: max-content;
+      min-width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .draft-override-table th,
+    .draft-override-table td {
+      min-width: 96px;
+      padding: 5px 6px;
+      border: 1px solid #e1d9ef;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .draft-override-table th:first-child,
+    .draft-override-table td:first-child {
+      min-width: 82px;
+      text-align: left;
+      font-weight: 800;
+    }
+
+    .draft-override-table th {
+      background: #f4f1fb;
+      color: var(--text);
+      font-weight: 800;
+    }
+
+    .draft-override-table input {
+      min-width: 88px;
+      min-height: 28px;
+      padding: 4px 5px;
+      border-color: #a995c2;
+      background: #fbf9ff;
+      text-align: right;
+      font-weight: 700;
+    }
+
     .history-panel.control-panel {
       grid-column: span 5;
       background: #eef5fb;
@@ -1868,6 +1943,14 @@
           </div>
           <div class="subtle" id="draftHelp">未启用时，AVL Weight 继续按原整船及 Partner Weight allocation 计算。</div>
           <div class="draft-port-grid hidden" id="draftPortInputs"></div>
+          <div class="draft-partner-controls hidden" id="draftPartnerControls">
+            <label class="draft-toggle" for="draftPartnerManualEnabled">
+              <input id="draftPartnerManualEnabled" type="checkbox">
+              <span>手动分 Partner Draft</span>
+            </label>
+            <div class="subtle" id="draftPartnerHelp">留空继续按 Weight allocation 比例；填写后该 Partner/港口优先生效。</div>
+          </div>
+          <div class="draft-partner-overrides hidden" id="draftPartnerOverrides"></div>
         </div>
 
         <div class="section control-panel move-count-panel">
@@ -2144,6 +2227,7 @@
     const PORT_ALIASES = { CNNSA: "CNNAS" };
     const DEFAULT_CARRIER_CODE = "CUL";
     const DEFAULT_TON_PER_TEU = 14;
+    const DIRECTION_KEYS = ["WB", "EB"];
     const QUICK_TDR_EXPAND_SO_VALUE = "__quick_expand_so__";
     const ROB_TRANSFER_SECTION_STEP = 10;
     const SCHEDULE_UPDATE_SHEET = "Schedule Update";
@@ -2227,7 +2311,7 @@
       quickTdrMode: "single",
       quickTdrPreview: null,
       quickTdrBlocks: [],
-      draftSettings: { enabled: false, ports: {}, partnerOverrides: {} },
+      draftSettings: { enabled: false, ports: {}, partnerOverrideEnabled: false, partnerOverrides: {} },
       moveCountSettings: { enabled: false, limits: {} },
       initialized: false
     };
@@ -2837,6 +2921,33 @@
       return PORT_ALIASES[value] || value;
     }
 
+    function normalizePartnerDraftOverrides(overrides) {
+      const normalized = {};
+      DIRECTION_KEYS.forEach((direction) => {
+        Object.entries(overrides?.[direction] || {}).forEach(([rawPort, carrierValues]) => {
+          const port = normalizePort(rawPort);
+          if (!port || !carrierValues || typeof carrierValues !== "object") return;
+          Object.entries(carrierValues).forEach(([rawCarrier, rawLimit]) => {
+            const carrier = carrierCode(rawCarrier, "");
+            const limit = Math.round(Number(rawLimit));
+            if (!carrier || !Number.isFinite(limit) || limit <= 0) return;
+            normalized[direction] ||= {};
+            normalized[direction][port] ||= {};
+            normalized[direction][port][carrier] = limit;
+          });
+        });
+      });
+      return normalized;
+    }
+
+    function hasPartnerDraftOverrides(overrides) {
+      return DIRECTION_KEYS.some((direction) => (
+        Object.values(overrides?.[direction] || {}).some((carrierValues) => (
+          carrierValues && typeof carrierValues === "object" && Object.keys(carrierValues).length > 0
+        ))
+      ));
+    }
+
     function normalizeDraftSettings(settings) {
       const ports = {};
       Object.entries(settings?.ports || {}).forEach(([rawPort, rawLimit]) => {
@@ -2844,12 +2955,14 @@
         const limit = Math.round(Number(rawLimit));
         if (port && Number.isFinite(limit) && limit > 0) ports[port] = limit;
       });
-      const partnerOverrides = settings?.partnerOverrides && typeof settings.partnerOverrides === "object"
-        ? structuredClone(settings.partnerOverrides)
-        : {};
+      const partnerOverrides = normalizePartnerDraftOverrides(settings?.partnerOverrides);
+      const hasExplicitOverrideFlag = Object.prototype.hasOwnProperty.call(settings || {}, "partnerOverrideEnabled");
       return {
         enabled: Boolean(settings?.enabled),
         ports,
+        partnerOverrideEnabled: hasExplicitOverrideFlag
+          ? Boolean(settings?.partnerOverrideEnabled)
+          : hasPartnerDraftOverrides(partnerOverrides),
         partnerOverrides
       };
     }
@@ -2876,14 +2989,27 @@
       };
     }
 
-    function currentDraftPorts() {
+    function uniqueNormalizedPorts(calls) {
+      const seen = new Set();
+      return calls.map((call) => normalizePort(call?.port)).filter((port) => {
+        if (!port || seen.has(port)) return false;
+        seen.add(port);
+        return true;
+      });
+    }
+
+    function currentDraftDirectionPorts(direction) {
       const lookup = state.currentLookup;
       const calls = lookup
-        ? [...(lookup.wbCalls || []), ...(lookup.ebCalls || [])]
-        : [
-            ...textToRows($("wbPols")?.value || "", 3).map(([port]) => ({ port })),
-            ...textToRows($("ebPols")?.value || "", 3).map(([port]) => ({ port }))
-          ];
+        ? (direction === "WB" ? lookup.wbCalls || [] : lookup.ebCalls || [])
+        : textToRows($(direction === "WB" ? "wbPols" : "ebPols")?.value || "", 3).map(([port]) => ({ port }));
+      return uniqueNormalizedPorts(calls);
+    }
+
+    function currentDraftPorts() {
+      const calls = DIRECTION_KEYS.flatMap((direction) => (
+        currentDraftDirectionPorts(direction).map((port) => ({ port }))
+      ));
       const seen = new Set();
       return calls.map((call) => normalizePort(call?.port)).filter((port) => {
         if (!port || seen.has(port)) return false;
@@ -2972,6 +3098,98 @@
       });
     }
 
+    function setPartnerDraftOverride(direction, port, carrierCode, rawValue) {
+      const normalizedPort = normalizePort(port);
+      const carrier = carrierCode ? carrierCode.toUpperCase() : "";
+      if (!normalizedPort || !carrier) return;
+      const text = normalizeText(rawValue);
+      const value = Math.round(Number(text));
+      const overrides = state.draftSettings.partnerOverrides;
+      if (text && Number.isFinite(value) && value > 0) {
+        overrides[direction] ||= {};
+        overrides[direction][normalizedPort] ||= {};
+        overrides[direction][normalizedPort][carrier] = value;
+        return;
+      }
+      delete overrides?.[direction]?.[normalizedPort]?.[carrier];
+      if (overrides?.[direction]?.[normalizedPort] && !Object.keys(overrides[direction][normalizedPort]).length) {
+        delete overrides[direction][normalizedPort];
+      }
+      if (overrides?.[direction] && !Object.keys(overrides[direction]).length) delete overrides[direction];
+    }
+
+    function renderDraftPartnerOverrides() {
+      const controls = $("draftPartnerControls");
+      const toggle = $("draftPartnerManualEnabled");
+      const help = $("draftPartnerHelp");
+      const container = $("draftPartnerOverrides");
+      if (!controls || !toggle || !help || !container) return;
+      state.draftSettings = normalizeDraftSettings(state.draftSettings);
+      const ports = currentDraftPorts();
+      const carriers = activeCarriers(readCarrierRows());
+      const canShow = Boolean(state.draftSettings.enabled && ports.length && carriers.length > 1);
+      controls.classList.toggle("hidden", !canShow);
+      container.classList.toggle("hidden", !canShow || !state.draftSettings.partnerOverrideEnabled);
+      toggle.checked = Boolean(state.draftSettings.partnerOverrideEnabled);
+      container.replaceChildren();
+      if (!canShow) return;
+      help.textContent = "留空继续按 Weight allocation 比例；填写后该 Partner/港口优先生效。";
+      if (!state.draftSettings.partnerOverrideEnabled) return;
+
+      const limitedDirectionPorts = DIRECTION_KEYS.map((direction) => ({
+        direction,
+        ports: currentDraftDirectionPorts(direction).filter((port) => draftLimitValue(state.draftSettings, port) !== null)
+      })).filter((item) => item.ports.length);
+
+      if (!limitedDirectionPorts.length) {
+        const empty = document.createElement("div");
+        empty.className = "draft-override-section";
+        appendText(empty, "div", "先填写上方港口 Draft 总限制，再填 Partner 明细。", "subtle");
+        container.appendChild(empty);
+        return;
+      }
+
+      limitedDirectionPorts.forEach(({ direction, ports: directionPorts }) => {
+        const section = document.createElement("div");
+        section.className = "draft-override-section";
+        appendText(section, "div", `${direction} Partner Draft`, "draft-override-title");
+        const table = document.createElement("table");
+        table.className = "draft-override-table";
+        const thead = table.createTHead();
+        const headRow = thead.insertRow();
+        appendText(headRow, "th", "港口");
+        carriers.forEach((carrier) => appendText(headRow, "th", carrier.code));
+        const tbody = table.createTBody();
+        directionPorts.forEach((port) => {
+          const row = tbody.insertRow();
+          appendText(row, "td", port);
+          carriers.forEach((carrier) => {
+            const cell = row.insertCell();
+            const input = document.createElement("input");
+            input.type = "number";
+            input.min = "1";
+            input.step = "1";
+            input.inputMode = "numeric";
+            input.placeholder = "按比例";
+            input.value = state.draftSettings.partnerOverrides?.[direction]?.[port]?.[carrier.code] || "";
+            input.dataset.draftOverrideDirection = direction;
+            input.dataset.draftOverridePort = port;
+            input.dataset.draftOverrideCarrier = carrier.code;
+            input.addEventListener("input", () => {
+              setPartnerDraftOverride(direction, port, carrier.code, input.value);
+              saveLocalDraftForCurrentVvd();
+            });
+            input.addEventListener("change", () => {
+              input.value = state.draftSettings.partnerOverrides?.[direction]?.[port]?.[carrier.code] || "";
+            });
+            cell.appendChild(input);
+          });
+        });
+        section.appendChild(table);
+        container.appendChild(section);
+      });
+    }
+
     function renderDraftControls() {
       const toggle = $("draftEnabled");
       const container = $("draftPortInputs");
@@ -2983,11 +3201,12 @@
       container.replaceChildren();
       if (!state.draftSettings.enabled) {
         help.textContent = "未启用时，AVL Weight 继续按原整船及 Partner Weight allocation 计算。";
+        renderDraftPartnerOverrides();
         return;
       }
       const ports = currentDraftPorts();
       help.textContent = ports.length
-        ? "按当前 VVD 保存；港口留空表示无限制。Partner Draft 默认按各方向 Weight allocation 比例分配。"
+        ? "按当前 VVD 保存；港口留空表示无限制。Partner Draft 默认按各方向 Weight allocation 比例分配，也可手动覆盖。"
         : "请先读取船期，随后可按港口填写 Draft 整数吨位。";
       ports.forEach((port) => {
         const label = document.createElement("label");
@@ -3007,6 +3226,7 @@
           const value = Math.round(Number(text));
           if (!text || !Number.isFinite(value) || value <= 0) delete state.draftSettings.ports[port];
           else state.draftSettings.ports[port] = value;
+          renderDraftPartnerOverrides();
           saveLocalDraftForCurrentVvd();
         });
         input.addEventListener("change", () => {
@@ -3016,6 +3236,7 @@
         label.appendChild(input);
         container.appendChild(label);
       });
+      renderDraftPartnerOverrides();
     }
 
     function cleanVvd(value) {
@@ -3824,6 +4045,7 @@
     }
 
     function partnerDraftOverride(settings, direction, port, carrierCode) {
+      if (!settings?.partnerOverrideEnabled) return null;
       const value = Number(settings?.partnerOverrides?.[direction]?.[normalizePort(port)]?.[carrierCode]);
       return Number.isFinite(value) && value > 0 ? value : null;
     }
@@ -3834,25 +4056,47 @@
       const totalMt = totalCarrierAllocation(baseInput.carriers || [], direction).mt;
       const carrierMt = carrier ? carrierAllocation(carrier, direction).mt : totalMt;
       const ratio = carrier ? (totalMt > 0 ? carrierMt / totalMt : 0) : 1;
+      const allowPartnerOverrides = Boolean(carrier && (baseInput.carriers || []).length > 1);
       const ports = {};
+      const manualPorts = {};
       Object.entries(settings.ports).forEach(([port, vesselLimit]) => {
-        const override = carrier ? partnerDraftOverride(settings, direction, port, carrier.code) : null;
+        const override = allowPartnerOverrides ? partnerDraftOverride(settings, direction, port, carrier.code) : null;
         const limit = override ?? Number(vesselLimit) * ratio;
-        if (Number.isFinite(limit) && limit > 0) ports[port] = limit;
+        if (Number.isFinite(limit) && limit > 0) {
+          ports[port] = limit;
+          if (override !== null) manualPorts[port] = true;
+        }
       });
       return {
         enabled: true,
         ports,
         ratio,
+        manualPorts,
         vesselPorts: structuredClone(settings.ports),
         carrierCode: carrier?.code || "TOTAL"
       };
     }
 
-    function draftDirectionsRequiringWeights(input) {
+    function draftLimitedPortsForDirection(input, direction) {
       if (!input?.draft?.enabled) return [];
-      return ["WB", "EB"].filter((direction) => (
-        input[direction].pols.some((pol) => draftLimitValue(input.draft, pol.port) !== null)
+      const seen = new Set();
+      return input[direction].pols.map((pol) => normalizePort(pol.port)).filter((port) => {
+        if (!port || seen.has(port) || draftLimitValue(input.draft, port) === null) return false;
+        seen.add(port);
+        return true;
+      });
+    }
+
+    function draftDirectionsRequiringWeights(input) {
+      return DIRECTION_KEYS.filter((direction) => draftLimitedPortsForDirection(input, direction).length);
+    }
+
+    function carrierNeedsDraftRatio(input, direction, carrier) {
+      const draftPorts = draftLimitedPortsForDirection(input, direction);
+      if (!draftPorts.length) return false;
+      if ((input.carriers || []).length <= 1) return true;
+      return draftPorts.some((port) => (
+        partnerDraftOverride(input.draft, direction, port, carrier.code) === null
       ));
     }
 
@@ -3861,7 +4105,9 @@
       const missing = [];
       directions.forEach((direction) => {
         input.carriers.forEach((carrier) => {
-          if (carrierAllocation(carrier, direction).mt <= 0) missing.push(`${direction} ${carrier.code} Weight`);
+          if (carrierNeedsDraftRatio(input, direction, carrier) && carrierAllocation(carrier, direction).mt <= 0) {
+            missing.push(`${direction} ${carrier.code} Weight`);
+          }
         });
       });
       if (!missing.length) return "";
@@ -4151,7 +4397,7 @@
       const limits = candidates.map((pol) => {
         const port = normalizePort(pol?.port);
         const limit = Number(draft.ports?.[port]);
-        return port && Number.isFinite(limit) && limit > 0 ? { port, limit } : null;
+        return port && Number.isFinite(limit) && limit > 0 ? { port, limit, manual: Boolean(draft.manualPorts?.[port]) } : null;
       }).filter(Boolean);
       if (!limits.length) return null;
       return {
@@ -4174,7 +4420,10 @@
       const effective = effectiveWeightLimitForBlock(model, blockIndex);
       if (!effective.draft) return "";
       const ratio = Number(model.sheet.draft?.ratio);
-      const ratioText = Number.isFinite(ratio) && ratio < 0.999999
+      const hasManualDraft = effective.draft.ports.some((item) => item.manual);
+      const ratioText = hasManualDraft
+        ? "；含手动Partner Draft"
+        : Number.isFinite(ratio) && ratio < 0.999999
         ? `；Partner比例 ${(ratio * 100).toFixed(2)}%`
         : "";
       const ports = effective.draft.ports
@@ -8794,11 +9043,13 @@
     $("clearInputs").addEventListener("click", clearCurrentInputs);
     $("loadSample").addEventListener("click", () => {
       setSample();
+      renderDraftControls();
       renderMoveCountControls();
       render();
     });
     $("parseBulk").addEventListener("click", () => {
       parseBulkInput();
+      renderDraftControls();
       renderMoveCountControls();
     });
     $("copyTable").addEventListener("click", copyTable);
@@ -8857,11 +9108,17 @@
       const carriers = readCarrierRows();
       carriers.push(defaultCarrier(""));
       renderCarrierRows(carriers);
+      renderDraftPartnerOverrides();
       rerenderIfScheduleReady();
     });
     $("draftEnabled").addEventListener("change", () => {
       state.draftSettings.enabled = $("draftEnabled").checked;
       renderDraftControls();
+      saveLocalDraftForCurrentVvd();
+    });
+    $("draftPartnerManualEnabled").addEventListener("change", () => {
+      state.draftSettings.partnerOverrideEnabled = $("draftPartnerManualEnabled").checked;
+      renderDraftPartnerOverrides();
       saveLocalDraftForCurrentVvd();
     });
     $("moveCountEnabled").addEventListener("change", () => {
@@ -8880,6 +9137,7 @@
       if (field === "wbMt") updateCarrierRatioFromWeight(row, "wbMt", "wbTeus");
       if (field === "ebMt") updateCarrierRatioFromWeight(row, "ebMt", "ebTeus");
       syncLegacyInputsFromCarriers();
+      renderDraftPartnerOverrides();
       rerenderIfScheduleReady();
     });
     $("carrierRows").addEventListener("click", (event) => {
@@ -8897,6 +9155,7 @@
         renderCarrierRows(carriers.length ? carriers : [defaultCarrier()]);
       }
       syncLegacyInputsFromCarriers();
+      renderDraftPartnerOverrides();
       rerenderIfScheduleReady();
     });
     $("serviceLane").addEventListener("input", handleLaneInput);
