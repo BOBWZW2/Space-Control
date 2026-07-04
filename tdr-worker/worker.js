@@ -1,4 +1,4 @@
-const VERSION = "2.0.0";
+const VERSION = "2.1.0";
 const ALLEGRO_BASE_URL = "https://ops.culines.com";
 const DEFAULT_ALLOWED_ORIGIN = "https://bobwzw2.github.io";
 
