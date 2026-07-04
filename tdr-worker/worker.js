@@ -40,9 +40,13 @@ function specialRows(list) {
     so: normalized(row.slotOwnPtrId),
     co: normalized(row.contOprPtrId),
     pod: normalized(row.pod),
+    tk20: numeric(row.tds22),
+    tk40: numeric(row.tds42),
+    dg20: numeric(row.dds22),
+    dg40: numeric(row.dds42),
     rf20: numeric(row.rds22),
     rf40: numeric(row.rds42)
-  })).filter((row) => row.pod && (row.rf20 || row.rf40));
+  })).filter((row) => row.pod && (row.tk20 || row.tk40 || row.dg20 || row.dg40 || row.rf20 || row.rf40));
 }
 
 class AllegroTdrClient {

@@ -2071,6 +2071,10 @@
                 <th>40'</th>
                 <th>MT 20'</th>
                 <th>MT 40'</th>
+                <th>TK 20'</th>
+                <th>TK 40'</th>
+                <th>DG 20'</th>
+                <th>DG 40'</th>
                 <th>RF 20'</th>
                 <th>RF 40'</th>
                 <th>重量</th>
@@ -2204,12 +2208,12 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
   <script>
-    const cargoLabels = ["LILIAN", "SUL", "T/S", "SOC", "RF", "MT", "Weight", "TTL"];
-    const partnerCargoLabels = ["COC", "T/S", "DG", "RF", "MT", "Weight", "TTL"];
-    const totalCargoLabels = ["LILIAN", "SUL", "T/S", "SOC", "Partner", "DG", "RF", "MT", "Weight", "TTL"];
-    const partnerEntryLabelMap = { COC: "LILIAN", DG: "SOC" };
-    const partnerAuditLabelMap = { LILIAN: "COC", SOC: "DG" };
-    const partnerRobTransferLabelMap = { LILIAN: "COC", SUL: null, SOC: "DG" };
+    const cargoLabels = ["LILIAN", "SUL", "T/S", "SOC", "TK", "DG", "RF", "MT", "Weight", "TTL"];
+    const partnerCargoLabels = ["COC", "T/S", "SOC", "TK", "DG", "RF", "MT", "Weight", "TTL"];
+    const totalCargoLabels = ["LILIAN", "SUL", "T/S", "SOC", "Partner", "TK", "DG", "RF", "MT", "Weight", "TTL"];
+    const partnerEntryLabelMap = { COC: "LILIAN" };
+    const partnerAuditLabelMap = { LILIAN: "COC" };
+    const partnerRobTransferLabelMap = { LILIAN: "COC", SUL: null };
     const NORMAL_CUL_CO = new Set(["CUL", "CUS", "CUM"]);
     const TDR_API_BASE = "https://space-control-tdr.2119990716.workers.dev";
     const TDR_CREDENTIALS_KEY = "spaceControl.tdrCredentials";
@@ -2229,7 +2233,8 @@
     const DEFAULT_TON_PER_TEU = 14;
     const DIRECTION_KEYS = ["WB", "EB"];
     const QUICK_TDR_EXPAND_SO_VALUE = "__quick_expand_so__";
-    const ROB_TRANSFER_SECTION_STEP = 10;
+    const ROB_TRANSFER_COPY_LABELS = cargoLabels.filter((label) => label !== "TTL");
+    const ROB_TRANSFER_SECTION_STEP = 3 + ROB_TRANSFER_COPY_LABELS.length;
     const SCHEDULE_UPDATE_SHEET = "Schedule Update";
     const SCHEDULE_UPDATE_START_ROW = 5;
     const SCHEDULE_UPDATE_MAX_ROWS = 260;
@@ -4355,6 +4360,8 @@
         ? rawSheet
         : { ...rawSheet, direction, draft: buildSheetDraftConfig(input, direction) };
       const labels = Array.isArray(sheet.cargoLabels) && sheet.cargoLabels.length ? sheet.cargoLabels : cargoLabels;
+      const labelIndex = Object.fromEntries(labels.map((label, index) => [label, index]));
+      const cargoRowCount = Number.isInteger(labelIndex.Weight) ? labelIndex.Weight : Math.max(0, labels.length - 2);
       const blocks = [
         { key: "ROB", port: "ROB", etb: "", etd: "", type: "ROB" },
         ...sheet.pols.map((pol, index) => ({ ...pol, key: `${pol.port}-${index}`, type: "POL" })),
@@ -4362,8 +4369,8 @@
       ];
 
       const podTotals = sheet.pods.map(() => ({
-        cargo20: Array(6).fill(0),
-        cargo40: Array(6).fill(0),
+        cargo20: Array(cargoRowCount).fill(0),
+        cargo40: Array(cargoRowCount).fill(0),
         weight: 0
       }));
 
@@ -4851,7 +4858,7 @@
       if (!preview) return;
       preview.results.filter((result) => result.status === "ok").forEach((result) => result.rows.forEach((row) => {
         const classification = tdrClassification(preview, result.choice, row);
-        const rf = result.specialByKey.get(`${row.so}|${row.co}|${row.pod}`) || { rf20: 0, rf40: 0 };
+        const special = result.specialByKey.get(tdrSpecialKey(row)) || {};
         const tr = document.createElement("tr");
         if (!classification.targetPod || !classification.category) tr.className = "tdr-unmatched";
         [
@@ -4863,12 +4870,16 @@
           classification.targetPod || "待确认",
           classification.category || "待确认",
           classification.carrier,
-          cellText(Number(row.qty20) - Number(rf.rf20 || 0)),
-          cellText(Number(row.qty40) - Number(rf.rf40 || 0)),
+          cellText(Number(row.qty20) - specialDeduction(special, "left")),
+          cellText(Number(row.qty40) - specialDeduction(special, "right")),
           cellText(row.empty20),
           cellText(row.empty40),
-          cellText(rf.rf20),
-          cellText(rf.rf40),
+          cellText(specialQuantity(special, "TK", "left")),
+          cellText(specialQuantity(special, "TK", "right")),
+          cellText(specialQuantity(special, "DG", "left")),
+          cellText(specialQuantity(special, "DG", "right")),
+          cellText(specialQuantity(special, "RF", "left")),
+          cellText(specialQuantity(special, "RF", "right")),
           cellText(row.weight, 1)
         ].forEach((value) => {
           const td = document.createElement("td");
@@ -4900,13 +4911,15 @@
       }
     }
 
-    function validateRfRows(rows, special) {
+    function validateSpecialRows(rows, special) {
       const base = new Map();
-      rows.forEach((row) => base.set(`${row.so}|${row.co}|${row.pod}`, row));
-      for (const rf of special) {
-        const row = base.get(`${rf.so}|${rf.co}|${rf.pod}`);
-        if (!row || rf.rf20 > row.qty20 || rf.rf40 > row.qty40) {
-          return `RF 无法从对应整体货量扣减：${rf.so}/${rf.co}/${rf.pod}`;
+      rows.forEach((row) => base.set(tdrSpecialKey(row), row));
+      for (const specialRow of aggregateSpecialRows(special).values()) {
+        const row = base.get(tdrSpecialKey(specialRow));
+        const deduct20 = specialDeduction(specialRow, "left");
+        const deduct40 = specialDeduction(specialRow, "right");
+        if (!row || deduct20 > row.qty20 || deduct40 > row.qty40) {
+          return `Special Cargo 无法从对应整体货量扣减：${specialRow.so}/${specialRow.co}/${specialRow.pod}`;
         }
       }
       return "";
@@ -4976,20 +4989,21 @@
       const payload = line.result || {};
       const rows = payload.rows || [];
       const special = payload.special || [];
-      const rfError = validateRfRows(rows, special);
+      const specialError = validateSpecialRows(rows, special);
       if (!rows.length && !special.length) {
         preview.results.push({ choice, status: "missing", message: "未导入TDR/船期未更新", rows, special, specialByKey: new Map() });
         preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "pol-error", `${choice.port}：未导入TDR/船期未更新`, [
           { value: "skip", label: "确认跳过该 POL，不导入" }
         ]));
-      } else if (rfError) {
-        preview.results.push({ choice, status: "error", message: rfError, rows, special, specialByKey: new Map() });
-        preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "rf-error", `${choice.port}：${rfError}`, [
+      } else if (specialError) {
+        preview.results.push({ choice, status: "error", message: specialError, rows, special, specialByKey: new Map() });
+        preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "special-error", `${choice.port}：${specialError}`, [
           { value: "skip", label: "确认跳过该 POL，不导入" }
         ]));
       } else {
-        const specialByKey = new Map(special.map((row) => [`${row.so}|${row.co}|${row.pod}`, row]));
-        const result = { choice, status: "ok", message: `${rows.length} 条 · RF ${special.length} 条`, rows, special, specialByKey };
+        const specialByKey = aggregateSpecialRows(special);
+        const specialSummary = specialSummaryText([...specialByKey.values()]);
+        const result = { choice, status: "ok", message: `${rows.length} 条${specialSummary ? ` · ${specialSummary}` : ""}`, rows, special, specialByKey };
         preview.results.push(result);
         addDecisionIssues(preview, result);
       }
@@ -5119,6 +5133,83 @@
       target[key] = String(Math.round((current + Number(value)) * 10) / 10);
     }
 
+    function tdrSpecialKey(row) {
+      return `${carrierCode(row.so, "")}|${carrierCode(row.co, "")}|${normalizePort(row.pod)}`;
+    }
+
+    function specialRawNumber(row, field) {
+      return Number(row?.[field]) || 0;
+    }
+
+    function aggregateSpecialRows(special = []) {
+      const grouped = new Map();
+      (special || []).forEach((row) => {
+        const key = tdrSpecialKey(row);
+        if (!normalizePort(row?.pod)) return;
+        if (!grouped.has(key)) {
+          grouped.set(key, {
+            so: carrierCode(row.so, ""),
+            co: carrierCode(row.co, ""),
+            pod: normalizePort(row.pod),
+            tk20: 0,
+            tk40: 0,
+            dg20: 0,
+            dg40: 0,
+            rf20: 0,
+            rf40: 0
+          });
+        }
+        const target = grouped.get(key);
+        ["tk20", "tk40", "dg20", "dg40", "rf20", "rf40"].forEach((field) => {
+          target[field] += specialRawNumber(row, field);
+        });
+      });
+      return grouped;
+    }
+
+    function effectiveSpecial(row) {
+      const tk20 = specialRawNumber(row, "tk20");
+      const tk40 = specialRawNumber(row, "tk40");
+      return {
+        tk20,
+        tk40,
+        dg20: Math.max(0, specialRawNumber(row, "dg20") - tk20),
+        dg40: Math.max(0, specialRawNumber(row, "dg40") - tk40),
+        rf20: specialRawNumber(row, "rf20"),
+        rf40: specialRawNumber(row, "rf40")
+      };
+    }
+
+    function specialQuantity(row, label, side) {
+      const qty = effectiveSpecial(row);
+      const suffix = side === "right" ? "40" : "20";
+      if (label === "TK") return qty[`tk${suffix}`] || 0;
+      if (label === "DG") return qty[`dg${suffix}`] || 0;
+      if (label === "RF") return qty[`rf${suffix}`] || 0;
+      return 0;
+    }
+
+    function specialDeduction(row, side) {
+      return ["TK", "DG", "RF"].reduce((sum, label) => sum + specialQuantity(row, label, side), 0);
+    }
+
+    function hasEffectiveSpecial(row) {
+      return ["left", "right"].some((side) => specialDeduction(row, side));
+    }
+
+    function specialSummaryText(specialRows = []) {
+      const totals = { TK: 0, DG: 0, RF: 0 };
+      (specialRows || []).forEach((row) => {
+        ["TK", "DG", "RF"].forEach((label) => {
+          totals[label] += specialQuantity(row, label, "left") + specialQuantity(row, label, "right");
+        });
+      });
+      return ["TK", "DG", "RF"]
+        .filter((label) => totals[label])
+        .map((label) => `${label} ${cellText(totals[label])}`)
+        .join(" · ");
+    }
+
     function tdrEntryStore(direction, carrier, multiCarrier) {
       return multiCarrier ? `${direction}_${carrier}` : direction;
     }
@@ -5138,7 +5229,7 @@
 
     function clearTdrBlock(storeKey, blockIndex, podCount) {
       const entries = state.entries[storeKey] || (state.entries[storeKey] = {});
-      ["LILIAN", "T/S", "SOC", "RF", "MT", "Weight"].forEach((label) => {
+      ["LILIAN", "T/S", "SOC", "TK", "DG", "RF", "MT", "Weight"].forEach((label) => {
         const rowIndex = cargoLabels.indexOf(label);
         if (rowIndex < 0) return;
         for (let podIndex = 0; podIndex < podCount; podIndex += 1) {
@@ -5169,7 +5260,7 @@
 
     function tdrAuditLine(row, quantity, side, label, classification) {
       if (!quantity) return "";
-      const suffix = label === "RF" ? "RF" : label === "MT" ? "MT" : "";
+      const suffix = ["TK", "DG", "RF", "MT"].includes(label) ? label : "";
       return `${row.so} - ${quantity}x${side}'${suffix} - ${tdrPodDescription(row, classification)}`;
     }
 
@@ -5223,12 +5314,12 @@
       const totalAuditStore = multiCarrier ? `${direction}_TOTAL` : direction;
       const polEntries = {};
       const polAudit = {};
-      const remaining = new Map(result.rows.map((row) => [`${row.so}|${row.co}|${row.pod}`, { ...row }]));
-      result.special.forEach((rf) => {
-        const base = remaining.get(`${rf.so}|${rf.co}|${rf.pod}`);
+      const remaining = new Map(result.rows.map((row) => [tdrSpecialKey(row), { ...row }]));
+      result.specialByKey.forEach((specialRow) => {
+        const base = remaining.get(tdrSpecialKey(specialRow));
         if (!base) return;
-        base.qty20 -= Number(rf.rf20) || 0;
-        base.qty40 -= Number(rf.rf40) || 0;
+        base.qty20 -= specialDeduction(specialRow, "left");
+        base.qty40 -= specialDeduction(specialRow, "right");
       });
 
       remaining.forEach((row) => {
@@ -5244,7 +5335,7 @@
 
         let totalLabel = classification.category;
         if (classification.carrier !== DEFAULT_CARRIER_CODE && classification.category === "LILIAN") totalLabel = "Partner";
-        else if (classification.carrier !== DEFAULT_CARRIER_CODE && classification.category === "SOC") totalLabel = "DG";
+        else if (classification.carrier !== DEFAULT_CARRIER_CODE && classification.category === "SOC") totalLabel = "Partner";
         [["left", row.qty20, 20], ["right", row.qty40, 40]].forEach(([side, qty, size]) => {
           if (classification.carrier !== DEFAULT_CARRIER_CODE || classification.category !== "LILIAN") {
             addTdrAudit(polAudit, totalAuditStore, blockIndex, totalLabel, podIndex, side, tdrAuditLine(row, qty, size, totalLabel, classification));
@@ -5263,15 +5354,18 @@
         }
       });
 
-      result.special.forEach((row) => {
+      result.specialByKey.forEach((row) => {
         const classification = tdrClassification(preview, result.choice, row);
         const podIndex = pods.findIndex((pod) => pod.port === classification.targetPod);
         if (podIndex < 0) return;
         const storeKey = tdrEntryStore(direction, classification.carrier, multiCarrier);
-        addPolEntry(polEntries, storeKey, blockIndex, "RF", podIndex, "left", row.rf20);
-        addPolEntry(polEntries, storeKey, blockIndex, "RF", podIndex, "right", row.rf40);
-        [["left", row.rf20, 20], ["right", row.rf40, 40]].forEach(([side, qty, size]) => {
-          addTdrAudit(polAudit, totalAuditStore, blockIndex, "RF", podIndex, side, tdrAuditLine(row, qty, size, "RF", classification));
+        ["TK", "DG", "RF"].forEach((label) => {
+          addPolEntry(polEntries, storeKey, blockIndex, label, podIndex, "left", specialQuantity(row, label, "left"));
+          addPolEntry(polEntries, storeKey, blockIndex, label, podIndex, "right", specialQuantity(row, label, "right"));
+          [["left", 20], ["right", 40]].forEach(([side, size]) => {
+            const qty = specialQuantity(row, label, side);
+            addTdrAudit(polAudit, totalAuditStore, blockIndex, label, podIndex, side, tdrAuditLine(row, qty, size, label, classification));
+          });
         });
       });
 
@@ -5279,7 +5373,8 @@
     }
 
     function tdrManualValueMatrix(store, blockIndex, pods) {
-      return cargoLabels.slice(0, 7).map((label, rowIndex) => {
+      return cargoLabels.filter((label) => label !== "TTL").map((label) => {
+        const rowIndex = cargoLabels.indexOf(label);
         const row = [];
         pods.forEach((_pod, podIndex) => {
           if (label === "Weight") {
@@ -5312,18 +5407,20 @@
     }
 
     function buildTdrManualBlock(values, pods) {
+      const labels = cargoLabels.filter((label) => label !== "TTL");
       const ttlValues = [];
       pods.forEach((_pod, podIndex) => {
         let left = 0;
         let right = 0;
-        for (let rowIndex = 0; rowIndex < 6; rowIndex += 1) {
+        labels.forEach((label, rowIndex) => {
+          if (label === "Weight") return;
           left += parseCellNumber(values[rowIndex][podIndex * 2]);
           right += parseCellNumber(values[rowIndex][podIndex * 2 + 1]);
-        }
+        });
         ttlValues.push(cellText(left), cellText(right));
       });
       const rowTotals = [...values, ttlValues].map((row, rowIndex) => {
-        if (rowIndex === 6) {
+        if (labels[rowIndex] === "Weight") {
           const weight = pods.reduce((sum, _pod, podIndex) => sum + parseCellNumber(row[podIndex * 2]), 0);
           return { left: weight, right: 0, teus: 0 };
         }
@@ -5404,20 +5501,24 @@
           appendText(sizeRow, "th", "40'");
           appendText(sizeRow, "th", "TEUS");
           const body = table.createTBody();
+          const labelIndex = Object.fromEntries(cargoLabels.map((label, index) => [label, index]));
+          const mtIndex = labelIndex.MT;
+          const weightIndex = labelIndex.Weight;
+          const ttlIndex = labelIndex.TTL;
           cargoLabels.forEach((label, rowIndex) => {
             const row = body.insertRow();
-            if (rowIndex === 7) row.className = "ttl-row";
+            if (rowIndex === ttlIndex) row.className = "ttl-row";
             if (rowIndex === 0) {
               const pol = appendText(row, "th", sectionChoice.port, "pol-cell");
               pol.colSpan = 2;
-              pol.rowSpan = 5;
-            } else if (rowIndex === 5) {
+              pol.rowSpan = Math.max(1, mtIndex);
+            } else if (rowIndex === mtIndex) {
               appendText(row, "th", "ETB", "date-label");
               appendText(row, "td", sectionChoice.etb || "", "date-value");
-            } else if (rowIndex === 6) {
+            } else if (rowIndex === weightIndex) {
               appendText(row, "th", "ETD", "date-label");
               appendText(row, "td", sectionChoice.etd || "", "date-value");
-            } else if (rowIndex === 7) {
+            } else if (rowIndex === ttlIndex) {
               appendText(row, "td", "").colSpan = 2;
             }
             appendText(row, "th", label, "row-label");
@@ -6005,8 +6106,9 @@
     }
 
     function quickTdrAggregateSection(sections, pods, choice = {}) {
-      const values = cargoLabels.slice(0, 7).map((_label, rowIndex) => pods.flatMap((_pod, podIndex) => {
-        if (rowIndex === 6) {
+      const labels = cargoLabels.filter((label) => label !== "TTL");
+      const values = labels.map((label, rowIndex) => pods.flatMap((_pod, podIndex) => {
+        if (label === "Weight") {
           const weight = sections.reduce((sum, section) => sum + parseCellNumber(section.values?.[rowIndex]?.[podIndex * 2]), 0);
           return [cellText(weight, 1), ""];
         }
@@ -6038,10 +6140,11 @@
 
     function quickTdrTotalBlock(blocks, pods) {
       const sectionCount = Math.max(0, ...blocks.map((block) => block.sections?.length || 0));
+      const labels = cargoLabels.filter((label) => label !== "TTL");
       const sections = Array.from({ length: sectionCount }, (_item, sectionIndex) => {
         const source = blocks.find((block) => block.sections?.[sectionIndex])?.sections?.[sectionIndex];
-        const values = cargoLabels.slice(0, 7).map((_label, rowIndex) => pods.flatMap((_pod, podIndex) => {
-          if (rowIndex === 6) {
+        const values = labels.map((label, rowIndex) => pods.flatMap((_pod, podIndex) => {
+          if (label === "Weight") {
             const weight = blocks.reduce((sum, block) => sum + parseCellNumber(block.sections?.[sectionIndex]?.values?.[rowIndex]?.[podIndex * 2]), 0);
             return [cellText(weight, 1), ""];
           }
@@ -6058,7 +6161,7 @@
           isSummary: Boolean(source?.isSummary)
         };
       });
-      const first = sections[0] || buildTdrManualBlock(cargoLabels.slice(0, 7).map(() => pods.flatMap(() => ["", ""])), pods);
+      const first = sections[0] || buildTdrManualBlock(labels.map(() => pods.flatMap(() => ["", ""])), pods);
       return {
         carrier: "TOTAL",
         sheetName: "TOTAL",
@@ -6103,7 +6206,8 @@
           };
         });
         const sections = withQuickTdrBoundTotal(rawSections, pods, preview);
-        const first = sections[0] || buildTdrManualBlock(cargoLabels.slice(0, 7).map(() => pods.flatMap(() => ["", ""])), pods);
+        const labels = cargoLabels.filter((label) => label !== "TTL");
+        const first = sections[0] || buildTdrManualBlock(labels.map(() => pods.flatMap(() => ["", ""])), pods);
         return {
           carrier: carrier.code,
           sheetName: carrier.code,
@@ -6196,14 +6300,14 @@
         sheetTabs: true
       });
       const okRows = preview.results.reduce((sum, result) => sum + (result.rows?.length || 0), 0);
-      const rfRows = preview.results.reduce((sum, result) => sum + (result.special?.length || 0), 0);
+      const specialText = specialSummaryText(preview.results.flatMap((result) => [...(result.specialByKey?.values?.() || [])]));
       const scope = preview.mode === "quick-bound"
         ? `${included[0].choice.vvd} · 整个 bound · ${included.length}/${preview.choices.length} 个 POL`
         : `${included[0].choice.vvd} · ${included[0].choice.port}`;
       $("quickTdrManualSummary").textContent = `${scope} · ${preview.pods.length} 个 POD · ${blocks.length} 个 Sheet`;
       $("quickTdrManualWrap").classList.remove("hidden");
       $("quickTdrExport").disabled = false;
-      $("quickTdrMessage").textContent = `查询完成：${okRows} 条货量 · RF ${rfRows} 条，可导出蓝色 Excel。`;
+      $("quickTdrMessage").textContent = `查询完成：${okRows} 条货量${specialText ? ` · ${specialText}` : ""}，可导出蓝色 Excel。`;
     }
 
     function resetQuickTdrResultViewOnly() {
@@ -6426,6 +6530,10 @@
       const table = document.createElement("table");
       table.className = "space-table";
       table.dataset.sheet = model.sheetName;
+      const labelIndex = Object.fromEntries(model.labels.map((label, index) => [label, index]));
+      const mtIndex = labelIndex.MT;
+      const weightIndex = labelIndex.Weight;
+      const ttlIndex = labelIndex.TTL;
 
       const colgroup = document.createElement("colgroup");
       const widths = [
@@ -6509,25 +6617,25 @@
       model.rows.forEach((group, groupIndex) => {
         const block = group[0].block;
         group.forEach((row, rowIndex) => {
-          const tr = addRow(tbody, `${rowIndex === 0 ? "block-line" : ""} ${rowIndex === 7 ? "block-end" : ""}`);
+          const tr = addRow(tbody, `${rowIndex === 0 ? "block-line" : ""} ${rowIndex === ttlIndex ? "block-end" : ""}`);
           if (rowIndex === 0) {
-            addCell(tr, block.port, { rowspan: 5, colspan: 2, className: "block-port" });
+            addCell(tr, block.port, { rowspan: Math.max(1, mtIndex), colspan: 2, className: "block-port" });
           }
-          if (rowIndex === 5) {
+          if (rowIndex === mtIndex) {
             addCell(tr, "ETB", { className: "muted-cell" });
             addCell(tr, block.etb || "", { className: String(block.etb).toUpperCase() === "SKIP" ? "skip" : "muted-cell" });
           }
-          if (rowIndex === 6) {
+          if (rowIndex === weightIndex) {
             addCell(tr, "ETD", { className: "muted-cell" });
             addCell(tr, block.etd || "", { className: String(block.etd).toUpperCase() === "SKIP" ? "skip" : "muted-cell" });
           }
-          if (rowIndex === 7) {
+          if (rowIndex === ttlIndex) {
             addCell(tr, "", { colspan: 2, className: "muted-cell" });
           }
 
           addCell(tr, row.label, { className: "label" });
           model.sheet.pods.forEach((pod, podIndex) => {
-            if (row.offset === 6) {
+            if (row.offset === weightIndex) {
               addCell(tr, "", {
                 colspan: 2,
                 className: editableClass(block.type),
@@ -6536,7 +6644,7 @@
               });
               return;
             }
-            const editable = block.type !== "TOTAL" && row.offset < 6;
+            const editable = block.type !== "TOTAL" && row.offset < weightIndex;
             addCell(tr, "", {
               className: editable ? "editable" : "computed",
               contenteditable: editable,
@@ -6603,13 +6711,19 @@
       const blockCount = model.blocks.length;
       const podCount = model.sheet.pods.length;
       const totalBlockIndex = blockCount - 1;
+      const labelIndex = Object.fromEntries(model.labels.map((label, index) => [label, index]));
+      const weightIndex = labelIndex.Weight;
+      const mtIndex = labelIndex.MT;
+      const ttlIndex = labelIndex.TTL;
+      const labelCount = model.labels.length;
+      if (![weightIndex, mtIndex, ttlIndex].every(Number.isInteger)) return;
 
       for (let b = 0; b < blockCount; b += 1) {
-        for (let r = 0; r < 8; r += 1) {
+        for (let r = 0; r < labelCount; r += 1) {
           const row = model.rows[b][r];
           row.totals = { left: 0, right: 0, teus: 0 };
           for (let p = 0; p < podCount; p += 1) {
-            if (r === 6) {
+            if (r === weightIndex) {
               const cell = table.querySelector(`[data-block="${b}"][data-row="${r}"][data-pod="${p}"][data-side="weight"]`);
               const value = b === totalBlockIndex ? 0 : parseCellNumber(cell?.textContent);
               row.cells[p] = { left: value, right: 0 };
@@ -6618,10 +6732,10 @@
             }
             const leftCell = table.querySelector(`[data-block="${b}"][data-row="${r}"][data-pod="${p}"][data-side="left"]`);
             const rightCell = table.querySelector(`[data-block="${b}"][data-row="${r}"][data-pod="${p}"][data-side="right"]`);
-            const left = b === totalBlockIndex || r === 7 ? 0 : parseCellNumber(leftCell?.textContent);
-            const right = b === totalBlockIndex || r === 7 ? 0 : parseCellNumber(rightCell?.textContent);
+            const left = b === totalBlockIndex || r === ttlIndex ? 0 : parseCellNumber(leftCell?.textContent);
+            const right = b === totalBlockIndex || r === ttlIndex ? 0 : parseCellNumber(rightCell?.textContent);
             row.cells[p] = { left, right };
-            if (r < 6) {
+            if (r < weightIndex) {
               row.totals.left += left;
               row.totals.right += right;
               row.totals.teus += left + right * 2;
@@ -6634,22 +6748,22 @@
         for (let p = 0; p < podCount; p += 1) {
           let left = 0;
           let right = 0;
-          for (let r = 0; r < 6; r += 1) {
+          for (let r = 0; r < weightIndex; r += 1) {
             left += model.rows[b][r].cells[p].left;
             right += model.rows[b][r].cells[p].right;
           }
-          const ttlLeft = table.querySelector(`[data-block="${b}"][data-row="7"][data-pod="${p}"][data-side="left"]`);
-          const ttlRight = table.querySelector(`[data-block="${b}"][data-row="7"][data-pod="${p}"][data-side="right"]`);
+          const ttlLeft = table.querySelector(`[data-block="${b}"][data-row="${ttlIndex}"][data-pod="${p}"][data-side="left"]`);
+          const ttlRight = table.querySelector(`[data-block="${b}"][data-row="${ttlIndex}"][data-pod="${p}"][data-side="right"]`);
           if (ttlLeft) ttlLeft.textContent = cellText(left);
           if (ttlRight) ttlRight.textContent = cellText(right);
-          model.rows[b][7].cells[p] = { left, right };
-          model.rows[b][7].totals.left += left;
-          model.rows[b][7].totals.right += right;
-          model.rows[b][7].totals.teus += left + right * 2;
+          model.rows[b][ttlIndex].cells[p] = { left, right };
+          model.rows[b][ttlIndex].totals.left += left;
+          model.rows[b][ttlIndex].totals.right += right;
+          model.rows[b][ttlIndex].totals.teus += left + right * 2;
         }
       }
 
-      for (let r = 0; r < 7; r += 1) {
+      for (let r = 0; r < ttlIndex; r += 1) {
         for (let p = 0; p < podCount; p += 1) {
           let left = 0;
           let right = 0;
@@ -6657,44 +6771,44 @@
             left += model.rows[b][r].cells[p].left;
             right += model.rows[b][r].cells[p].right;
           }
-          const totalLeft = table.querySelector(`[data-block="${totalBlockIndex}"][data-row="${r}"][data-pod="${p}"][data-side="${r === 6 ? "weight" : "left"}"]`);
+          const totalLeft = table.querySelector(`[data-block="${totalBlockIndex}"][data-row="${r}"][data-pod="${p}"][data-side="${r === weightIndex ? "weight" : "left"}"]`);
           const totalRight = table.querySelector(`[data-block="${totalBlockIndex}"][data-row="${r}"][data-pod="${p}"][data-side="right"]`);
-          if (totalLeft) totalLeft.textContent = cellText(left, r === 6 ? 1 : 0);
-          if (totalRight) totalRight.textContent = r === 6 ? "" : cellText(right);
+          if (totalLeft) totalLeft.textContent = cellText(left, r === weightIndex ? 1 : 0);
+          if (totalRight) totalRight.textContent = r === weightIndex ? "" : cellText(right);
           model.rows[totalBlockIndex][r].cells[p] = { left, right };
           model.rows[totalBlockIndex][r].totals.left += left;
           model.rows[totalBlockIndex][r].totals.right += right;
-          if (r < 6) {
+          if (r < weightIndex) {
             model.rows[totalBlockIndex][r].totals.teus += left + right * 2;
           }
         }
       }
 
       for (let p = 0; p < podCount; p += 1) {
-        const left = model.rows[totalBlockIndex].slice(0, 6).reduce((sum, row) => sum + row.cells[p].left, 0);
-        const right = model.rows[totalBlockIndex].slice(0, 6).reduce((sum, row) => sum + row.cells[p].right, 0);
-        const ttlLeft = table.querySelector(`[data-block="${totalBlockIndex}"][data-row="7"][data-pod="${p}"][data-side="left"]`);
-        const ttlRight = table.querySelector(`[data-block="${totalBlockIndex}"][data-row="7"][data-pod="${p}"][data-side="right"]`);
+        const left = model.rows[totalBlockIndex].slice(0, weightIndex).reduce((sum, row) => sum + row.cells[p].left, 0);
+        const right = model.rows[totalBlockIndex].slice(0, weightIndex).reduce((sum, row) => sum + row.cells[p].right, 0);
+        const ttlLeft = table.querySelector(`[data-block="${totalBlockIndex}"][data-row="${ttlIndex}"][data-pod="${p}"][data-side="left"]`);
+        const ttlRight = table.querySelector(`[data-block="${totalBlockIndex}"][data-row="${ttlIndex}"][data-pod="${p}"][data-side="right"]`);
         if (ttlLeft) ttlLeft.textContent = cellText(left);
         if (ttlRight) ttlRight.textContent = cellText(right);
-        model.rows[totalBlockIndex][7].cells[p] = { left, right };
+        model.rows[totalBlockIndex][ttlIndex].cells[p] = { left, right };
       }
 
       for (let b = 0; b < blockCount; b += 1) {
-        for (let r = 0; r < 8; r += 1) {
+        for (let r = 0; r < labelCount; r += 1) {
           const row = model.rows[b][r];
           const leftTotal = table.querySelector(`[data-total="left"][data-block="${b}"][data-row="${r}"]`);
           const rightTotal = table.querySelector(`[data-total="right"][data-block="${b}"][data-row="${r}"]`);
           const teuTotal = table.querySelector(`[data-total="teus"][data-block="${b}"][data-row="${r}"]`);
-          if (r === 6) {
+          if (r === weightIndex) {
             if (leftTotal) leftTotal.textContent = cellText(row.totals.left, 1);
             if (rightTotal) rightTotal.textContent = "";
             if (teuTotal) teuTotal.textContent = "";
-          } else if (r < 6 || r === 7) {
-            const left = r === 7
+          } else if (r < weightIndex || r === ttlIndex) {
+            const left = r === ttlIndex
               ? row.cells.reduce((sum, cell) => sum + cell.left, 0)
               : row.totals.left;
-            const right = r === 7
+            const right = r === ttlIndex
               ? row.cells.reduce((sum, cell) => sum + cell.right, 0)
               : row.totals.right;
             if (leftTotal) leftTotal.textContent = cellText(left);
@@ -6710,6 +6824,12 @@
     function recalcRobMetrics(table, model) {
       const totalBlockIndex = model.blocks.length - 1;
       const allocation = model.sheet.allocation;
+      const labelIndex = Object.fromEntries(model.labels.map((label, index) => [label, index]));
+      const rfIndex = labelIndex.RF;
+      const mtIndex = labelIndex.MT;
+      const weightIndex = labelIndex.Weight;
+      const ttlIndex = labelIndex.TTL;
+      if (![rfIndex, mtIndex, weightIndex, ttlIndex].every(Number.isInteger)) return;
       let prevAll = 0;
       let prevLd = 0;
       let prevWeight = 0;
@@ -6717,10 +6837,10 @@
 
       for (let b = 0; b < totalBlockIndex; b += 1) {
         const block = model.blocks[b];
-        const loadAll = sumTeus(model.rows[b], 0, 6);
-        const loadLd = sumTeus(model.rows[b], 0, 5);
-        const loadWeight = model.rows[b][6].totals.left;
-        const loadRf = model.rows[b][4].totals.left + model.rows[b][4].totals.right;
+        const loadAll = sumTeus(model.rows[b], 0, weightIndex);
+        const loadLd = sumTeus(model.rows[b], 0, mtIndex);
+        const loadWeight = model.rows[b][weightIndex].totals.left;
+        const loadRf = model.rows[b][rfIndex].totals.left + model.rows[b][rfIndex].totals.right;
         let dischargeTeu = 0;
         let dischargeMt = 0;
         let dischargeWeight = 0;
@@ -6729,14 +6849,14 @@
         if (b > 0) {
           const podIndex = findDischargePodIndex(model.sheet.pods, block);
           if (podIndex >= 0) {
-            for (let r = 0; r < 6; r += 1) {
+            for (let r = 0; r < weightIndex; r += 1) {
               const cell = model.rows[totalBlockIndex][r].cells[podIndex];
               const teu = cell.left + cell.right * 2;
               dischargeTeu += teu;
-              if (r === 4) dischargeRf += cell.left + cell.right;
-              if (r === 5) dischargeMt += teu;
+              if (r === rfIndex) dischargeRf += cell.left + cell.right;
+              if (r === mtIndex) dischargeMt += teu;
             }
-            dischargeWeight = model.rows[totalBlockIndex][6].cells[podIndex].left;
+            dischargeWeight = model.rows[totalBlockIndex][weightIndex].cells[podIndex].left;
           }
         }
 
@@ -6751,13 +6871,13 @@
         setMetric(table, b, 0, "robLd", robLd);
         setMetric(table, b, 0, "utilAll", allocation.teus ? robAll / allocation.teus : "");
         setMetric(table, b, 0, "utilLd", allocation.teus ? robLd / allocation.teus : "");
-        setMetric(table, b, 6, "robAll", robWeight, 1);
-        setMetric(table, b, 6, "robLd", robLdWeight, 1);
-        setMetric(table, b, 6, "utilAll", allocation.mt ? robWeight / allocation.mt : "");
-        setMetric(table, b, 6, "utilLd", allocation.mt ? robLdWeight / allocation.mt : "");
-        setMetric(table, b, 7, "avlTeu", allocation.teus ? allocation.teus - robAll : "");
-        setMetric(table, b, 6, "avlWeight", weightLimit ? weightLimit - robWeight : "", 1);
-        setMetric(table, b, 4, "rf", rf);
+        setMetric(table, b, weightIndex, "robAll", robWeight, 1);
+        setMetric(table, b, weightIndex, "robLd", robLdWeight, 1);
+        setMetric(table, b, weightIndex, "utilAll", allocation.mt ? robWeight / allocation.mt : "");
+        setMetric(table, b, weightIndex, "utilLd", allocation.mt ? robLdWeight / allocation.mt : "");
+        setMetric(table, b, ttlIndex, "avlTeu", allocation.teus ? allocation.teus - robAll : "");
+        setMetric(table, b, weightIndex, "avlWeight", weightLimit ? weightLimit - robWeight : "", 1);
+        setMetric(table, b, rfIndex, "rf", rf);
 
         prevAll = robAll;
         prevLd = robLd;
@@ -7438,12 +7558,17 @@
       const noteStyle = { fill: "FFDDEBF7", alignment: { horizontal: "left", vertical: "middle", wrapText: true } };
       const generatedAt = new Date().toLocaleString("zh-CN", { hour12: false });
       const scopeLabel = preview.mode === "quick-bound" ? `BOUND ${choice.vvd}` : `POL ${choice.port}`;
+      const labelIndex = Object.fromEntries(cargoLabels.map((label, index) => [label, index]));
+      const mtIndex = labelIndex.MT;
+      const weightIndex = labelIndex.Weight;
+      const ttlIndex = labelIndex.TTL;
+      const sectionStep = cargoLabels.length + 1;
 
       ws.getColumn(1).width = 9;
       ws.getColumn(2).width = 13;
       ws.getColumn(3).width = 11;
       for (let col = 4; col <= lastCol; col += 1) ws.getColumn(col).width = col === ttlCol ? 10 : 8.5;
-      for (let row = 1; row <= 5 + sections.length * 9; row += 1) ws.getRow(row).height = row <= 5 ? 22 : 20;
+      for (let row = 1; row <= 5 + sections.length * sectionStep; row += 1) ws.getRow(row).height = row <= 5 ? 22 : 20;
 
       safeMerge(ws, 1, 1, 1, lastCol);
       safeMerge(ws, 2, 1, 2, lastCol);
@@ -7476,19 +7601,19 @@
 
       sections.forEach((section, sectionIndex) => {
         const sectionChoice = section.choice || choice;
-        const startRow = 6 + sectionIndex * 9;
+        const startRow = 6 + sectionIndex * sectionStep;
         if (sectionIndex > 0) {
           safeMerge(ws, startRow - 1, 1, startRow - 1, lastCol);
           setCell(ws, startRow - 1, 1, null, { fill: "FFFFFFFF", border: noBorder() });
         }
-        safeMerge(ws, startRow, 1, startRow + 4, 2);
+        safeMerge(ws, startRow, 1, startRow + mtIndex - 1, 2);
         setCell(ws, startRow, 1, sectionChoice.port, { ...bodyStyle, bold: true });
-        setCell(ws, startRow + 5, 1, "ETB", bodyStyle);
-        setCell(ws, startRow + 5, 2, sectionChoice.etb || null, bodyStyle);
-        setCell(ws, startRow + 6, 1, "ETD", bodyStyle);
-        setCell(ws, startRow + 6, 2, sectionChoice.etd || null, bodyStyle);
-        safeMerge(ws, startRow + 7, 1, startRow + 7, 2);
-        setCell(ws, startRow + 7, 1, null, totalStyle);
+        setCell(ws, startRow + mtIndex, 1, "ETB", bodyStyle);
+        setCell(ws, startRow + mtIndex, 2, sectionChoice.etb || null, bodyStyle);
+        setCell(ws, startRow + weightIndex, 1, "ETD", bodyStyle);
+        setCell(ws, startRow + weightIndex, 2, sectionChoice.etd || null, bodyStyle);
+        safeMerge(ws, startRow + ttlIndex, 1, startRow + ttlIndex, 2);
+        setCell(ws, startRow + ttlIndex, 1, null, totalStyle);
 
         cargoLabels.forEach((label, rowIndex) => {
           const row = startRow + rowIndex;
@@ -7523,7 +7648,7 @@
       });
 
       if (block.notes.length) {
-        const noteRow = 6 + sections.length * 9;
+        const noteRow = 6 + sections.length * sectionStep;
         safeMerge(ws, noteRow, 1, noteRow, lastCol);
         setCell(ws, noteRow, 1, `批注参考：${block.notes.join("；")}`, {
           fill: "FFFFFAEB",
@@ -7787,7 +7912,7 @@
           const storedLabel = model.sheet.entryLabelMap?.[label] || label;
           const storedIndex = cargoLabels.indexOf(storedLabel);
           const entryOffset = storedIndex >= 0 ? storedIndex : offset;
-          const labelStyle = isPartnerSheet && ["DG", "RF"].includes(label)
+          const labelStyle = isPartnerSheet && ["TK", "DG", "RF"].includes(label)
             ? {
                 ...baseStyle,
                 font: { name: "Calibri", size: 11, bold: true, color: { argb: "FFFF0000" } },
@@ -8059,9 +8184,6 @@
         if (label === "Partner") {
           if (code === DEFAULT_CARRIER_CODE) return [];
           sourceLabel = "COC";
-        } else if (label === "DG") {
-          if (code === DEFAULT_CARRIER_CODE) return [];
-          sourceLabel = "DG";
         } else if (["LILIAN", "SUL", "SOC"].includes(label) && code !== DEFAULT_CARRIER_CODE) {
           return [];
         }
@@ -8388,7 +8510,8 @@
         ws.properties.tabColor = { argb: options.tabColor };
       }
       const lastCol = 3 + pods.length * 2;
-      const copyLabels = cargoLabels.slice(0, 7);
+      const copyLabels = ROB_TRANSFER_COPY_LABELS;
+      const copyWeightIndex = copyLabels.indexOf("Weight");
       const finalRow = 5 + copyLabels.length;
       const headerFill = options.headerFill || "FF99CCFF";
       const noteFill = options.noteFill || "FFFFFFFF";
@@ -8434,7 +8557,7 @@
         setCell(ws, 5, right, "40'", headerStyle);
       });
 
-      safeMerge(ws, 6, 1, 11, 2);
+      safeMerge(ws, 6, 1, finalRow, 2);
       setCell(ws, 6, 1, options.blockLabel || name, { ...blockStyle, alignment: { horizontal: "center", vertical: "middle" } });
 
       copyLabels.forEach((label, offset) => {
@@ -8445,12 +8568,13 @@
           const right = left + 1;
           const leftFormula = options.valueFormula?.({ left, right, row, offset, podIndex, side: "left" });
           const rightFormula = options.valueFormula?.({ left, right, row, offset, podIndex, side: "right" });
+          const isWeightRow = offset === copyWeightIndex;
           if (leftFormula) {
-            setFormulaCell(ws, row, left, leftFormula, { ...valueStyle, numFmt: offset === 6 ? "0.0;-0.0;;@" : "0;-0;;@" });
+            setFormulaCell(ws, row, left, leftFormula, { ...valueStyle, numFmt: isWeightRow ? "0.0;-0.0;;@" : "0;-0;;@" });
           } else {
-            setCell(ws, row, left, null, { ...valueStyle, numFmt: offset === 6 ? "0.0;-0.0;;@" : "0;-0;;@" });
+            setCell(ws, row, left, null, { ...valueStyle, numFmt: isWeightRow ? "0.0;-0.0;;@" : "0;-0;;@" });
           }
-          if (offset === 6) {
+          if (isWeightRow) {
             setCell(ws, row, right, null, { ...valueStyle, numFmt: "0.0;-0.0;;@" });
           } else if (rightFormula) {
             setFormulaCell(ws, row, right, rightFormula, { ...valueStyle, numFmt: "0;-0;;@" });
@@ -8499,7 +8623,8 @@
       });
       if (options.tabColor) ws.properties.tabColor = { argb: options.tabColor };
       const lastCol = 3 + pods.length * 2;
-      const copyLabels = cargoLabels.slice(0, 7);
+      const copyLabels = ROB_TRANSFER_COPY_LABELS;
+      const copyWeightIndex = copyLabels.indexOf("Weight");
       const finalRow = 5 + copyLabels.length + (sections.length - 1) * ROB_TRANSFER_SECTION_STEP;
       const headerFill = options.headerFill || "FF99CCFF";
       const noteFill = options.noteFill || "FFFFFFFF";
@@ -8549,7 +8674,7 @@
           setCell(ws, headerStart + 2, right, "40'", headerStyle);
         });
 
-        safeMerge(ws, dataStart, 1, dataStart + 5, 2);
+        safeMerge(ws, dataStart, 1, dataStart + copyLabels.length - 1, 2);
         setCell(ws, dataStart, 1, section.blockLabel || section.code || name, {
           ...blockStyle,
           alignment: { horizontal: "center", vertical: "middle" }
@@ -8563,12 +8688,13 @@
             const right = left + 1;
             const leftFormula = section.valueFormula?.({ left, right, row, offset, podIndex, side: "left" });
             const rightFormula = section.valueFormula?.({ left, right, row, offset, podIndex, side: "right" });
+            const isWeightRow = offset === copyWeightIndex;
             if (leftFormula) {
-              setFormulaCell(ws, row, left, leftFormula, { ...valueStyle, numFmt: offset === 6 ? "0.0;-0.0;;@" : "0;-0;;@" });
+              setFormulaCell(ws, row, left, leftFormula, { ...valueStyle, numFmt: isWeightRow ? "0.0;-0.0;;@" : "0;-0;;@" });
             } else {
-              setCell(ws, row, left, null, { ...valueStyle, numFmt: offset === 6 ? "0.0;-0.0;;@" : "0;-0;;@" });
+              setCell(ws, row, left, null, { ...valueStyle, numFmt: isWeightRow ? "0.0;-0.0;;@" : "0;-0;;@" });
             }
-            if (offset === 6) {
+            if (isWeightRow) {
               setCell(ws, row, right, null, { ...valueStyle, numFmt: "0.0;-0.0;;@" });
             } else if (rightFormula) {
               setFormulaCell(ws, row, right, rightFormula, { ...valueStyle, numFmt: "0;-0;;@" });
@@ -8590,18 +8716,19 @@
       sections.forEach((_section, sectionIndex) => {
         const headerStart = 3 + sectionIndex * ROB_TRANSFER_SECTION_STEP;
         const dataStart = 6 + sectionIndex * ROB_TRANSFER_SECTION_STEP;
+        const sectionEnd = dataStart + copyLabels.length - 1;
         for (let col = 1; col <= lastCol; col += 1) {
           ws.getCell(headerStart + 2, col).border = { ...(ws.getCell(headerStart + 2, col).border || fullBorder("thin")), bottom: excelBorder("medium") };
-          ws.getCell(dataStart + 6, col).border = { ...(ws.getCell(dataStart + 6, col).border || fullBorder("thin")), bottom: excelBorder("medium") };
+          ws.getCell(sectionEnd, col).border = { ...(ws.getCell(sectionEnd, col).border || fullBorder("thin")), bottom: excelBorder("medium") };
         }
-        for (let row = headerStart; row <= dataStart + 6; row += 1) {
+        for (let row = headerStart; row <= sectionEnd; row += 1) {
           ws.getCell(row, 1).border = { ...(ws.getCell(row, 1).border || fullBorder("thin")), left: excelBorder("medium") };
           ws.getCell(row, 3).border = { ...(ws.getCell(row, 3).border || fullBorder("thin")), right: excelBorder("medium") };
           ws.getCell(row, lastCol).border = { ...(ws.getCell(row, lastCol).border || fullBorder("thin")), right: excelBorder("medium") };
         }
         pods.forEach((_pod, podIndex) => {
           const left = 4 + podIndex * 2;
-          for (let row = headerStart; row <= dataStart + 6; row += 1) {
+          for (let row = headerStart; row <= sectionEnd; row += 1) {
             ws.getCell(row, left).border = { ...(ws.getCell(row, left).border || fullBorder("thin")), left: excelBorder("medium") };
           }
         });
@@ -8636,7 +8763,7 @@
         noteFill: "FFDDEBF7",
         blockFill: "FFDDEBF7",
         valueFormula: ({ offset, podIndex, side }) => {
-          const transferLabel = cargoLabels[offset];
+          const transferLabel = ROB_TRANSFER_COPY_LABELS[offset];
           const sourceLabel = Object.prototype.hasOwnProperty.call(ebMeta.model.sheet.robTransferLabelMap || {}, transferLabel)
             ? ebMeta.model.sheet.robTransferLabelMap[transferLabel]
             : transferLabel;
@@ -8676,7 +8803,7 @@
           pods: meta?.model?.sheet?.pods || [],
           blockLabel: `${carrier.code} EB TOTAL`,
           valueFormula: ({ offset, podIndex, side }) => {
-            const transferLabel = cargoLabels[offset];
+            const transferLabel = ROB_TRANSFER_COPY_LABELS[offset];
             const sourceLabel = Object.prototype.hasOwnProperty.call(meta.model.sheet.robTransferLabelMap || {}, transferLabel)
               ? meta.model.sheet.robTransferLabelMap[transferLabel]
               : transferLabel;

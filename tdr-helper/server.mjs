@@ -240,14 +240,20 @@ async function specialCargoRows(target) {
       // one hidden selector column before Tank; use the last 9 columns as
       // a stable anchor: Reefer 4 columns immediately precede OOG 5.
       const reeferStart = Math.max(0, values.length - 9);
+      const dangerousStart = Math.max(0, reeferStart - 4);
+      const tankStart = Math.max(0, dangerousStart - 4);
       return {
         so,
         co,
         pod,
+        tk20: values[tankStart] || 0,
+        tk40: values[tankStart + 1] || 0,
+        dg20: values[dangerousStart] || 0,
+        dg40: values[dangerousStart + 1] || 0,
         rf20: values[reeferStart] || 0,
         rf40: values[reeferStart + 1] || 0
       };
-    }).filter((row) => row?.pod && (row.rf20 || row.rf40));
+    }).filter((row) => row?.pod && (row.tk20 || row.tk40 || row.dg20 || row.dg40 || row.rf20 || row.rf40));
   });
 }
 
@@ -295,6 +301,10 @@ async function fetchTdr(vvd, pol) {
     })),
     special: special.map((row) => ({
       ...row,
+      tk20: number(row.tk20),
+      tk40: number(row.tk40),
+      dg20: number(row.dg20),
+      dg40: number(row.dg40),
       rf20: number(row.rf20),
       rf40: number(row.rf40)
     })),
