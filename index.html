@@ -4812,6 +4812,11 @@
       return { carrier: carrier || DEFAULT_CARRIER_CODE, category: direct ? category : "T/S", targetPod, direct };
     }
 
+    function tdrSpecialClassification(preview, choice, row) {
+      const so = carrierCode(row.so, DEFAULT_CARRIER_CODE);
+      return tdrClassification(preview, choice, { ...row, so, co: so || DEFAULT_CARRIER_CODE });
+    }
+
     function openTdrDialog() {
       if (!state.currentLookup) {
         $("status").textContent = "请先刷新船期";
@@ -4912,6 +4917,7 @@
     }
 
     function validateSpecialRows(rows, special) {
+      return resolveSpecialAllocations(rows, special).error;
       const base = new Map();
       rows.forEach((row) => base.set(tdrSpecialKey(row), row));
       for (const specialRow of aggregateSpecialRows(special).values()) {
@@ -4929,8 +4935,11 @@
       const issueKeys = new Set(preview.issues.map((issue) => issue.key));
       const podOptions = preview.pods.filter((pod) => String(pod.eta).toUpperCase() !== "SKIP")
         .map((pod) => ({ value: pod.port, label: `${pod.port} 做 T/S` }));
-      const rows = [...result.rows, ...result.special];
-      rows.forEach((row) => {
+      const rows = [
+        ...result.rows.map((row) => ({ row, specialOnly: false })),
+        ...result.special.map((row) => ({ row, specialOnly: true }))
+      ];
+      rows.forEach(({ row, specialOnly }) => {
         const matching = preview.pods.find((pod) => pod.port === row.pod && String(pod.eta).toUpperCase() !== "SKIP");
         if (!matching && !issueKeys.has(`pod:${row.pod}`)) {
           preview.issues.push(tdrIssue(`pod:${row.pod}`, "pod", `${row.pod} 跳港/未匹配：确认实际中转港`, podOptions));
@@ -4952,7 +4961,7 @@
         }
         const co = carrierCode(row.co, "");
         const coKey = `co:${result.choice.sheetName}:${result.choice.polIndex}:${co}`;
-        if (so === DEFAULT_CARRIER_CODE && co && !NORMAL_CUL_CO.has(co) && !issueKeys.has(coKey)) {
+        if (!specialOnly && so === DEFAULT_CARRIER_CODE && co && !NORMAL_CUL_CO.has(co) && !issueKeys.has(coKey)) {
           preview.issues.push(tdrIssue(coKey, "co", `${result.choice.port} · SO CUL / CO ${co}：本航次本港如何认定`, [
             { value: "LILIAN", label: "计入 LILIAN" },
             { value: "SOC", label: "计入 SOC" }
@@ -4989,7 +4998,8 @@
       const payload = line.result || {};
       const rows = payload.rows || [];
       const special = payload.special || [];
-      const specialError = validateSpecialRows(rows, special);
+      const specialAllocations = resolveSpecialAllocations(rows, special);
+      const specialError = specialAllocations.error;
       if (!rows.length && !special.length) {
         preview.results.push({ choice, status: "missing", message: "未导入TDR/船期未更新", rows, special, specialByKey: new Map() });
         preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "pol-error", `${choice.port}：未导入TDR/船期未更新`, [
@@ -5001,7 +5011,7 @@
           { value: "skip", label: "确认跳过该 POL，不导入" }
         ]));
       } else {
-        const specialByKey = aggregateSpecialRows(special);
+        const specialByKey = specialAllocations.specialByKey;
         const specialSummary = specialSummaryText([...specialByKey.values()]);
         const result = { choice, status: "ok", message: `${rows.length} 条${specialSummary ? ` · ${specialSummary}` : ""}`, rows, special, specialByKey };
         preview.results.push(result);
@@ -5137,6 +5147,10 @@
       return `${carrierCode(row.so, "")}|${carrierCode(row.co, "")}|${normalizePort(row.pod)}`;
     }
 
+    function tdrSoPodKey(row) {
+      return `${carrierCode(row.so, "")}|${normalizePort(row.pod)}`;
+    }
+
     function specialRawNumber(row, field) {
       return Number(row?.[field]) || 0;
     }
@@ -5173,8 +5187,8 @@
       return {
         tk20,
         tk40,
-        dg20: Math.max(0, specialRawNumber(row, "dg20") - tk20),
-        dg40: Math.max(0, specialRawNumber(row, "dg40") - tk40),
+        dg20: row?.dgEffective20 === undefined ? Math.max(0, specialRawNumber(row, "dg20") - tk20) : specialRawNumber(row, "dgEffective20"),
+        dg40: row?.dgEffective40 === undefined ? Math.max(0, specialRawNumber(row, "dg40") - tk40) : specialRawNumber(row, "dgEffective40"),
         rf20: specialRawNumber(row, "rf20"),
         rf40: specialRawNumber(row, "rf40")
       };
@@ -5191,6 +5205,99 @@
 
     function specialDeduction(row, side) {
       return ["TK", "DG", "RF"].reduce((sum, label) => sum + specialQuantity(row, label, side), 0);
+    }
+
+    function blankSpecialAllocation(row) {
+      return {
+        so: carrierCode(row.so, ""),
+        co: carrierCode(row.co, ""),
+        pod: normalizePort(row.pod),
+        tk20: 0,
+        tk40: 0,
+        dg20: 0,
+        dg40: 0,
+        dgEffective20: 0,
+        dgEffective40: 0,
+        rf20: 0,
+        rf40: 0
+      };
+    }
+
+    function addSpecialAllocation(target, label, side, quantity) {
+      const qty = Number(quantity) || 0;
+      if (!qty) return;
+      const suffix = side === "right" ? "40" : "20";
+      if (label === "TK") target[`tk${suffix}`] += qty;
+      else if (label === "DG") {
+        target[`dgEffective${suffix}`] += qty;
+        target[`dg${suffix}`] = target[`tk${suffix}`] + target[`dgEffective${suffix}`];
+      } else if (label === "RF") target[`rf${suffix}`] += qty;
+    }
+
+    function resolveSpecialAllocations(rows = [], special = []) {
+      const remaining = new Map();
+      const bySoPod = new Map();
+      (rows || []).forEach((row) => {
+        const key = tdrSpecialKey(row);
+        const item = {
+          ...row,
+          qty20: Number(row.qty20) || 0,
+          qty40: Number(row.qty40) || 0
+        };
+        remaining.set(key, item);
+        const soPodKey = tdrSoPodKey(row);
+        if (!bySoPod.has(soPodKey)) bySoPod.set(soPodKey, []);
+        bySoPod.get(soPodKey).push(key);
+      });
+      const allocations = new Map();
+      const allocatedSpecial = aggregateSpecialRows(special);
+      const canCover = (keys, side, quantity) => {
+        const field = side === "right" ? "qty40" : "qty20";
+        const total = keys.reduce((sum, key) => sum + (Number(remaining.get(key)?.[field]) || 0), 0);
+        return total + 0.000001 >= (Number(quantity) || 0);
+      };
+      const allocate = (specialRow, keys, label, side, quantity) => {
+        let rest = Number(quantity) || 0;
+        if (!rest) return true;
+        const field = side === "right" ? "qty40" : "qty20";
+        for (const key of keys) {
+          const base = remaining.get(key);
+          if (!base) continue;
+          const take = Math.min(Number(base[field]) || 0, rest);
+          if (!take) continue;
+          base[field] = Math.round((Number(base[field]) - take) * 1000000) / 1000000;
+          if (!allocations.has(key)) allocations.set(key, blankSpecialAllocation({ ...specialRow, co: base.co }));
+          addSpecialAllocation(allocations.get(key), label, side, take);
+          rest = Math.round((rest - take) * 1000000) / 1000000;
+          if (rest <= 0.000001) return true;
+        }
+        return rest <= 0.000001;
+      };
+
+      for (const specialRow of allocatedSpecial.values()) {
+        const exactKey = tdrSpecialKey(specialRow);
+        const soPodKey = tdrSoPodKey(specialRow);
+        const exactKeys = remaining.has(exactKey) ? [exactKey] : [];
+        const fallbackKeys = bySoPod.get(soPodKey) || [];
+        const deductLeft = specialDeduction(specialRow, "left");
+        const deductRight = specialDeduction(specialRow, "right");
+        let keys = exactKeys.length && canCover(exactKeys, "left", deductLeft) && canCover(exactKeys, "right", deductRight)
+          ? exactKeys
+          : fallbackKeys;
+        if (!keys.length || !canCover(keys, "left", deductLeft) || !canCover(keys, "right", deductRight)) {
+          return {
+            error: `Special Cargo 无法从对应整体货量扣减：${specialRow.so}/${specialRow.co}/${specialRow.pod}`,
+            specialByKey: new Map()
+          };
+        }
+        keys = [...keys].sort((a, b) => (a === exactKey ? -1 : b === exactKey ? 1 : 0));
+        ["left", "right"].forEach((side) => {
+          ["TK", "DG", "RF"].forEach((label) => {
+            allocate(specialRow, keys, label, side, specialQuantity(specialRow, label, side));
+          });
+        });
+      }
+      return { error: "", specialByKey: allocations };
     }
 
     function hasEffectiveSpecial(row) {
@@ -5355,7 +5462,7 @@
       });
 
       result.specialByKey.forEach((row) => {
-        const classification = tdrClassification(preview, result.choice, row);
+        const classification = tdrSpecialClassification(preview, result.choice, row);
         const podIndex = pods.findIndex((pod) => pod.port === classification.targetPod);
         if (podIndex < 0) return;
         const storeKey = tdrEntryStore(direction, classification.carrier, multiCarrier);
