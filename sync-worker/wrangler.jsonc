@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "space-control-sync",
+  "main": "worker.js",
+  "compatibility_date": "2026-07-05",
+  "account_id": "2e6bced50545278e36df9269580c7619",
+  "vars": {
+    "ALLOWED_ORIGIN": "https://bobwzw2.github.io",
+    "GITHUB_OWNER": "BOBWZW2",
+    "GITHUB_REPO": "Space-Control",
+    "GITHUB_BRANCH": "main",
+    "CACHE_PATH": "data/space-control-cache.json"
+  }
+}

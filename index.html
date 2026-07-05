@@ -1997,7 +1997,16 @@
       <div class="settings-dialog-body">
         <section class="settings-group">
           <h3>GitHub 同步</h3>
-          <div class="subtle">Token 仅保存在当前浏览器，用于“保存并同步”。</div>
+          <div class="subtle">默认通过同步代理保存；GitHub Token 仅作为代理不可用时的备用方式。</div>
+          <div class="sync-settings">
+            <div class="field">
+              <label for="syncProxyUrl">Sync Proxy URL</label>
+              <input id="syncProxyUrl" type="url" autocomplete="off" placeholder="默认同步代理">
+            </div>
+            <button id="saveProxy" type="button">保存代理</button>
+            <button id="clearProxy" type="button">关闭代理</button>
+            <button id="testProxy" type="button">检测代理</button>
+          </div>
           <div class="sync-settings">
             <div class="field">
               <label for="githubToken">GitHub Token</label>
@@ -2224,10 +2233,13 @@
     const REMOTE_CACHE_URL = "https://raw.githubusercontent.com/BOBWZW2/Space-Control/main/data/space-control-cache.json";
     const GITHUB_CACHE_API_URL = "https://api.github.com/repos/BOBWZW2/Space-Control/contents/data/space-control-cache.json";
     const GITHUB_CACHE_BRANCH = "main";
+    const DEFAULT_SYNC_PROXY_URL = "";
+    const RECOMMENDED_SYNC_PROXY_URL = "https://space-control-sync.2119990716.workers.dev";
     const LOCAL_DRAFTS_KEY = "spaceControl.cacheDrafts";
     const LOCAL_HISTORY_KEY = "spaceControl.inputHistory";
     const LOCAL_QUICK_TDR_DECISIONS_KEY = "spaceControl.quickTdrDecisions";
     const GITHUB_TOKEN_KEY = "spaceControl.githubToken";
+    const SYNC_PROXY_URL_KEY = "spaceControl.syncProxyUrl";
     const PORT_ALIASES = { CNNSA: "CNNAS" };
     const DEFAULT_CARRIER_CODE = "CUL";
     const DEFAULT_TON_PER_TEU = 14;
@@ -2378,10 +2390,72 @@
       ];
     }
 
+    function normalizeSyncProxyUrl(value) {
+      return String(value || "").trim().replace(/\/+$/, "");
+    }
+
+    function getSyncProxyUrl() {
+      try {
+        return normalizeSyncProxyUrl(window.localStorage?.getItem(SYNC_PROXY_URL_KEY) || DEFAULT_SYNC_PROXY_URL);
+      } catch {
+        return DEFAULT_SYNC_PROXY_URL;
+      }
+    }
+
+    function setSyncProxyUrl(value) {
+      try {
+        const clean = normalizeSyncProxyUrl(value);
+        if (clean) window.localStorage?.setItem(SYNC_PROXY_URL_KEY, clean);
+        else window.localStorage?.removeItem(SYNC_PROXY_URL_KEY);
+      } catch {
+        // Ignore local storage failures; the default proxy still works.
+      }
+      updateTokenUi();
+    }
+
+    async function fetchSyncProxy(pathname, options = {}) {
+      const base = getSyncProxyUrl();
+      if (!base) throw new Error("Sync proxy is not configured");
+      const response = await fetch(`${base}${pathname}`, {
+        cache: "no-store",
+        ...options,
+        headers: {
+          Accept: "application/json",
+          ...(options.headers || {})
+        }
+      });
+      const text = await response.text();
+      let payload = {};
+      if (text) {
+        try {
+          payload = JSON.parse(text);
+        } catch {
+          throw new Error(`Sync proxy returned invalid JSON (${response.status})`);
+        }
+      }
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error || `${response.status} ${response.statusText}`);
+      }
+      return payload;
+    }
+
+    async function readSyncProxyCache() {
+      const payload = await fetchSyncProxy("/api/cache");
+      return normalizeSharedCache(payload.cache || payload);
+    }
+
     async function loadSharedCache(force = false) {
       if (!force && state.sharedCache) return state.sharedCache;
       if (!force && state.sharedCachePromise) return state.sharedCachePromise;
       state.sharedCachePromise = (async () => {
+        if (getSyncProxyUrl()) {
+          try {
+            state.sharedCache = await readSyncProxyCache();
+            return state.sharedCache;
+          } catch (error) {
+            console.warn("Sync proxy cache read failed", error);
+          }
+        }
         for (const url of cacheReadUrls()) {
           try {
             const response = await fetch(url, { cache: "no-store" });
@@ -2732,16 +2806,23 @@
 
     function updateTokenUi() {
       const input = $("githubToken");
-      if (!input) return;
-      input.value = "";
-      input.placeholder = getGithubToken() ? "已保存到本机浏览器" : "首次同步时填写";
+      const proxyInput = $("syncProxyUrl");
+      if (input) {
+        input.value = "";
+        input.placeholder = getGithubToken() ? "已保存到本机浏览器" : "备用方式，可不填";
+      }
+      if (proxyInput) {
+        const currentProxy = getSyncProxyUrl();
+        proxyInput.value = currentProxy;
+        proxyInput.placeholder = RECOMMENDED_SYNC_PROXY_URL;
+      }
       updateSettingsStatus();
     }
 
     function updateSettingsStatus(message = "") {
       const status = $("settingsStatus");
       if (!status) return;
-      status.textContent = message || (getGithubToken() ? "当前浏览器已保存 GitHub Token" : "当前浏览器尚未保存 GitHub Token");
+      status.textContent = message || `同步代理：${getSyncProxyUrl() || "未启用"}；GitHub Token ${getGithubToken() ? "已保存为备用" : "未保存"}`;
     }
 
     function openSettings() {
@@ -2767,6 +2848,30 @@
       $("status").textContent = "GitHub Token 已保存到本机浏览器";
       updateSettingsStatus("GitHub Token 已保存到当前浏览器");
       return token;
+    }
+
+    function saveSyncProxyFromInput() {
+      const value = $("syncProxyUrl").value.trim();
+      setSyncProxyUrl(value || RECOMMENDED_SYNC_PROXY_URL);
+      $("status").textContent = "同步代理已保存";
+      updateSettingsStatus(`同步代理已保存：${getSyncProxyUrl()}`);
+      return getSyncProxyUrl();
+    }
+
+    async function testSyncProxy() {
+      const typed = $("syncProxyUrl").value.trim();
+      if (typed) setSyncProxyUrl(typed);
+      $("status").textContent = "正在检测同步代理...";
+      try {
+        const payload = await fetchSyncProxy("/api/health");
+        const label = payload.version ? `v${payload.version}` : "OK";
+        $("status").textContent = `同步代理已连接 · ${label}`;
+        updateSettingsStatus(`同步代理已连接：${getSyncProxyUrl()}`);
+      } catch (error) {
+        console.error(error);
+        $("status").textContent = `同步代理不可用：${error.message || error}`;
+        updateSettingsStatus(`同步代理不可用：${error.message || error}`);
+      }
     }
 
     function githubHeaders(token) {
@@ -2847,6 +2952,16 @@
       });
     }
 
+    async function pushRecordToSyncProxy(record) {
+      const payload = await fetchSyncProxy("/api/cache/record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ record })
+      });
+      state.sharedCache = normalizeSharedCache(payload.cache || state.sharedCache || emptySharedCache());
+      return payload;
+    }
+
     function deleteHistoryRecord(record) {
       const vvd = cleanVvd(record?.vvd);
       if (!vvd) return;
@@ -2892,13 +3007,33 @@
       saveLocalDraftRecord(record);
       const typedToken = $("githubToken").value.trim();
       if (typedToken) setGithubToken(typedToken);
+      const proxyUrl = getSyncProxyUrl();
+      let proxyError = null;
+      if (proxyUrl) {
+        $("saveSync").disabled = true;
+        $("status").textContent = "正在通过同步代理保存...";
+        try {
+          await pushRecordToSyncProxy(record);
+          clearLocalDraft(record.vvd);
+          await loadSharedCache(true);
+          $("status").textContent = `已通过同步代理保存 ${record.vvd}`;
+          return;
+        } catch (error) {
+          proxyError = error;
+          console.error(error);
+        } finally {
+          $("saveSync").disabled = false;
+        }
+      }
       const token = getGithubToken();
       if (!token) {
-        $("status").textContent = "已保存本机草稿；同步 GitHub 需要先填写 Token";
+        $("status").textContent = proxyError
+          ? `已保存本机草稿；同步代理失败：${proxyError.message || proxyError}`
+          : "已保存本机草稿；同步 GitHub 需要先填写 Token";
         return;
       }
       $("saveSync").disabled = true;
-      $("status").textContent = "正在同步到 GitHub...";
+      $("status").textContent = proxyError ? "同步代理失败，正在用备用 GitHub Token 同步..." : "正在同步到 GitHub...";
       try {
         await pushRecordToGithub(record, token);
         clearLocalDraft(record.vvd);
@@ -9354,6 +9489,13 @@
       if (event.target === $("settingsDialog")) closeSettings();
     });
     $("saveToken").addEventListener("click", saveGithubTokenFromInput);
+    $("saveProxy").addEventListener("click", saveSyncProxyFromInput);
+    $("clearProxy").addEventListener("click", () => {
+      setSyncProxyUrl("");
+      $("status").textContent = "同步代理已关闭";
+      updateSettingsStatus("同步代理已关闭；将使用备用 GitHub Token 同步");
+    });
+    $("testProxy").addEventListener("click", testSyncProxy);
     $("clearToken").addEventListener("click", () => {
       setGithubToken("");
       $("status").textContent = "GitHub Token 已清除";
