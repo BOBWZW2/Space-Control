@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-05T07:32:44.734Z",
+  "updatedAt": "2026-07-05T07:40:11.506Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -337,7 +337,7 @@
       "vvd": "CUHC2626WE",
       "lane": "HLX",
       "vesselName": "CUL HOCHIMINH",
-      "updatedAt": "2026-07-05T06:47:41.461Z",
+      "updatedAt": "2026-07-05T07:40:10.382Z",
       "carriers": [
         {
           "code": "CUL",
