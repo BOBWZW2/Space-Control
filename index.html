@@ -5182,13 +5182,41 @@
     }
 
     function effectiveSpecial(row) {
-      const tk20 = specialRawNumber(row, "tk20");
-      const tk40 = specialRawNumber(row, "tk40");
+      const allocated = row?.tkEffective20 !== undefined
+        || row?.tkEffective40 !== undefined
+        || row?.tkAsDg20 !== undefined
+        || row?.tkAsDg40 !== undefined
+        || row?.dgOnly20 !== undefined
+        || row?.dgOnly40 !== undefined;
+      const build = (suffix) => {
+        const rawTk = specialRawNumber(row, `tk${suffix}`);
+        const rawDg = specialRawNumber(row, `dg${suffix}`);
+        if (allocated) {
+          const tk = specialRawNumber(row, `tkEffective${suffix}`);
+          const dg = row?.[`dgEffective${suffix}`] === undefined ? rawDg : specialRawNumber(row, `dgEffective${suffix}`);
+          const tkAsDg = specialRawNumber(row, `tkAsDg${suffix}`);
+          const dgOnly = row?.[`dgOnly${suffix}`] === undefined ? Math.max(0, dg - tkAsDg) : specialRawNumber(row, `dgOnly${suffix}`);
+          return { tk, dg, tkAsDg, dgOnly };
+        }
+        const tkAsDg = Math.min(rawTk, rawDg);
+        return {
+          tk: Math.max(0, rawTk - tkAsDg),
+          dg: rawDg,
+          tkAsDg,
+          dgOnly: Math.max(0, rawDg - tkAsDg)
+        };
+      };
+      const left = build("20");
+      const right = build("40");
       return {
-        tk20,
-        tk40,
-        dg20: row?.dgEffective20 === undefined ? Math.max(0, specialRawNumber(row, "dg20") - tk20) : specialRawNumber(row, "dgEffective20"),
-        dg40: row?.dgEffective40 === undefined ? Math.max(0, specialRawNumber(row, "dg40") - tk40) : specialRawNumber(row, "dgEffective40"),
+        tk20: left.tk,
+        tk40: right.tk,
+        dg20: left.dg,
+        dg40: right.dg,
+        tkAsDg20: left.tkAsDg,
+        tkAsDg40: right.tkAsDg,
+        dgOnly20: left.dgOnly,
+        dgOnly40: right.dgOnly,
         rf20: specialRawNumber(row, "rf20"),
         rf40: specialRawNumber(row, "rf40")
       };
@@ -5214,24 +5242,47 @@
         pod: normalizePort(row.pod),
         tk20: 0,
         tk40: 0,
+        tkEffective20: 0,
+        tkEffective40: 0,
         dg20: 0,
         dg40: 0,
         dgEffective20: 0,
         dgEffective40: 0,
+        tkAsDg20: 0,
+        tkAsDg40: 0,
+        dgOnly20: 0,
+        dgOnly40: 0,
         rf20: 0,
         rf40: 0
       };
     }
 
-    function addSpecialAllocation(target, label, side, quantity) {
+    function addSpecialAllocation(target, label, side, quantity, auditLabel = label) {
       const qty = Number(quantity) || 0;
       if (!qty) return;
       const suffix = side === "right" ? "40" : "20";
-      if (label === "TK") target[`tk${suffix}`] += qty;
+      if (label === "TK") {
+        target[`tk${suffix}`] += qty;
+        target[`tkEffective${suffix}`] += qty;
+      }
       else if (label === "DG") {
         target[`dgEffective${suffix}`] += qty;
-        target[`dg${suffix}`] = target[`tk${suffix}`] + target[`dgEffective${suffix}`];
+        target[`dg${suffix}`] += qty;
+        if (auditLabel === "TK") target[`tkAsDg${suffix}`] += qty;
+        else target[`dgOnly${suffix}`] += qty;
       } else if (label === "RF") target[`rf${suffix}`] += qty;
+    }
+
+    function specialAuditParts(row, label, side) {
+      const qty = effectiveSpecial(row);
+      const suffix = side === "right" ? "40" : "20";
+      if (label !== "DG") {
+        return [{ quantity: specialQuantity(row, label, side), auditLabel: label }];
+      }
+      return [
+        { quantity: qty[`tkAsDg${suffix}`] || 0, auditLabel: "TK" },
+        { quantity: qty[`dgOnly${suffix}`] || 0, auditLabel: "DG" }
+      ].filter((item) => item.quantity);
     }
 
     function resolveSpecialAllocations(rows = [], special = []) {
@@ -5256,7 +5307,7 @@
         const total = keys.reduce((sum, key) => sum + (Number(remaining.get(key)?.[field]) || 0), 0);
         return total + 0.000001 >= (Number(quantity) || 0);
       };
-      const allocate = (specialRow, keys, label, side, quantity) => {
+      const allocate = (specialRow, keys, label, side, quantity, auditLabel = label) => {
         let rest = Number(quantity) || 0;
         if (!rest) return true;
         const field = side === "right" ? "qty40" : "qty20";
@@ -5267,7 +5318,7 @@
           if (!take) continue;
           base[field] = Math.round((Number(base[field]) - take) * 1000000) / 1000000;
           if (!allocations.has(key)) allocations.set(key, blankSpecialAllocation({ ...specialRow, co: base.co }));
-          addSpecialAllocation(allocations.get(key), label, side, take);
+          addSpecialAllocation(allocations.get(key), label, side, take, auditLabel);
           rest = Math.round((rest - take) * 1000000) / 1000000;
           if (rest <= 0.000001) return true;
         }
@@ -5292,8 +5343,14 @@
         }
         keys = [...keys].sort((a, b) => (a === exactKey ? -1 : b === exactKey ? 1 : 0));
         ["left", "right"].forEach((side) => {
-          ["TK", "DG", "RF"].forEach((label) => {
-            allocate(specialRow, keys, label, side, specialQuantity(specialRow, label, side));
+          specialAuditParts(specialRow, "TK", side).forEach((part) => {
+            allocate(specialRow, keys, "TK", side, part.quantity, part.auditLabel);
+          });
+          specialAuditParts(specialRow, "DG", side).forEach((part) => {
+            allocate(specialRow, keys, "DG", side, part.quantity, part.auditLabel);
+          });
+          specialAuditParts(specialRow, "RF", side).forEach((part) => {
+            allocate(specialRow, keys, "RF", side, part.quantity, part.auditLabel);
           });
         });
       }
@@ -5470,8 +5527,9 @@
           addPolEntry(polEntries, storeKey, blockIndex, label, podIndex, "left", specialQuantity(row, label, "left"));
           addPolEntry(polEntries, storeKey, blockIndex, label, podIndex, "right", specialQuantity(row, label, "right"));
           [["left", 20], ["right", 40]].forEach(([side, size]) => {
-            const qty = specialQuantity(row, label, side);
-            addTdrAudit(polAudit, totalAuditStore, blockIndex, label, podIndex, side, tdrAuditLine(row, qty, size, label, classification));
+            specialAuditParts(row, label, side).forEach((part) => {
+              addTdrAudit(polAudit, totalAuditStore, blockIndex, label, podIndex, side, tdrAuditLine(row, part.quantity, size, part.auditLabel, classification));
+            });
           });
         });
       });
