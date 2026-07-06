@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-06T07:45:06.133Z",
+  "updatedAt": "2026-07-06T07:49:11.627Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -337,27 +337,27 @@
       "vvd": "CUHC2626WE",
       "lane": "HLX",
       "vesselName": "CUL HOCHIMINH",
-      "updatedAt": "2026-07-05T07:40:10.382Z",
+      "updatedAt": "2026-07-06T07:48:19.941Z",
       "carriers": [
         {
           "code": "CUL",
           "tonPerTeu": 14,
           "wbTeus": 200,
           "wbMt": 2800,
-          "wbRf": null,
+          "wbRf": 123,
           "ebTeus": 200,
           "ebMt": 2800,
-          "ebRf": null
+          "ebRf": 123
         },
         {
           "code": "XFD",
           "tonPerTeu": 14,
           "wbTeus": 1800,
           "wbMt": 25200,
-          "wbRf": null,
+          "wbRf": 237,
           "ebTeus": 1800,
           "ebMt": 25200,
-          "ebRf": null
+          "ebRf": 237
         }
       ],
       "allocation": {
@@ -366,8 +366,8 @@
         "tonPerTeu": 14,
         "wbMt": 2800,
         "ebMt": 2800,
-        "wbRf": null,
-        "ebRf": null
+        "wbRf": 123,
+        "ebRf": 123
       },
       "entries": {
         "WB": {},
@@ -387,13 +387,11 @@
       },
       "selectedWbPodKeys": [
         "THLCH::2026-06-27 23:59:00",
-        "SGSIN::2026-07-01 23:45:00",
-        "MYPKG::2026-07-04 19:00:00"
+        "SGSIN::2026-07-01 23:45:00"
       ],
       "selectedWbPodPorts": [
         "THLCH",
-        "SGSIN",
-        "MYPKG"
+        "SGSIN"
       ]
     },
     "HYBM2624WE": {
