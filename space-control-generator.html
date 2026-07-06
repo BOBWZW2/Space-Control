@@ -2061,7 +2061,7 @@
           <progress id="tdrProgress" max="100" value="0"></progress>
           <span id="tdrProgressPercent">0%</span>
         </div>
-        <div id="tdrMessage" class="tdr-message" aria-live="polite">将按离港日期检查当前方向全部 POL。</div>
+        <div id="tdrMessage" class="tdr-message" aria-live="polite">将先查询 TDR；如系统无记录且船期未离港，则显示未离港。</div>
         <div id="tdrStatusGrid" class="tdr-status-grid"></div>
         <div id="tdrIssues" class="tdr-issues"></div>
         <div id="tdrPreviewWrap" class="tdr-preview-wrap hidden">
@@ -4717,24 +4717,39 @@
         const date = new Date(year, month, day, hour, minute, 59);
         return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day ? date : null;
       }
-      const match = text.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+      const match = text.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?(?:[ T](\d{1,2}):(\d{1,2}))?$/);
       if (!match) return null;
       const now = new Date();
       const month = Number(match[1]) - 1;
       const day = Number(match[2]);
       const explicit = match[3] ? Number(match[3]) + (Number(match[3]) < 100 ? 2000 : 0) : null;
+      const hour = match[4] === undefined ? 23 : Number(match[4]);
+      const minute = match[5] === undefined ? 59 : Number(match[5]);
       const years = explicit ? [explicit] : [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
-      return years.map((year) => new Date(year, month, day, 23, 59, 59))
+      return years.map((year) => new Date(year, month, day, hour, minute, 59))
         .filter((date) => date.getMonth() === month && date.getDate() === day)
         .sort((a, b) => Math.abs(a - now) - Math.abs(b - now))[0] || null;
     }
 
-    function departedAtLeastOneDay(etd) {
+    function departedBySchedule(etd) {
       const date = scheduleDate(etd);
       if (!date) return true;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      return date < today;
+      return date <= new Date();
+    }
+
+    function notDepartedBySchedule(etd) {
+      return !departedBySchedule(etd);
+    }
+
+    function tdrNotDepartedResult(choice) {
+      return {
+        choice,
+        status: "not-departed",
+        message: `未离港 · 系统暂无 TDR · ETD ${formatTdrScheduleEtd(choice.scheduleEtd || choice.etd)}`,
+        rows: [],
+        special: [],
+        specialByKey: new Map()
+      };
     }
 
     function setTdrProgress(percent, text, visible = true) {
@@ -4977,7 +4992,7 @@
       $("tdrScope").textContent = `${state.activeSheet} · ${directionVvd(state.activeSheet)} · ${scopeLabel}`;
       const prompt = state.tdrMode === "single"
         ? "只查询所选 POL，并按导出 Excel 的单港区块预览。"
-        : "将按离港日期检查当前方向全部 POL。";
+        : "将先查询 TDR；如系统无记录且船期未离港，则显示未离港。";
       setTdrProgress(0, choices.length ? prompt : "当前方向没有可查询的 POL。", false);
       $("tdrQuery").disabled = !choices.length;
       const dialog = $("tdrDialog");
@@ -5123,6 +5138,17 @@
           ]));
           return;
         }
+        if (line?.code === "TDR_NOT_FOUND") {
+          if (notDepartedBySchedule(choice.etd)) {
+            preview.results.push(tdrNotDepartedResult(choice));
+            return;
+          }
+          preview.results.push({ choice, status: "missing", message: "未导入TDR/船期未更新", rows: [], special: [], specialByKey: new Map() });
+          preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "pol-error", `${choice.port}：未导入TDR/船期未更新`, [
+            { value: "skip", label: "确认跳过该 POL，不导入" }
+          ]));
+          return;
+        }
         preview.results.push({ choice, status: "error", message, rows: [], special: [], specialByKey: new Map() });
         preview.issues.push(tdrIssue(`pol:${choice.polIndex}`, "pol-error", `${choice.port}：${message}`, [
           { value: "skip", label: "确认跳过该 POL，不导入" }
@@ -5188,21 +5214,9 @@
         issues: []
       };
       state.tdrPreview = preview;
-      const queryChoices = [];
-      choices.forEach((choice) => {
-        if (departedAtLeastOneDay(choice.etd)) queryChoices.push(choice);
-        else preview.results.push({
-          choice,
-          status: "not-departed",
-          message: `未离港 · ETD ${formatTdrScheduleEtd(choice.scheduleEtd || choice.etd)}`,
-          rows: [],
-          special: [],
-          specialByKey: new Map()
-        });
-      });
+      const queryChoices = choices.slice();
       renderTdrStatuses();
-      const initialCompleted = choices.length - queryChoices.length;
-      setTdrProgress(Math.round(initialCompleted / choices.length * 100), `云端准备查询 ${queryChoices.length} 个已离港 POL`, true);
+      setTdrProgress(5, `云端准备查询 ${queryChoices.length} 个 POL`, true);
 
       const processed = new Set();
       try {
@@ -5237,7 +5251,7 @@
               if (!choice || processed.has(Number(line.index))) continue;
               processed.add(Number(line.index));
               recordTdrBatchLine(preview, choice, line);
-              const completed = initialCompleted + processed.size;
+              const completed = processed.size;
               setTdrProgress(Math.round(completed / choices.length * 100), `已完成 ${completed}/${choices.length} 个 POL：${choice.port}`, true);
               renderTdrStatuses();
             }
@@ -6700,20 +6714,9 @@
         issues: []
       };
       state.quickTdrPreview = preview;
-      const queryChoices = [];
-      choices.forEach((choice) => {
-        if (departedAtLeastOneDay(choice.etd)) queryChoices.push(choice);
-        else preview.results.push({
-          choice,
-          status: "not-departed",
-          message: `未离港 · ETD ${formatTdrScheduleEtd(choice.scheduleEtd || choice.etd)}`,
-          rows: [],
-          special: [],
-          specialByKey: new Map()
-        });
-      });
+      const queryChoices = choices.slice();
       renderQuickTdrStatuses();
-      setQuickTdrProgress(15, mode === "bound" ? `准备查询 ${queryChoices.length}/${choices.length} 个已离港 POL` : `正在查询 ${vvd} · ${port}`, true);
+      setQuickTdrProgress(15, mode === "bound" ? `准备查询 ${queryChoices.length}/${choices.length} 个 POL` : `正在查询 ${vvd} · ${port}`, true);
       try {
         const lines = [];
         if (queryChoices.length) {
