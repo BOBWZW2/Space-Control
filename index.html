@@ -670,6 +670,23 @@
       background: #fffdf2;
     }
 
+    .move-count-panel .draft-partner-overrides {
+      border-color: #dfbd5f;
+    }
+
+    .move-count-panel .draft-override-section + .draft-override-section {
+      border-top-color: #edd697;
+    }
+
+    .move-count-panel .draft-override-title {
+      color: #7a5a0b;
+    }
+
+    .move-count-panel .draft-override-table th,
+    .move-count-panel .draft-override-table td {
+      border-color: #edd697;
+    }
+
     .draft-toggle {
       display: inline-flex;
       align-items: center;
@@ -1963,6 +1980,14 @@
           </div>
           <div class="subtle" id="moveCountHelp">Disabled: Step Up/Down Move Count stays blank in exported sheets.</div>
           <div class="draft-port-grid hidden" id="moveCountPortInputs"></div>
+          <div class="draft-partner-controls hidden" id="moveCountPartnerControls">
+            <label class="draft-toggle" for="moveCountPartnerManualEnabled">
+              <input id="moveCountPartnerManualEnabled" type="checkbox">
+              <span>Manual Partner Move Count</span>
+            </label>
+            <div class="subtle" id="moveCountPartnerHelp">Leave blank to keep TEU allocation ratio; filled values override that partner/call.</div>
+          </div>
+          <div class="draft-partner-overrides hidden" id="moveCountPartnerOverrides"></div>
         </div>
 
         <details class="section control-panel history-panel" id="historyPanel">
@@ -2227,6 +2252,7 @@
     const TDR_API_BASE = "https://space-control-tdr.2119990716.workers.dev";
     const TDR_CREDENTIALS_KEY = "spaceControl.tdrCredentials";
     const SCHEDULE_URL = "https://raw.githubusercontent.com/BOBWZW2/data-base/main/schedule_latest.xlsx";
+    const SCHEDULE_CDN_URL = "https://cdn.jsdelivr.net/gh/BOBWZW2/data-base@main/schedule_latest.xlsx";
     const LOCAL_MAPPING_URL = "data/vessel_mapping_latest.csv";
     const REMOTE_MAPPING_URL = "https://raw.githubusercontent.com/BOBWZW2/data-base/main/vessel_mapping_latest.csv";
     const CACHE_FILE_PATH = "data/space-control-cache.json";
@@ -2329,7 +2355,7 @@
       quickTdrPreview: null,
       quickTdrBlocks: [],
       draftSettings: { enabled: false, ports: {}, partnerOverrideEnabled: false, partnerOverrides: {} },
-      moveCountSettings: { enabled: false, limits: {} },
+      moveCountSettings: { enabled: false, limits: {}, partnerOverrideEnabled: false, partnerOverrides: {} },
       initialized: false
     };
 
@@ -3114,6 +3140,30 @@
       return `${normalizedPort}::${normalizedDate}`;
     }
 
+    function normalizeMoveCountPartnerOverrides(overrides) {
+      const normalized = {};
+      Object.entries(overrides || {}).forEach(([rawKey, carrierValues]) => {
+        if (!carrierValues || typeof carrierValues !== "object") return;
+        const [rawPort, rawDate = ""] = String(rawKey).split("::");
+        const key = moveCountLimitKey(rawPort, rawDate);
+        if (!key) return;
+        Object.entries(carrierValues).forEach(([rawCarrier, rawLimit]) => {
+          const carrier = carrierCode(rawCarrier, "");
+          const limit = Math.round(Number(rawLimit));
+          if (!carrier || !Number.isFinite(limit) || limit <= 0) return;
+          normalized[key] ||= {};
+          normalized[key][carrier] = limit;
+        });
+      });
+      return normalized;
+    }
+
+    function hasMoveCountPartnerOverrides(overrides) {
+      return Object.values(overrides || {}).some((carrierValues) => (
+        carrierValues && typeof carrierValues === "object" && Object.keys(carrierValues).length > 0
+      ));
+    }
+
     function normalizeMoveCountSettings(settings) {
       const limits = {};
       Object.entries(settings?.limits || {}).forEach(([rawKey, rawLimit]) => {
@@ -3123,9 +3173,15 @@
         const key = moveCountLimitKey(rawPort, rawDate);
         if (key) limits[key] = limit;
       });
+      const partnerOverrides = normalizeMoveCountPartnerOverrides(settings?.partnerOverrides);
+      const hasExplicitOverrideFlag = Object.prototype.hasOwnProperty.call(settings || {}, "partnerOverrideEnabled");
       return {
         enabled: Boolean(settings?.enabled),
-        limits
+        limits,
+        partnerOverrideEnabled: hasExplicitOverrideFlag
+          ? Boolean(settings?.partnerOverrideEnabled)
+          : hasMoveCountPartnerOverrides(partnerOverrides),
+        partnerOverrides
       };
     }
 
@@ -3200,11 +3256,12 @@
       container.replaceChildren();
       if (!state.moveCountSettings.enabled) {
         help.textContent = "Disabled: Step Up/Down Move Count stays blank in exported sheets.";
+        renderMoveCountPartnerOverrides();
         return;
       }
       const calls = currentMoveCountCalls();
       help.textContent = calls.length
-        ? "Saved by VVD. Same port and date share one Move Count limit across WB and EB."
+        ? "Saved by VVD. Partner sheets default by TEU allocation ratio and can be manually overridden."
         : "Read schedule first, then enter one Move Count limit per port/date.";
       calls.forEach((item) => {
         const label = document.createElement("label");
@@ -3227,6 +3284,7 @@
           const value = Math.round(Number(text));
           if (!text || !Number.isFinite(value) || value <= 0) delete state.moveCountSettings.limits[item.key];
           else state.moveCountSettings.limits[item.key] = value;
+          renderMoveCountPartnerOverrides();
           saveLocalDraftForCurrentVvd();
         });
         input.addEventListener("change", () => {
@@ -3236,6 +3294,94 @@
         label.appendChild(input);
         container.appendChild(label);
       });
+      renderMoveCountPartnerOverrides();
+    }
+
+    function setPartnerMoveCountOverride(key, carrierCode, rawValue) {
+      const normalizedKey = (() => {
+        const [rawPort, rawDate = ""] = String(key || "").split("::");
+        return moveCountLimitKey(rawPort, rawDate);
+      })();
+      const carrier = carrierCode ? carrierCode.toUpperCase() : "";
+      if (!normalizedKey || !carrier) return;
+      const text = normalizeText(rawValue);
+      const value = Math.round(Number(text));
+      const overrides = state.moveCountSettings.partnerOverrides;
+      if (text && Number.isFinite(value) && value > 0) {
+        overrides[normalizedKey] ||= {};
+        overrides[normalizedKey][carrier] = value;
+        return;
+      }
+      delete overrides?.[normalizedKey]?.[carrier];
+      if (overrides?.[normalizedKey] && !Object.keys(overrides[normalizedKey]).length) delete overrides[normalizedKey];
+    }
+
+    function renderMoveCountPartnerOverrides() {
+      const controls = $("moveCountPartnerControls");
+      const toggle = $("moveCountPartnerManualEnabled");
+      const help = $("moveCountPartnerHelp");
+      const container = $("moveCountPartnerOverrides");
+      if (!controls || !toggle || !help || !container) return;
+      state.moveCountSettings = normalizeMoveCountSettings(state.moveCountSettings);
+      const calls = currentMoveCountCalls();
+      const carriers = activeCarriers(readCarrierRows());
+      const canShow = Boolean(state.moveCountSettings.enabled && calls.length && carriers.length > 1);
+      controls.classList.toggle("hidden", !canShow);
+      container.classList.toggle("hidden", !canShow || !state.moveCountSettings.partnerOverrideEnabled);
+      toggle.checked = Boolean(state.moveCountSettings.partnerOverrideEnabled);
+      container.replaceChildren();
+      if (!canShow) return;
+      help.textContent = "Leave blank to keep TEU allocation ratio; filled values override that partner/call.";
+      if (!state.moveCountSettings.partnerOverrideEnabled) return;
+
+      const limitedCalls = calls.filter((item) => moveCountLimitValue(state.moveCountSettings, item.port, item.dateKey) !== null);
+      if (!limitedCalls.length) {
+        const empty = document.createElement("div");
+        empty.className = "draft-override-section";
+        appendText(empty, "div", "Enter a total Move Count first, then fill partner details.", "subtle");
+        container.appendChild(empty);
+        return;
+      }
+
+      const section = document.createElement("div");
+      section.className = "draft-override-section";
+      appendText(section, "div", "Partner Move Count", "draft-override-title");
+      const table = document.createElement("table");
+      table.className = "draft-override-table";
+      const thead = table.createTHead();
+      const headRow = thead.insertRow();
+      appendText(headRow, "th", "Call");
+      carriers.forEach((carrier) => appendText(headRow, "th", carrier.code));
+      const tbody = table.createTBody();
+      limitedCalls.forEach((item) => {
+        const row = tbody.insertRow();
+        const dateText = item.date ? formatMmDd(item.date) : "";
+        appendText(row, "td", dateText ? `${item.port} ${dateText}` : item.port);
+        carriers.forEach((carrier) => {
+          const cell = row.insertCell();
+          const input = document.createElement("input");
+          input.type = "number";
+          input.min = "1";
+          input.step = "1";
+          input.inputMode = "numeric";
+          input.placeholder = "By ratio";
+          input.value = state.moveCountSettings.partnerOverrides?.[item.key]?.[carrier.code] || "";
+          input.dataset.moveCountOverrideKey = item.key;
+          input.dataset.moveCountOverridePort = item.port;
+          input.dataset.moveCountOverrideDate = item.dateKey;
+          input.dataset.moveCountOverrideCarrier = carrier.code;
+          input.addEventListener("input", () => {
+            setPartnerMoveCountOverride(item.key, carrier.code, input.value);
+            saveLocalDraftForCurrentVvd();
+          });
+          input.addEventListener("change", () => {
+            input.value = state.moveCountSettings.partnerOverrides?.[item.key]?.[carrier.code] || "";
+          });
+          cell.appendChild(input);
+        });
+      });
+      section.appendChild(table);
+      container.appendChild(section);
     }
 
     function setPartnerDraftOverride(direction, port, carrierCode, rawValue) {
@@ -3504,9 +3650,7 @@
       }
 
       state.scheduleRowsPromise = (async () => {
-        const response = await fetch(SCHEDULE_URL, { cache: "no-store" });
-        if (!response.ok) throw new Error(`Cannot read GitHub schedule (${response.status})`);
-        const buffer = await response.arrayBuffer();
+        const { buffer, label } = await fetchScheduleWorkbookBuffer();
         const workbook = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: true });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const records = XLSX.utils.sheet_to_json(sheet, {
@@ -3537,6 +3681,7 @@
         if (missing.length) throw new Error(`Schedule is missing columns: ${missing.join(", ")}`);
 
         state.scheduleRows = rows;
+        $("scheduleNote").textContent = `船期来源：${label}`;
         refreshScheduleFieldOptions();
         return rows;
       })();
@@ -3546,6 +3691,45 @@
       } finally {
         state.scheduleRowsPromise = null;
       }
+    }
+
+    function scheduleSourceCandidates() {
+      const sources = [];
+      const proxy = getSyncProxyUrl();
+      if (proxy) {
+        sources.push({
+          label: "Sync Proxy schedule_latest.xlsx",
+          url: `${proxy}/api/schedule/latest`,
+          options: { cache: "no-store" }
+        });
+      }
+      sources.push({
+        label: "GitHub schedule_latest.xlsx",
+        url: SCHEDULE_URL,
+        options: { cache: "no-store" }
+      });
+      sources.push({
+        label: "jsDelivr schedule_latest.xlsx",
+        url: SCHEDULE_CDN_URL,
+        options: { cache: "reload" }
+      });
+      return sources;
+    }
+
+    async function fetchScheduleWorkbookBuffer() {
+      const failures = [];
+      for (const source of scheduleSourceCandidates()) {
+        try {
+          const response = await fetch(source.url, source.options);
+          if (!response.ok) throw new Error(`${response.status}`);
+          const buffer = await response.arrayBuffer();
+          if (!buffer.byteLength) throw new Error("empty file");
+          return { buffer, label: source.label };
+        } catch (error) {
+          failures.push(`${source.label}: ${error.message || error}`);
+        }
+      }
+      throw new Error(`Cannot read schedule (${failures.join("; ")})`);
     }
 
     function rowMatchesLane(row, laneInput) {
@@ -4184,6 +4368,12 @@
       return Number.isFinite(value) && value > 0 ? value : null;
     }
 
+    function partnerMoveCountOverride(settings, port, dateValue, carrierCode) {
+      if (!settings?.partnerOverrideEnabled) return null;
+      const value = Number(settings?.partnerOverrides?.[moveCountLimitKey(port, dateValue)]?.[carrierCode]);
+      return Number.isFinite(value) && value > 0 ? value : null;
+    }
+
     function partnerDraftOverride(settings, direction, port, carrierCode) {
       if (!settings?.partnerOverrideEnabled) return null;
       const value = Number(settings?.partnerOverrides?.[direction]?.[normalizePort(port)]?.[carrierCode]);
@@ -4213,6 +4403,34 @@
         ratio,
         manualPorts,
         vesselPorts: structuredClone(settings.ports),
+        carrierCode: carrier?.code || "TOTAL"
+      };
+    }
+
+    function buildSheetMoveCountConfig(baseInput, direction, carrier = null) {
+      const settings = normalizeMoveCountSettings(baseInput?.moveCount);
+      if (!settings.enabled) return { enabled: false, limits: {}, ratio: 1, vesselLimits: {} };
+      const totalTeus = totalCarrierAllocation(baseInput.carriers || [], direction).teus;
+      const carrierTeus = carrier ? carrierAllocation(carrier, direction).teus : totalTeus;
+      const ratio = carrier ? (totalTeus > 0 ? carrierTeus / totalTeus : 0) : 1;
+      const allowPartnerOverrides = Boolean(carrier && (baseInput.carriers || []).length > 1);
+      const limits = {};
+      const manualLimits = {};
+      Object.entries(settings.limits).forEach(([key, vesselLimit]) => {
+        const [rawPort, rawDate = ""] = String(key).split("::");
+        const override = allowPartnerOverrides ? partnerMoveCountOverride(settings, rawPort, rawDate, carrier.code) : null;
+        const limit = override ?? Math.round(Number(vesselLimit) * ratio);
+        if (Number.isFinite(limit) && limit > 0) {
+          limits[key] = limit;
+          if (override !== null) manualLimits[key] = true;
+        }
+      });
+      return {
+        enabled: true,
+        limits,
+        ratio,
+        manualLimits,
+        vesselLimits: structuredClone(settings.limits),
         carrierCode: carrier?.code || "TOTAL"
       };
     }
@@ -4252,6 +4470,43 @@
       });
       if (!missing.length) return "";
       return `Draft比例无法计算，请先补齐：${missing.join("、")}`;
+    }
+
+    function moveCountLimitedCallsForDirection(input, direction) {
+      if (!input?.moveCount?.enabled) return [];
+      const seen = new Set();
+      return input[direction].pods.map((pod) => {
+        const port = normalizePort(pod.port);
+        const date = podCallDate(pod);
+        const key = moveCountLimitKey(port, date);
+        return { port, date, key };
+      }).filter((item) => {
+        if (!item.port || !item.key || seen.has(item.key) || moveCountLimitValue(input.moveCount, item.port, item.date) === null) return false;
+        seen.add(item.key);
+        return true;
+      });
+    }
+
+    function carrierNeedsMoveCountRatio(input, direction, carrier) {
+      const calls = moveCountLimitedCallsForDirection(input, direction);
+      if (!calls.length) return false;
+      if ((input.carriers || []).length <= 1) return false;
+      return calls.some((item) => (
+        partnerMoveCountOverride(input.moveCount, item.port, item.date, carrier.code) === null
+      ));
+    }
+
+    function validateMoveCountAllocations(input) {
+      const missing = [];
+      DIRECTION_KEYS.forEach((direction) => {
+        input.carriers.forEach((carrier) => {
+          if (carrierNeedsMoveCountRatio(input, direction, carrier) && carrierAllocation(carrier, direction).teus <= 0) {
+            missing.push(`${direction} ${carrier.code} TEU`);
+          }
+        });
+      });
+      if (!missing.length) return "";
+      return `Move Count ratio cannot be calculated. Please fill: ${missing.join(", ")}`;
     }
 
     function writeCarrierNumber(input, value, decimals = 0) {
@@ -8386,7 +8641,7 @@
         return `=${sumFormula([dischargeCount, ...loadCounts])}`;
       });
       addMoveRow(moveSummaryStart + 5, "Step Up/Down Move Count", ({ pod }) => (
-        moveCountLimitValue(input.moveCount, pod.port, podCallDate(pod))
+        moveCountLimitValue(model.sheet.moveCount || input.moveCount, pod.port, podCallDate(pod))
       ), moveInputStyle);
       addMoveRow(moveSummaryStart + 6, "Balance Move Count", ({ left }) => (
         `=${excelCell(left, moveSummaryStart + 5)}-${excelCell(left, moveSummaryStart + 4)}`
@@ -8451,7 +8706,8 @@
           ? `${direction} ${carrier.code}`
           : baseInput[direction].allocationLabel,
         allocation: carrierAllocation(carrier, direction),
-        draft: buildSheetDraftConfig(baseInput, direction, carrier)
+        draft: buildSheetDraftConfig(baseInput, direction, carrier),
+        moveCount: buildSheetMoveCountConfig(baseInput, direction, carrier)
       };
     }
 
@@ -8463,7 +8719,8 @@
         entryStoreKey: `${direction}_TOTAL`,
         allocationLabel: `${direction} TOTAL`,
         allocation: totalCarrierAllocation(carriers, direction),
-        draft: buildSheetDraftConfig(baseInput, direction)
+        draft: buildSheetDraftConfig(baseInput, direction),
+        moveCount: buildSheetMoveCountConfig(baseInput, direction)
       };
     }
 
@@ -9212,6 +9469,8 @@
         const input = readInputs();
         const draftWeightError = validateDraftWeightAllocations(input);
         if (draftWeightError) throw new Error(draftWeightError);
+        const moveCountError = validateMoveCountAllocations(input);
+        if (moveCountError) throw new Error(moveCountError);
         const workbook = new ExcelJS.Workbook();
         workbook.creator = "Space Control Generator";
         workbook.created = new Date();
@@ -9546,6 +9805,7 @@
       carriers.push(defaultCarrier(""));
       renderCarrierRows(carriers);
       renderDraftPartnerOverrides();
+      renderMoveCountPartnerOverrides();
       rerenderIfScheduleReady();
     });
     $("draftEnabled").addEventListener("change", () => {
@@ -9563,6 +9823,11 @@
       renderMoveCountControls();
       saveLocalDraftForCurrentVvd();
     });
+    $("moveCountPartnerManualEnabled").addEventListener("change", () => {
+      state.moveCountSettings.partnerOverrideEnabled = $("moveCountPartnerManualEnabled").checked;
+      renderMoveCountPartnerOverrides();
+      saveLocalDraftForCurrentVvd();
+    });
     $("carrierRows").addEventListener("input", (event) => {
       const input = event.target.closest("input[data-field]");
       if (!input) return;
@@ -9575,6 +9840,7 @@
       if (field === "ebMt") updateCarrierRatioFromWeight(row, "ebMt", "ebTeus");
       syncLegacyInputsFromCarriers();
       renderDraftPartnerOverrides();
+      renderMoveCountPartnerOverrides();
       rerenderIfScheduleReady();
     });
     $("carrierRows").addEventListener("click", (event) => {
@@ -9593,6 +9859,7 @@
       }
       syncLegacyInputsFromCarriers();
       renderDraftPartnerOverrides();
+      renderMoveCountPartnerOverrides();
       rerenderIfScheduleReady();
     });
     $("serviceLane").addEventListener("input", handleLaneInput);
