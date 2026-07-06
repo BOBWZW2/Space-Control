@@ -1,11 +1,22 @@
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 const DEFAULT_ALLOWED_ORIGIN = "https://bobwzw2.github.io";
+const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 function json(data, init = {}, request, env) {
   return new Response(JSON.stringify(data), {
     ...init,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
+      ...corsHeaders(request, env),
+      ...(init.headers || {})
+    }
+  });
+}
+
+function binary(data, init = {}, request, env) {
+  return new Response(data, {
+    ...init,
+    headers: {
       ...corsHeaders(request, env),
       ...(init.headers || {})
     }
@@ -60,15 +71,19 @@ function repoConfig(env) {
   };
 }
 
-function githubHeaders(env) {
+function githubHeaders(env, accept = "application/vnd.github+json") {
   const token = cleanText(env.GITHUB_TOKEN);
   if (!token) throw new Error("GITHUB_TOKEN secret is not configured");
   return {
-    Accept: "application/vnd.github+json",
+    Accept: accept,
     Authorization: `Bearer ${token}`,
     "X-GitHub-Api-Version": "2022-11-28",
     "User-Agent": "space-control-sync-worker"
   };
+}
+
+function githubContentUrl(owner, repo, branch, path) {
+  return `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path).replace(/%2F/g, "/")}?ref=${encodeURIComponent(branch)}`;
 }
 
 function encodeBase64Utf8(text) {
@@ -97,7 +112,7 @@ async function githubError(response) {
 
 async function readCacheFile(env) {
   const { owner, repo, branch, path } = repoConfig(env);
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path).replace(/%2F/g, "/")}?ref=${encodeURIComponent(branch)}`;
+  const url = githubContentUrl(owner, repo, branch, path);
   const response = await fetch(url, {
     headers: githubHeaders(env),
     cache: "no-store"
@@ -110,6 +125,25 @@ async function readCacheFile(env) {
     cache: normalizeCache(JSON.parse(content || "{}")),
     sha: payload.sha || ""
   };
+}
+
+function scheduleConfig(env) {
+  return {
+    owner: cleanText(env.SCHEDULE_GITHUB_OWNER) || "BOBWZW2",
+    repo: cleanText(env.SCHEDULE_GITHUB_REPO) || "data-base",
+    branch: cleanText(env.SCHEDULE_GITHUB_BRANCH) || "main",
+    path: cleanText(env.SCHEDULE_PATH) || "schedule_latest.xlsx"
+  };
+}
+
+async function readScheduleFile(env) {
+  const { owner, repo, branch, path } = scheduleConfig(env);
+  const response = await fetch(githubContentUrl(owner, repo, branch, path), {
+    headers: githubHeaders(env, "application/vnd.github.raw"),
+    cache: "no-store"
+  });
+  if (!response.ok) throw new Error(await githubError(response));
+  return response.arrayBuffer();
 }
 
 async function writeCacheFile(env, cache, sha, message) {
@@ -167,6 +201,15 @@ async function handleRequest(request, env) {
   if (request.method === "GET" && url.pathname === "/api/cache") {
     const { cache } = await readCacheFile(env);
     return json({ ok: true, cache }, {}, request, env);
+  }
+  if (request.method === "GET" && url.pathname === "/api/schedule/latest") {
+    const buffer = await readScheduleFile(env);
+    return binary(buffer, {
+      headers: {
+        "Content-Type": XLSX_CONTENT_TYPE,
+        "Cache-Control": "no-store"
+      }
+    }, request, env);
   }
   if (request.method === "POST" && url.pathname === "/api/cache/record") {
     const payload = await request.json().catch(() => ({}));
