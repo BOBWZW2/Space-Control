@@ -6464,15 +6464,63 @@
         .flatMap((payload) => [...(payload.rows || []), ...(payload.special || [])]);
     }
 
-    function quickTdrPods(payloads, vvd) {
+    function quickTdrPodVvds(vvdRefs) {
+      const vvds = [];
+      const add = (value) => {
+        const vvd = cleanVvd(value);
+        if (vvd && !vvds.includes(vvd)) vvds.push(vvd);
+      };
+      if (Array.isArray(vvdRefs)) vvdRefs.forEach((item) => add(item?.vvd || item));
+      else quickTdrInputVvds(vvdRefs).forEach(add);
+      return vvds;
+    }
+
+    function quickTdrPodDateText(row) {
+      return row?.eta || row?.etb || row?.etd || "";
+    }
+
+    function quickTdrPodTime(row) {
+      const parsed = parseDateValue(quickTdrPodDateText(row));
+      return parsed ? parsed.getTime() : null;
+    }
+
+    function quickTdrPodScheduleRow(vvds, port) {
+      const target = normalizePort(port);
+      const vvdSet = new Set((vvds || []).map(cleanVvd).filter(Boolean));
+      return (state.scheduleRows || [])
+        .filter((row) => normalizePort(row.port) === target)
+        .filter((row) => !vvdSet.size || vvdSet.has(cleanVvd(row.vvd)))
+        .map((row, index) => ({ row, index, time: quickTdrPodTime(row) }))
+        .sort((a, b) => {
+          if (a.time !== null && b.time !== null && a.time !== b.time) return a.time - b.time;
+          if (a.time !== null && b.time === null) return -1;
+          if (a.time === null && b.time !== null) return 1;
+          return a.index - b.index;
+        })[0]?.row || null;
+    }
+
+    function quickTdrPods(payloads, vvdRefs) {
+      const vvds = quickTdrPodVvds(vvdRefs);
       const pods = [];
       quickTdrPayloadRows(payloads).forEach((row) => {
         const port = normalizePort(row.pod);
         if (!port || pods.some((pod) => pod.port === port)) return;
-        const schedule = quickTdrScheduleRow(vvd, port);
-        pods.push({ port, eta: schedule?.eta || "" });
+        const schedule = quickTdrPodScheduleRow(vvds, port);
+        pods.push({
+          port,
+          eta: schedule?.eta || "",
+          sortTime: quickTdrPodTime(schedule),
+          sourceIndex: pods.length
+        });
       });
-      return pods;
+      return pods
+        .sort((a, b) => {
+          if (a.sortTime !== null && b.sortTime !== null && a.sortTime !== b.sortTime) return a.sortTime - b.sortTime;
+          if (a.sortTime !== null && b.sortTime === null) return -1;
+          if (a.sortTime === null && b.sortTime !== null) return 1;
+          return a.sourceIndex - b.sourceIndex;
+        })
+        .map(({ sortTime, sourceIndex, ...pod }) => pod);
     }
 
     function quickTdrMaintainedCarriers() {
@@ -6993,7 +7041,7 @@
         }
         setQuickTdrProgress(88, "TDR 已返回，正在整理蓝色模板", true);
         const payloads = lines.filter((line) => line?.ok).map((line) => line.result || {});
-        preview.pods = quickTdrPods(payloads, vvd);
+        preview.pods = quickTdrPods(payloads, queryChoices);
         preview.carriers = quickTdrCarriers(payloads, preview.maintainedCarriers);
         const processed = new Set();
         lines.forEach((line) => {
