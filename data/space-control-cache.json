@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-06T07:50:28.921Z",
+  "updatedAt": "2026-07-08T02:56:33.287Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -567,6 +567,69 @@
         "THLCH",
         "SGSIN",
         "MYPKG"
+      ]
+    },
+    "DFMH2627WE": {
+      "vvd": "DFMH2627WE",
+      "lane": "CGS",
+      "vesselName": "DONG FANG MING HAI",
+      "updatedAt": "2026-07-08T02:55:31.317Z",
+      "carriers": [
+        {
+          "code": "CUL",
+          "tonPerTeu": 13.7037,
+          "wbTeus": 1080,
+          "wbMt": 14800,
+          "wbRf": null,
+          "ebTeus": 1080,
+          "ebMt": 14800,
+          "ebRf": null
+        },
+        {
+          "code": "GTL",
+          "tonPerTeu": 14,
+          "wbTeus": 300,
+          "wbMt": 4200,
+          "wbRf": null,
+          "ebTeus": 300,
+          "ebMt": 4200,
+          "ebRf": null
+        }
+      ],
+      "allocation": {
+        "wbTeus": 1080,
+        "ebTeus": 1080,
+        "tonPerTeu": 13.7037,
+        "wbMt": 14800,
+        "ebMt": 14800,
+        "wbRf": null,
+        "ebRf": null
+      },
+      "entries": {
+        "WB": {},
+        "EB": {}
+      },
+      "tdrAudit": {},
+      "tdrImports": {},
+      "draft": {
+        "enabled": false,
+        "ports": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "moveCount": {
+        "enabled": false,
+        "limits": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "selectedWbPodKeys": [
+        "CNSHA::2026-07-21 00:00:00",
+        "CNNAS::2026-07-25 01:00:00"
+      ],
+      "selectedWbPodPorts": [
+        "CNSHA",
+        "CNNAS"
       ]
     }
   }
