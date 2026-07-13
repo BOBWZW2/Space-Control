@@ -287,37 +287,32 @@
       color: #b54708;
     }
 
-    .tdr-account-panel {
+    .tdr-settings-fields {
       display: grid;
-      grid-template-columns: minmax(150px, 1fr) minmax(170px, 1fr) auto auto;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 8px;
       align-items: end;
-      margin: -2px 0 12px;
-      padding: 10px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #f8fafc;
+      margin-top: 12px;
     }
 
-    .tdr-account-panel label {
-      display: grid;
-      gap: 4px;
-      color: #344054;
-      font-size: 11px;
-      font-weight: 700;
+    .tdr-settings-fields .field {
+      margin: 0;
     }
 
-    .tdr-account-panel input[type="text"],
-    .tdr-account-panel input[type="password"] {
-      min-height: 34px;
+    .tdr-settings-actions {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
     .tdr-account-remember {
       display: flex !important;
-      grid-auto-flow: column;
       align-items: center;
-      justify-content: start;
-      min-height: 34px;
+      gap: 6px;
+      margin-right: auto;
+      color: #344054;
+      font-size: 12px;
       white-space: nowrap;
     }
 
@@ -879,6 +874,12 @@
     .settings-group h3 {
       margin: 0 0 5px;
       font-size: 13px;
+    }
+
+    .settings-group + .settings-group {
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
     }
 
     .settings-group .sync-settings {
@@ -1854,7 +1855,7 @@
         flex-wrap: wrap;
       }
 
-      .tdr-account-panel {
+      .tdr-settings-fields {
         grid-template-columns: 1fr;
       }
 
@@ -2020,6 +2021,26 @@
         </button>
       </div>
       <div class="settings-dialog-body">
+        <section id="tdrSettingsGroup" class="settings-group">
+          <h3>Allegro / TDR 账号</h3>
+          <div class="subtle">TDR 查询统一使用此处账号。已保存的密码不会回填到输入框，留空表示保持原密码。</div>
+          <div class="tdr-settings-fields" role="group" aria-label="Allegro TDR 账号设置">
+            <div class="field">
+              <label for="tdrAccountIdentity">Allegro 用户名</label>
+              <input id="tdrAccountIdentity" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" readonly data-form-type="other" data-lpignore="true" data-1p-ignore data-bwignore data-protonpass-ignore="true">
+            </div>
+            <div class="field">
+              <label for="tdrAccountSecret">Allegro 密码</label>
+              <input id="tdrAccountSecret" type="password" autocomplete="new-password" readonly data-form-type="other" data-lpignore="true" data-1p-ignore data-bwignore data-protonpass-ignore="true">
+            </div>
+            <div class="tdr-settings-actions">
+              <label class="tdr-account-remember"><input id="tdrAccountRemember" type="checkbox" checked> 在此设备记住</label>
+              <button id="clearTdrAccount" type="button">清除账号</button>
+              <button id="saveTdrAccount" type="button" class="primary">保存账号</button>
+            </div>
+          </div>
+          <div class="settings-status" id="tdrSettingsStatus" aria-live="polite"></div>
+        </section>
         <section class="settings-group">
           <h3>GitHub 同步</h3>
           <div class="subtle">默认通过同步代理保存；GitHub Token 仅作为代理不可用时的备用方式。</div>
@@ -2074,13 +2095,7 @@
         </div>
         <div class="tdr-agent-line">
           <div id="tdrAgentStatus" class="tdr-agent-status">正在检测云端 TDR 服务...</div>
-          <button id="tdrAccountSettings" class="tdr-account-settings" type="button">TDR 账号</button>
-        </div>
-        <div id="tdrAccountPanel" class="tdr-account-panel hidden">
-          <label>Allegro 用户名<input id="tdrUsername" type="text" autocomplete="username"></label>
-          <label>Allegro 密码<input id="tdrPassword" type="password" autocomplete="current-password"></label>
-          <label class="tdr-account-remember"><input id="tdrRememberAccount" type="checkbox" checked> 在此设备记住</label>
-          <button id="tdrSaveAccount" type="button">保存账号</button>
+          <button id="tdrAccountSettings" class="tdr-account-settings" type="button">账号设置</button>
         </div>
         <div id="tdrProgressWrap" class="tdr-progress hidden" role="status" aria-live="polite">
           <progress id="tdrProgress" max="100" value="0"></progress>
@@ -2172,13 +2187,7 @@
         <div class="quick-tdr-hint">候选来自 GitHub 船期；单港可手工输入 PORT，整个 bound 按同一 VVD 的船期港口顺序查询。快速查询按 TDR 原始 POD 展示，不改动当前控舱表，也不进行跳港 T/S 重映射。</div>
         <div class="tdr-agent-line">
           <div id="quickTdrAgentStatus" class="tdr-agent-status">正在检测云端 TDR 服务...</div>
-          <button id="quickTdrAccountSettings" class="tdr-account-settings" type="button">TDR 账号</button>
-        </div>
-        <div id="quickTdrAccountPanel" class="tdr-account-panel hidden">
-          <label>Allegro 用户名<input id="quickTdrUsername" type="text" autocomplete="username"></label>
-          <label>Allegro 密码<input id="quickTdrPassword" type="password" autocomplete="current-password"></label>
-          <label class="tdr-account-remember"><input id="quickTdrRememberAccount" type="checkbox" checked> 在此设备记住</label>
-          <button id="quickTdrSaveAccount" type="button">保存账号</button>
+          <button id="quickTdrAccountSettings" class="tdr-account-settings" type="button">账号设置</button>
         </div>
         <div id="quickTdrProgressWrap" class="tdr-progress hidden" role="status" aria-live="polite">
           <progress id="quickTdrProgress" max="100" value="0"></progress>
@@ -2351,6 +2360,7 @@
       tdrMode: "bound",
       tdrSelectedPolIndex: 0,
       tdrManualBlocks: [],
+      tdrSessionCredentials: null,
       quickTdrMode: "single",
       quickTdrPreview: null,
       quickTdrBlocks: [],
@@ -2851,10 +2861,14 @@
       status.textContent = message || `同步代理：${getSyncProxyUrl() || "未启用"}；GitHub Token ${getGithubToken() ? "已保存为备用" : "未保存"}`;
     }
 
-    function openSettings() {
+    function openSettings(source = "") {
+      const accountSource = typeof source === "string" ? source : "";
       const dialog = $("settingsDialog");
       if (!dialog || dialog.open) return;
       updateTokenUi();
+      populateTdrSettingsFields();
+      if (accountSource === "tdr") closeTdrDialog();
+      if (accountSource === "quick-tdr") closeQuickTdrDialog();
       dialog.showModal();
     }
 
@@ -5015,7 +5029,7 @@
       if (text) $("tdrMessage").textContent = text;
     }
 
-    function loadTdrCredentials() {
+    function storedTdrCredentials() {
       try {
         const saved = JSON.parse(localStorage.getItem(TDR_CREDENTIALS_KEY) || "null");
         return saved && typeof saved === "object"
@@ -5026,43 +5040,102 @@
       }
     }
 
-    function populateTdrAccountFields() {
-      const saved = loadTdrCredentials();
-      if (!$("tdrUsername").value) $("tdrUsername").value = saved.username;
-      if (!$("tdrPassword").value) $("tdrPassword").value = saved.password;
-      $("tdrRememberAccount").checked = Boolean(saved.username || saved.password);
-      return saved;
+    function loadTdrCredentials() {
+      const session = state.tdrSessionCredentials;
+      if (session && (session.username || session.password)) return { ...session };
+      return storedTdrCredentials();
     }
 
     function currentTdrCredentials() {
-      return {
-        username: $("tdrUsername").value.trim(),
-        password: $("tdrPassword").value
-      };
+      return loadTdrCredentials();
+    }
+
+    function updateTdrSettingsStatus(message = "") {
+      const status = $("tdrSettingsStatus");
+      if (!status) return;
+      const credentials = loadTdrCredentials();
+      const saved = storedTdrCredentials();
+      const storageLabel = saved.username && saved.password ? "已保存到此设备" : "仅本次页面有效";
+      status.textContent = message || (credentials.username && credentials.password
+        ? `${storageLabel} · 当前账号 ${credentials.username}`
+        : "尚未设置 Allegro 账号");
+    }
+
+    function prepareProtectedCredentialInput(input, value = "", clearOnUnlock = false) {
+      if (!input) return;
+      input.value = value;
+      input.readOnly = true;
+      input.dataset.unlocked = "false";
+      input.dataset.originalValue = value;
+      input.dataset.clearOnUnlock = clearOnUnlock ? "true" : "false";
+    }
+
+    function unlockProtectedCredentialInput(input) {
+      if (!input || input.dataset.unlocked === "true") return;
+      input.readOnly = false;
+      input.dataset.unlocked = "true";
+      if (input.dataset.clearOnUnlock === "true") input.value = "";
+    }
+
+    function populateTdrSettingsFields() {
+      const credentials = loadTdrCredentials();
+      const saved = storedTdrCredentials();
+      const identity = $("tdrAccountIdentity");
+      const secret = $("tdrAccountSecret");
+      prepareProtectedCredentialInput(identity, credentials.username, false);
+      prepareProtectedCredentialInput(secret, "", true);
+      if (secret) secret.placeholder = credentials.password ? "已保存；留空保持不变" : "填写 Allegro 密码";
+      if ($("tdrAccountRemember")) $("tdrAccountRemember").checked = Boolean(saved.username && saved.password);
+      updateTdrSettingsStatus();
+      return credentials;
     }
 
     function saveTdrAccountSettings() {
-      const credentials = currentTdrCredentials();
+      const existing = loadTdrCredentials();
+      const identity = $("tdrAccountIdentity");
+      const secret = $("tdrAccountSecret");
+      const username = identity?.dataset.unlocked === "true"
+        ? identity.value.trim()
+        : String(identity?.dataset.originalValue || existing.username).trim();
+      const typedPassword = secret?.dataset.unlocked === "true" ? secret.value : "";
+      const password = typedPassword || (username === existing.username ? existing.password : "");
+      const credentials = { username, password };
       if (!credentials.username || !credentials.password) {
         setTdrAccountAttention(true);
-        $("tdrMessage").textContent = "请填写 Allegro 用户名和密码。";
+        updateTdrSettingsStatus(username && existing.password && username !== existing.username
+          ? "用户名已更改，请同时填写对应密码。"
+          : "请填写 Allegro 用户名和密码。");
         return false;
       }
-      if ($("tdrRememberAccount").checked) {
+      state.tdrSessionCredentials = credentials;
+      if ($("tdrAccountRemember").checked) {
         localStorage.setItem(TDR_CREDENTIALS_KEY, JSON.stringify(credentials));
       } else {
         localStorage.removeItem(TDR_CREDENTIALS_KEY);
       }
       setTdrAccountAttention(false);
-      $("tdrAccountPanel").classList.add("hidden");
-      $("tdrMessage").textContent = "TDR 账号已保存，可以开始云端查询。";
+      populateTdrSettingsFields();
+      updateTdrSettingsStatus(`账号已保存 · ${credentials.username}`);
+      $("status").textContent = "TDR 账号已保存";
       checkTdrAgent();
+      checkQuickTdrAgent();
       return true;
+    }
+
+    function clearTdrAccountSettings() {
+      state.tdrSessionCredentials = null;
+      localStorage.removeItem(TDR_CREDENTIALS_KEY);
+      populateTdrSettingsFields();
+      setTdrAccountAttention(true);
+      updateTdrSettingsStatus("Allegro 账号已从当前设备清除");
+      $("status").textContent = "TDR 账号已清除";
+      checkTdrAgent();
+      checkQuickTdrAgent();
     }
 
     async function checkTdrAgent() {
       const status = $("tdrAgentStatus");
-      const credentials = populateTdrAccountFields();
+      const credentials = loadTdrCredentials();
       if (status) {
         status.className = "tdr-agent-status";
         status.textContent = "正在检测云端 TDR 服务...";
@@ -5095,13 +5168,11 @@
 
     function setTdrAccountAttention(enabled) {
       $("tdrAccountSettings")?.classList.toggle("attention", Boolean(enabled));
+      $("quickTdrAccountSettings")?.classList.toggle("attention", Boolean(enabled));
     }
 
-    function openTdrAccountSettings() {
-      populateTdrAccountFields();
-      const panel = $("tdrAccountPanel");
-      panel.classList.toggle("hidden");
-      if (!panel.classList.contains("hidden")) $("tdrUsername").focus();
+    function openTdrAccountSettings(source = "tdr") {
+      openSettings(source);
     }
 
     function tdrIssue(key, type, message, options, value = "") {
@@ -5305,7 +5376,7 @@
       if (!preview.querying) {
         if (preview.authFailed) {
           clearTdrManualPreview();
-          $("tdrMessage").textContent = "Allegro 登录失败。请修改并保存 TDR 账号后重新查询。";
+          $("tdrMessage").textContent = "Allegro 登录失败。请到设置中修改并保存 TDR 账号后重新查询。";
           return;
         }
         const writable = preview.results.filter((result) => result.status === "ok").length
@@ -5447,9 +5518,7 @@
       const credentials = currentTdrCredentials();
       if (!credentials.username || !credentials.password) {
         setTdrAccountAttention(true);
-        $("tdrAccountPanel").classList.remove("hidden");
-        setTdrProgress(0, "请先填写并保存 Allegro 账号和密码。", true);
-        $("tdrUsername").focus();
+        setTdrProgress(0, "请先到设置中填写并保存 Allegro 账号和密码。", true);
         return;
       }
 
@@ -5533,7 +5602,7 @@
       preview.querying = false;
       if (preview.authFailed) {
         const checked = Math.max(1, preview.results.length);
-        setTdrProgress(Math.round(checked / choices.length * 100), "Allegro 登录失败，请修改 TDR 账号后重试。", true);
+        setTdrProgress(Math.round(checked / choices.length * 100), "Allegro 登录失败，请到设置中修改 TDR 账号后重试。", true);
       } else {
         setTdrProgress(100, `查询完成：${preview.results.filter((result) => result.status === "ok").length} 个 POL 可写入`, true);
       }
@@ -6207,41 +6276,13 @@
       if (text) $("quickTdrMessage").textContent = text;
     }
 
-    function populateQuickTdrAccountFields() {
-      const saved = loadTdrCredentials();
-      if (!$("quickTdrUsername").value) $("quickTdrUsername").value = saved.username;
-      if (!$("quickTdrPassword").value) $("quickTdrPassword").value = saved.password;
-      $("quickTdrRememberAccount").checked = Boolean(saved.username || saved.password);
-      return saved;
-    }
-
     function currentQuickTdrCredentials() {
-      return {
-        username: $("quickTdrUsername").value.trim(),
-        password: $("quickTdrPassword").value
-      };
-    }
-
-    function saveQuickTdrAccountSettings() {
-      const credentials = currentQuickTdrCredentials();
-      if (!credentials.username || !credentials.password) {
-        $("quickTdrMessage").textContent = "请填写 Allegro 用户名和密码。";
-        return false;
-      }
-      if ($("quickTdrRememberAccount").checked) {
-        localStorage.setItem(TDR_CREDENTIALS_KEY, JSON.stringify(credentials));
-      } else {
-        localStorage.removeItem(TDR_CREDENTIALS_KEY);
-      }
-      $("quickTdrAccountPanel").classList.add("hidden");
-      $("quickTdrMessage").textContent = "TDR 账号已保存，可以开始查询。";
-      checkQuickTdrAgent();
-      return true;
+      return loadTdrCredentials();
     }
 
     async function checkQuickTdrAgent() {
       const status = $("quickTdrAgentStatus");
-      const credentials = populateQuickTdrAccountFields();
+      const credentials = loadTdrCredentials();
       status.className = "tdr-agent-status";
       status.textContent = "正在检测云端 TDR 服务...";
       try {
@@ -6442,7 +6483,6 @@
       updateQuickTdrModeUi();
       updateQuickTdrBoundDirectionUi();
       setQuickTdrProgress(0, state.quickTdrMode === "bound" ? "输入 VVD 后即可查询整个 bound。" : "输入 VVD 和 PORT 后即可查询。", false);
-      populateQuickTdrAccountFields();
       checkQuickTdrAgent();
       try {
         await loadScheduleRows();
@@ -6989,9 +7029,8 @@
       }
       const credentials = currentQuickTdrCredentials();
       if (!credentials.username || !credentials.password) {
-        $("quickTdrAccountPanel").classList.remove("hidden");
-        $("quickTdrMessage").textContent = "请先填写并保存 Allegro 账号和密码。";
-        $("quickTdrUsername").focus();
+        setTdrAccountAttention(true);
+        $("quickTdrMessage").textContent = "请先到设置中填写并保存 Allegro 账号和密码。";
         return;
       }
       const choices = quickTdrQueryChoices(vvd, port);
@@ -7069,8 +7108,8 @@
         applyQuickTdrSavedDecisions(preview);
         preview.querying = false;
         if (preview.authFailed) {
-          $("quickTdrAccountPanel").classList.remove("hidden");
-          $("quickTdrMessage").textContent = "Allegro 登录失败，请修改 TDR 账号后重试。";
+          setTdrAccountAttention(true);
+          $("quickTdrMessage").textContent = "Allegro 登录失败，请到设置中修改 TDR 账号后重试。";
         }
         setQuickTdrProgress(100, "查询完成", true);
         renderQuickTdrResult();
@@ -7090,7 +7129,7 @@
           });
         });
         renderQuickTdrStatuses();
-        $("quickTdrMessage").textContent = error.code === "AUTH_FAILED" ? "Allegro 登录失败，请修改账号后重试。" : `查询失败：${error.message || error}`;
+        $("quickTdrMessage").textContent = error.code === "AUTH_FAILED" ? "Allegro 登录失败，请到设置中修改账号后重试。" : `查询失败：${error.message || error}`;
         setQuickTdrProgress(100, $("quickTdrMessage").textContent, true);
       } finally {
         $("quickTdrQuery").disabled = false;
@@ -9720,11 +9759,7 @@
     $("fetchTdr").addEventListener("click", openTdrDialog);
     $("quickTdr").addEventListener("click", openQuickTdrDialog);
     $("tdrQuery").addEventListener("click", queryTdr);
-    $("tdrAccountSettings").addEventListener("click", openTdrAccountSettings);
-    $("tdrSaveAccount").addEventListener("click", saveTdrAccountSettings);
-    $("tdrPassword").addEventListener("keydown", (event) => {
-      if (event.key === "Enter") saveTdrAccountSettings();
-    });
+    $("tdrAccountSettings").addEventListener("click", () => openTdrAccountSettings("tdr"));
     $("tdrApply").addEventListener("click", applyTdrPreview);
     $("tdrClose").addEventListener("click", closeTdrDialog);
     $("tdrCancel").addEventListener("click", closeTdrDialog);
@@ -9738,15 +9773,7 @@
     $("quickTdrDialog").addEventListener("click", (event) => {
       if (event.target === $("quickTdrDialog")) closeQuickTdrDialog();
     });
-    $("quickTdrAccountSettings").addEventListener("click", () => {
-      populateQuickTdrAccountFields();
-      $("quickTdrAccountPanel").classList.toggle("hidden");
-      if (!$("quickTdrAccountPanel").classList.contains("hidden")) $("quickTdrUsername").focus();
-    });
-    $("quickTdrSaveAccount").addEventListener("click", saveQuickTdrAccountSettings);
-    $("quickTdrPassword").addEventListener("keydown", (event) => {
-      if (event.key === "Enter") saveQuickTdrAccountSettings();
-    });
+    $("quickTdrAccountSettings").addEventListener("click", () => openTdrAccountSettings("quick-tdr"));
     document.querySelectorAll("#quickTdrModeTabs .tab[data-quick-tdr-mode]").forEach((button) => {
       button.addEventListener("click", () => {
         state.quickTdrMode = button.dataset.quickTdrMode === "bound" ? "bound" : "single";
@@ -9798,6 +9825,13 @@
     $("settingsDialog").addEventListener("click", (event) => {
       if (event.target === $("settingsDialog")) closeSettings();
     });
+    $("tdrAccountIdentity").addEventListener("focus", (event) => unlockProtectedCredentialInput(event.currentTarget));
+    $("tdrAccountSecret").addEventListener("focus", (event) => unlockProtectedCredentialInput(event.currentTarget));
+    $("tdrAccountSecret").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") saveTdrAccountSettings();
+    });
+    $("saveTdrAccount").addEventListener("click", saveTdrAccountSettings);
+    $("clearTdrAccount").addEventListener("click", clearTdrAccountSettings);
     $("saveToken").addEventListener("click", saveGithubTokenFromInput);
     $("saveProxy").addEventListener("click", saveSyncProxyFromInput);
     $("clearProxy").addEventListener("click", () => {
