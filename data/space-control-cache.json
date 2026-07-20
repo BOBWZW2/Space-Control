@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-08T02:56:33.287Z",
+  "updatedAt": "2026-07-20T06:43:56.566Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -630,6 +630,63 @@
       "selectedWbPodPorts": [
         "CNSHA",
         "CNNAS"
+      ]
+    },
+    "XPAG2629WE": {
+      "vvd": "XPAG2629WE",
+      "lane": "HLX",
+      "vesselName": "X-PRESS ANGLESEY",
+      "updatedAt": "2026-07-20T06:42:32.870Z",
+      "carriers": [
+        {
+          "code": "CUL",
+          "tonPerTeu": 14,
+          "wbTeus": 606,
+          "wbMt": 8484,
+          "wbRf": 121,
+          "ebTeus": 606,
+          "ebMt": 8484,
+          "ebRf": 121
+        }
+      ],
+      "allocation": {
+        "wbTeus": 606,
+        "ebTeus": 606,
+        "tonPerTeu": 14,
+        "wbMt": 8484,
+        "ebMt": 8484,
+        "wbRf": 121,
+        "ebRf": 121
+      },
+      "entries": {
+        "WB": {},
+        "EB": {}
+      },
+      "tdrAudit": {},
+      "tdrImports": {},
+      "draft": {
+        "enabled": false,
+        "ports": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "moveCount": {
+        "enabled": true,
+        "limits": {
+          "INNSA::2026-08-07": 409
+        },
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "selectedWbPodKeys": [
+        "THLCH::2026-07-26 01:00:00",
+        "SGSIN::2026-07-30 00:00:00",
+        "MYPKG::2026-07-31 14:00:00"
+      ],
+      "selectedWbPodPorts": [
+        "THLCH",
+        "SGSIN",
+        "MYPKG"
       ]
     }
   }
