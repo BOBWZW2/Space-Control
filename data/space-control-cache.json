@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-22T08:51:24.589Z",
+  "updatedAt": "2026-08-04T05:19:37.062Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -740,6 +740,107 @@
         "CNNGB::2026-08-01 10:00:00",
         "CNSHK::2026-08-04 04:00:00",
         "MYPKG::2026-08-09 06:00:00"
+      ],
+      "selectedWbPodPorts": [
+        "KRPUS",
+        "KRKAN",
+        "CNSHA",
+        "CNNGB",
+        "CNSHK",
+        "MYPKG"
+      ]
+    },
+    "RACE2632WE": {
+      "vvd": "RACE2632WE",
+      "lane": "KCI",
+      "vesselName": "RACINE",
+      "updatedAt": "2026-08-04T05:18:54.357Z",
+      "carriers": [
+        {
+          "code": "CUL",
+          "tonPerTeu": 14,
+          "wbTeus": 1331,
+          "wbMt": 18634,
+          "wbRf": null,
+          "ebTeus": null,
+          "ebMt": null,
+          "ebRf": null
+        },
+        {
+          "code": "HAS",
+          "tonPerTeu": 14,
+          "wbTeus": 837,
+          "wbMt": 11718,
+          "wbRf": null,
+          "ebTeus": 837,
+          "ebMt": 11718,
+          "ebRf": null
+        },
+        {
+          "code": "SNK",
+          "tonPerTeu": 14,
+          "wbTeus": 837,
+          "wbMt": 11718,
+          "wbRf": null,
+          "ebTeus": 837,
+          "ebMt": 11718,
+          "ebRf": null
+        },
+        {
+          "code": "RCL",
+          "tonPerTeu": 14,
+          "wbTeus": 1796,
+          "wbMt": 25144,
+          "wbRf": null,
+          "ebTeus": 1796,
+          "ebMt": 25144,
+          "ebRf": null
+        },
+        {
+          "code": "TSL",
+          "tonPerTeu": 14,
+          "wbTeus": 699,
+          "wbMt": 9786,
+          "wbRf": null,
+          "ebTeus": 699,
+          "ebMt": 9786,
+          "ebRf": null
+        }
+      ],
+      "allocation": {
+        "wbTeus": 1331,
+        "ebTeus": null,
+        "tonPerTeu": 14,
+        "wbMt": 18634,
+        "ebMt": null,
+        "wbRf": null,
+        "ebRf": null
+      },
+      "entries": {
+        "WB": {},
+        "EB": {}
+      },
+      "tdrAudit": {},
+      "tdrImports": {},
+      "draft": {
+        "enabled": false,
+        "ports": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "moveCount": {
+        "enabled": false,
+        "limits": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "selectedWbPodKeys": [
+        "KRPUS::2026-08-16 09:00:00",
+        "KRKAN::2026-08-17 09:30:00",
+        "CNSHA::2026-08-19 12:30:00",
+        "CNNGB::2026-08-20 23:30:00",
+        "CNSHK::2026-08-23 20:30:00",
+        "MYPKG::2026-08-29 08:30:00"
       ],
       "selectedWbPodPorts": [
         "KRPUS",
