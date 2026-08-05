@@ -1,4 +1,4 @@
-const VERSION = "2.1.0";
+const VERSION = "2.2.0";
 const ALLEGRO_BASE_URL = "https://ops.culines.com";
 const DEFAULT_ALLOWED_ORIGIN = "https://bobwzw2.github.io";
 
@@ -312,6 +312,60 @@ async function batchQuery(request, env) {
   });
 }
 
+async function mapWithConcurrency(values, limit, mapper) {
+  const results = new Array(values.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < values.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(values[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, values.length) }, () => worker()));
+  return results;
+}
+
+async function vesselNameBatch(request, env) {
+  const payload = await parseRequest(request);
+  const vvds = [...new Set((Array.isArray(payload.vvds) ? payload.vvds : [])
+    .map(normalized)
+    .filter((vvd) => /^[A-Z]+\d+[A-Z]+$/.test(vvd)))]
+    .slice(0, 60);
+  if (!vvds.length) {
+    return jsonResponse(request, env, { error: "没有可查询的 VVD", code: "INVALID_REQUEST" }, 400);
+  }
+  const client = new AllegroTdrClient(payload);
+  try {
+    await client.login();
+    const checked = await mapWithConcurrency(vvds, 5, async (vvd) => {
+      try {
+        const voyage = await client.voyage(vvd);
+        const code = normalized(voyage.vessel);
+        const name = normalized(voyage.vesselName);
+        if (!code || !name) throw codedError(`${vvd} 未返回船名`, "VESSEL_NAME_NOT_FOUND");
+        return { ok: true, vvd, code, name };
+      } catch (error) {
+        return { ok: false, vvd, ...publicError(error) };
+      }
+    });
+    const entriesByCode = new Map();
+    checked.filter((item) => item.ok).forEach((item) => entriesByCode.set(item.code, {
+      code: item.code,
+      name: item.name,
+      vvd: item.vvd
+    }));
+    return jsonResponse(request, env, {
+      ok: true,
+      entries: [...entriesByCode.values()],
+      failures: checked.filter((item) => !item.ok)
+    });
+  } catch (error) {
+    const status = error?.code === "AUTH_FAILED" ? 401 : error?.code === "AUTH_REQUIRED" ? 400 : 502;
+    return jsonResponse(request, env, publicError(error), status);
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -320,8 +374,17 @@ export default {
     if (request.method === "GET" && url.pathname === "/api/health") {
       return jsonResponse(request, env, { ok: true, version: VERSION, mode: "cloud" });
     }
+    if (env.SYNC_BACKEND && (
+      url.pathname === "/api/cache"
+      || url.pathname === "/api/cache/record"
+      || url.pathname === "/api/schedule/latest"
+      || url.pathname.startsWith("/api/vessel-mapping/")
+    )) {
+      return env.SYNC_BACKEND.fetch(request);
+    }
     if (request.method === "POST" && url.pathname === "/api/tdr") return singleQuery(request, env);
     if (request.method === "POST" && url.pathname === "/api/tdr/batch") return batchQuery(request, env);
+    if (request.method === "POST" && url.pathname === "/api/vessels/batch") return vesselNameBatch(request, env);
     return jsonResponse(request, env, { error: "Not found", code: "NOT_FOUND" }, 404);
   }
 };

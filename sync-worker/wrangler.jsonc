@@ -9,6 +9,12 @@
     "GITHUB_OWNER": "BOBWZW2",
     "GITHUB_REPO": "Space-Control",
     "GITHUB_BRANCH": "main",
-    "CACHE_PATH": "data/space-control-cache.json"
+    "CACHE_PATH": "data/space-control-cache.json",
+    "MAPPING_GITHUB_OWNER": "BOBWZW2",
+    "MAPPING_GITHUB_REPO": "data-base",
+    "MAPPING_GITHUB_BRANCH": "main",
+    "MAPPING_PATH": "vessel_mapping_latest.csv",
+    "PUBLISHED_MAPPING_PATH": "data/vessel_mapping_latest.csv",
+    "TDR_API_URL": "https://space-control-tdr.2119990716.workers.dev"
   }
 }

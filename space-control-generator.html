@@ -2268,11 +2268,18 @@
     const REMOTE_CACHE_URL = "https://raw.githubusercontent.com/BOBWZW2/Space-Control/main/data/space-control-cache.json";
     const GITHUB_CACHE_API_URL = "https://api.github.com/repos/BOBWZW2/Space-Control/contents/data/space-control-cache.json";
     const GITHUB_CACHE_BRANCH = "main";
-    const RECOMMENDED_SYNC_PROXY_URL = "https://space-control-sync.2119990716.workers.dev";
+    const LEGACY_SYNC_PROXY_URLS = new Set([
+      "https://space-control-sync.2119990716.workers.dev",
+      "https://space-control-data.2119990716.workers.dev"
+    ]);
+    const RECOMMENDED_SYNC_PROXY_URL = "https://space-control-tdr.2119990716.workers.dev";
     const DEFAULT_SYNC_PROXY_URL = RECOMMENDED_SYNC_PROXY_URL;
     const LOCAL_DRAFTS_KEY = "spaceControl.cacheDrafts";
     const LOCAL_HISTORY_KEY = "spaceControl.inputHistory";
     const LOCAL_QUICK_TDR_DECISIONS_KEY = "spaceControl.quickTdrDecisions";
+    const VESSEL_MAPPING_NEXT_CHECK_KEY = "spaceControl.vesselMappingNextCheckAt";
+    const VESSEL_MAPPING_REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+    const VESSEL_MAPPING_RETRY_INTERVAL_MS = 24 * 60 * 60 * 1000;
     const GITHUB_TOKEN_KEY = "spaceControl.githubToken";
     const SYNC_PROXY_URL_KEY = "spaceControl.syncProxyUrl";
     const PORT_ALIASES = { CNNSA: "CNNAS" };
@@ -2432,7 +2439,8 @@
 
     function getSyncProxyUrl() {
       try {
-        return normalizeSyncProxyUrl(window.localStorage?.getItem(SYNC_PROXY_URL_KEY) || DEFAULT_SYNC_PROXY_URL);
+        const stored = normalizeSyncProxyUrl(window.localStorage?.getItem(SYNC_PROXY_URL_KEY));
+        return !stored || LEGACY_SYNC_PROXY_URLS.has(stored) ? DEFAULT_SYNC_PROXY_URL : stored;
       } catch {
         return DEFAULT_SYNC_PROXY_URL;
       }
@@ -3846,7 +3854,13 @@
     async function loadVesselMapping() {
       if (state.vesselMapping) return state.vesselMapping;
       const mapping = {};
-      for (const url of [LOCAL_MAPPING_URL, REMOTE_MAPPING_URL]) {
+      const proxy = getSyncProxyUrl();
+      const urls = [
+        LOCAL_MAPPING_URL,
+        REMOTE_MAPPING_URL,
+        ...(proxy ? [`${proxy}/api/vessel-mapping/latest`] : [])
+      ];
+      for (const url of urls) {
         try {
           const response = await fetch(url, { cache: "no-store" });
           if (!response.ok) continue;
@@ -3858,7 +3872,6 @@
               mapping[code.toUpperCase()] = name.toUpperCase();
             }
           });
-          break;
         } catch {
           // Try the next mapping source.
         }
@@ -4022,6 +4035,86 @@
       const codes = Object.keys(mapping).sort((a, b) => b.length - a.length);
       const code = codes.find((candidate) => clean.startsWith(candidate)) || vvdParts(vvd).code;
       return { code, name: mapping[code] || code };
+    }
+
+    function vesselMappingRefreshDue(force = false) {
+      if (force) return true;
+      try {
+        return Date.now() >= Number(localStorage.getItem(VESSEL_MAPPING_NEXT_CHECK_KEY) || 0);
+      } catch {
+        return true;
+      }
+    }
+
+    function scheduleNextVesselMappingCheck(delay = VESSEL_MAPPING_REFRESH_INTERVAL_MS) {
+      try {
+        localStorage.setItem(VESSEL_MAPPING_NEXT_CHECK_KEY, String(Date.now() + delay));
+      } catch {
+        // A future page load can retry when local storage is unavailable.
+      }
+    }
+
+    function missingVesselMappingVvds(rows, mapping) {
+      const now = Date.now();
+      const earliest = now - 45 * 24 * 60 * 60 * 1000;
+      const latest = now + 240 * 24 * 60 * 60 * 1000;
+      const byCode = new Map();
+      (rows || []).forEach((row) => {
+        const vvd = cleanVvd(row?.vvd);
+        let code;
+        try {
+          code = vvdParts(vvd).code;
+        } catch {
+          return;
+        }
+        if (!code || mapping[code]) return;
+        const date = parseDateValue(row?.etd || row?.etb || row?.eta);
+        const time = date?.getTime();
+        if (!Number.isFinite(time) || time < earliest || time > latest) return;
+        const current = byCode.get(code);
+        if (!current || Math.abs(time - now) < Math.abs(current.time - now)) byCode.set(code, { vvd, time });
+      });
+      return [...byCode.values()]
+        .sort((a, b) => Math.abs(a.time - now) - Math.abs(b.time - now))
+        .slice(0, 60)
+        .map((item) => item.vvd);
+    }
+
+    async function refreshVesselMappingIfDue(force = false) {
+      if (!getSyncProxyUrl() || !vesselMappingRefreshDue(force)) return null;
+      const credentials = loadTdrCredentials();
+      if (!credentials.username || !credentials.password) return null;
+      try {
+        const [rows, mapping] = await Promise.all([loadScheduleRows(), loadVesselMapping()]);
+        const vvds = missingVesselMappingVvds(rows, mapping);
+        if (!vvds.length) {
+          scheduleNextVesselMappingCheck();
+          return { entries: [], failures: [] };
+        }
+        const result = await fetchSyncProxy("/api/vessel-mapping/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...credentials, vvds })
+        });
+        (result.entries || []).forEach((entry) => {
+          const code = normalizeText(entry?.code).toUpperCase();
+          const name = normalizeText(entry?.name).toUpperCase();
+          if (code && name) mapping[code] = name;
+        });
+        const currentCode = state.currentLookup?.vesselCode;
+        if (currentCode && mapping[currentCode] && state.currentLookup.vesselName !== mapping[currentCode]) {
+          state.currentLookup.vesselName = mapping[currentCode];
+          if ($("vesselName")) $("vesselName").value = mapping[currentCode];
+          render();
+        }
+        scheduleNextVesselMappingCheck((result.failures || []).length
+          ? VESSEL_MAPPING_RETRY_INTERVAL_MS
+          : VESSEL_MAPPING_REFRESH_INTERVAL_MS);
+        return result;
+      } catch (error) {
+        scheduleNextVesselMappingCheck(VESSEL_MAPPING_RETRY_INTERVAL_MS);
+        throw error;
+      }
     }
 
     async function lookupSchedule(vvd, laneInput = "", forceSchedule = false) {
@@ -5119,6 +5212,7 @@
       $("status").textContent = "TDR 账号已保存";
       checkTdrAgent();
       checkQuickTdrAgent();
+      refreshVesselMappingIfDue(true).catch((error) => console.warn("Vessel mapping refresh failed", error));
       return true;
     }
 
@@ -9746,6 +9840,7 @@
         ]);
         renderHistory();
         $("status").textContent = "Ready";
+        refreshVesselMappingIfDue().catch((error) => console.warn("Vessel mapping refresh failed", error));
       } catch (error) {
         console.warn(error);
         $("status").textContent = "船期或历史读取失败";

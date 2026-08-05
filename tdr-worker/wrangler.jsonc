@@ -4,6 +4,12 @@
   "main": "worker.js",
   "compatibility_date": "2026-06-21",
   "account_id": "2e6bced50545278e36df9269580c7619",
+  "services": [
+    {
+      "binding": "SYNC_BACKEND",
+      "service": "space-control-sync"
+    }
+  ],
   "vars": {
     "ALLOWED_ORIGIN": "https://bobwzw2.github.io"
   }
