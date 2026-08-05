@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-08-05T02:52:04.115Z",
+  "updatedAt": "2026-08-05T06:28:25.820Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -970,6 +970,73 @@
         "CNSHA",
         "CNNGB",
         "CNSHK",
+        "MYPKG"
+      ]
+    },
+    "BIBK2633WE": {
+      "vvd": "BIBK2633WE",
+      "lane": "HLX",
+      "vesselName": "BIBK",
+      "updatedAt": "2026-08-05T06:27:24.344Z",
+      "carriers": [
+        {
+          "code": "CUL",
+          "tonPerTeu": 14,
+          "wbTeus": 136,
+          "wbMt": 1904,
+          "wbRf": 69,
+          "ebTeus": 136,
+          "ebMt": 1904,
+          "ebRf": 69
+        },
+        {
+          "code": "XFD",
+          "tonPerTeu": 14,
+          "wbTeus": 1700,
+          "wbMt": 23800,
+          "wbRf": 199,
+          "ebTeus": 1700,
+          "ebMt": 23800,
+          "ebRf": 199
+        }
+      ],
+      "allocation": {
+        "wbTeus": 136,
+        "ebTeus": 136,
+        "tonPerTeu": 14,
+        "wbMt": 1904,
+        "ebMt": 1904,
+        "wbRf": 69,
+        "ebRf": 69
+      },
+      "entries": {
+        "WB": {},
+        "EB": {}
+      },
+      "tdrAudit": {},
+      "tdrImports": {},
+      "draft": {
+        "enabled": false,
+        "ports": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "moveCount": {
+        "enabled": true,
+        "limits": {
+          "INNSA::2026-08-31": 2500
+        },
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "selectedWbPodKeys": [
+        "THLCH::2026-08-16 23:00:00",
+        "SGSIN::2026-08-21 03:00:00",
+        "MYPKG::2026-08-23 09:30:00"
+      ],
+      "selectedWbPodPorts": [
+        "THLCH",
+        "SGSIN",
         "MYPKG"
       ]
     }
