@@ -140,6 +140,7 @@
 
     .generation-actions {
       display: flex;
+      flex-wrap: wrap;
       justify-content: flex-end;
       align-items: center;
       gap: 6px;
@@ -595,11 +596,58 @@
       margin-top: 12px;
     }
 
-    .generation-actions .status {
+    .load-progress-wrap {
+      flex: 0 1 250px;
+      display: grid;
+      gap: 4px;
       min-width: 0;
-      max-width: 240px;
+      max-width: 250px;
+    }
+
+    .load-progress-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .load-progress-meta .status {
+      flex: 1;
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .load-progress-percent {
+      flex: 0 0 auto;
+      color: #24577f;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+    }
+
+    .load-progress-wrap progress {
+      width: 100%;
+      height: 5px;
+      border: 0;
+      accent-color: var(--accent);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 140ms ease;
+    }
+
+    .load-progress-wrap.active progress {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .load-progress-wrap:not(.active) .load-progress-percent {
+      visibility: hidden;
+    }
+
+    .load-progress-wrap.failed progress {
+      accent-color: var(--danger);
     }
 
     .control-summary {
@@ -1762,15 +1810,13 @@
       }
 
       .generation-actions button,
-      .generation-actions .status {
+      .generation-actions .load-progress-wrap {
         width: 100%;
       }
 
-      .generation-actions .status {
+      .generation-actions .load-progress-wrap {
         grid-column: 1 / -1;
         max-width: none;
-        min-height: 22px;
-        padding: 0;
       }
 
       .control-summary,
@@ -1925,7 +1971,13 @@
             <button id="copyTable" type="button">复制预览</button>
             <button id="copyScheduleUpdate" type="button">复制 Schedule Update</button>
             <button id="exportXls" type="button" class="primary export-button">导出 Excel</button>
-            <span class="status" id="status">Ready</span>
+            <div class="load-progress-wrap" id="loadProgressWrap" role="status" aria-live="polite">
+              <div class="load-progress-meta">
+                <span class="status" id="status">Ready</span>
+                <span class="load-progress-percent" id="loadProgressPercent">0%</span>
+              </div>
+              <progress id="loadProgress" max="100" value="0" aria-label="加载进度"></progress>
+            </div>
           </div>
         </div>
       </div>
@@ -2383,6 +2435,42 @@
 
     const $ = (id) => document.getElementById(id);
 
+    let loadProgressToken = 0;
+    let loadProgressHideTimer = null;
+
+    function beginLoadProgress(text, percent = 2) {
+      loadProgressToken += 1;
+      if (loadProgressHideTimer) clearTimeout(loadProgressHideTimer);
+      loadProgressHideTimer = null;
+      const wrap = $("loadProgressWrap");
+      wrap.classList.add("active");
+      wrap.classList.remove("failed");
+      $("loadProgress").value = 0;
+      updateLoadProgress(loadProgressToken, percent, text);
+      return loadProgressToken;
+    }
+
+    function updateLoadProgress(token, percent, text) {
+      if (token !== loadProgressToken) return;
+      const progress = $("loadProgress");
+      const value = Math.max(Number(progress.value) || 0, Math.min(100, Math.round(percent)));
+      progress.value = value;
+      $("loadProgressPercent").textContent = `${value}%`;
+      if (text) $("status").textContent = text;
+    }
+
+    function endLoadProgress(token, text, failed = false) {
+      if (token !== loadProgressToken) return;
+      const wrap = $("loadProgressWrap");
+      wrap.classList.toggle("failed", failed);
+      if (!failed) updateLoadProgress(token, 100, text);
+      else if (text) $("status").textContent = text;
+      loadProgressHideTimer = setTimeout(() => {
+        if (token !== loadProgressToken) return;
+        wrap.classList.remove("active", "failed");
+      }, failed ? 3200 : 2200);
+    }
+
     function emptySharedCache() {
       return { version: 1, updatedAt: "", records: {} };
     }
@@ -2488,31 +2576,47 @@
       return normalizeSharedCache(payload.cache || payload);
     }
 
-    async function loadSharedCache(force = false) {
-      if (!force && state.sharedCache) return state.sharedCache;
-      if (!force && state.sharedCachePromise) return state.sharedCachePromise;
+    async function loadSharedCache(force = false, onProgress = null) {
+      if (!force && state.sharedCache) {
+        onProgress?.(1, "同步数据已在本机");
+        return state.sharedCache;
+      }
+      if (!force && state.sharedCachePromise) {
+        onProgress?.(0.15, "等待同步数据载入");
+        return state.sharedCachePromise.then((cache) => {
+          onProgress?.(1, "同步数据已载入");
+          return cache;
+        });
+      }
       state.sharedCachePromise = (async () => {
         if (getSyncProxyUrl()) {
           try {
+            onProgress?.(0.12, "正在连接同步服务");
             state.sharedCache = await readSyncProxyCache();
+            onProgress?.(1, "同步数据已载入");
             return state.sharedCache;
           } catch (error) {
             console.warn("Sync proxy cache read failed", error);
           }
         }
-        for (const url of cacheReadUrls()) {
+        const urls = cacheReadUrls();
+        for (let index = 0; index < urls.length; index += 1) {
+          const url = urls[index];
           try {
+            onProgress?.(0.35 + index * 0.2, index ? "正在尝试备用同步数据" : "正在读取网页同步数据");
             const response = await fetch(url, { cache: "no-store" });
             if (response.status === 404) continue;
             if (!response.ok) continue;
             const text = await response.text();
             state.sharedCache = normalizeSharedCache(parseJsonSafe(text, emptySharedCache()));
+            onProgress?.(1, "同步数据已载入");
             return state.sharedCache;
           } catch {
             // Try the next cache source.
           }
         }
         state.sharedCache = emptySharedCache();
+        onProgress?.(1, "暂无可载入的同步数据");
         return state.sharedCache;
       })();
       try {
@@ -2783,12 +2887,13 @@
       }
     }
 
-    async function applySavedRecordForVvd(vvd) {
+    async function applySavedRecordForVvd(vvd, onProgress = null) {
       const key = cleanVvd(vvd);
       if (!key) return "";
       let sharedRecord = null;
+      onProgress?.(0.05, "正在查找同步记录");
       try {
-        const shared = await loadSharedCache();
+        const shared = await loadSharedCache(false, (value, text) => onProgress?.(0.05 + value * 0.75, text));
         sharedRecord = shared.records[key] || null;
       } catch (error) {
         console.warn(error);
@@ -2796,8 +2901,13 @@
       const localRecord = getLocalDrafts()[key] || null;
       const useLocal = localRecord && recordTime(localRecord) > recordTime(sharedRecord);
       const record = useLocal ? localRecord : sharedRecord;
-      if (!record) return "";
+      if (!record) {
+        onProgress?.(1, "未找到需要载入的同步记录");
+        return "";
+      }
+      onProgress?.(0.9, useLocal ? "正在载入本机草稿" : "正在载入已同步数据");
       applyCacheRecord(record);
+      onProgress?.(1, useLocal ? "本机草稿已载入" : "同步数据已载入");
       return useLocal ? "已载入本机未同步草稿" : "已载入已同步数据";
     }
 
@@ -3653,9 +3763,10 @@
       return `${String(date.getDate()).padStart(2, "0")}-${months[date.getMonth()]}-${date.getFullYear()}`;
     }
 
-    async function loadScheduleRows(force = false) {
+    async function loadScheduleRows(force = false, onProgress = null) {
       if (force) {
         if (state.scheduleRowsPromise) {
+          onProgress?.(0.05, "等待当前船期读取完成");
           try {
             await state.scheduleRowsPromise;
           } catch {
@@ -3665,16 +3776,27 @@
         state.scheduleRows = null;
         state.scheduleRowsPromise = null;
       }
-      if (state.scheduleRows) return state.scheduleRows;
-      if (state.scheduleRowsPromise) return state.scheduleRowsPromise;
+      if (state.scheduleRows) {
+        onProgress?.(1, "船期已在本机");
+        return state.scheduleRows;
+      }
+      if (state.scheduleRowsPromise) {
+        onProgress?.(0.12, "等待船期载入");
+        return state.scheduleRowsPromise.then((rows) => {
+          onProgress?.(1, "船期已载入");
+          return rows;
+        });
+      }
       if (!window.XLSX) {
         throw new Error("Excel parser is not loaded. Check internet access to jsdelivr.net.");
       }
 
       state.scheduleRowsPromise = (async () => {
-        const { buffer, label } = await fetchScheduleWorkbookBuffer();
+        const { buffer, label } = await fetchScheduleWorkbookBuffer(onProgress);
+        onProgress?.(0.62, "船期文件已下载，正在解析");
         const workbook = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: true });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        onProgress?.(0.76, "正在读取船期记录");
         const records = XLSX.utils.sheet_to_json(sheet, {
           defval: "",
           raw: false,
@@ -3696,6 +3818,7 @@
             etd: normalizeText(normalized.ETD)
           };
         }).filter((row) => row.lane && row.vvd && row.port);
+        onProgress?.(0.92, "正在整理 LANE 和 VVD");
 
         const missing = ["LANE", "VVD", "PORT", "ETA", "ETB", "ETD"].filter((name) => {
           return !records.some((record) => Object.keys(record).some((key) => normalizeText(key).toUpperCase() === name));
@@ -3705,6 +3828,7 @@
         state.scheduleRows = rows;
         $("scheduleNote").textContent = `船期来源：${label}`;
         refreshScheduleFieldOptions();
+        onProgress?.(1, "船期已载入");
         return rows;
       })();
 
@@ -3738,14 +3862,20 @@
       return sources;
     }
 
-    async function fetchScheduleWorkbookBuffer() {
+    async function fetchScheduleWorkbookBuffer(onProgress = null) {
       const failures = [];
-      for (const source of scheduleSourceCandidates()) {
+      const sources = scheduleSourceCandidates();
+      for (let index = 0; index < sources.length; index += 1) {
+        const source = sources[index];
         try {
+          const sourceName = index === 0 ? "同步服务" : index === 1 ? "GitHub" : "备用源";
+          onProgress?.(0.08 + index * 0.12, `正在从${sourceName}下载船期`);
           const response = await fetch(source.url, source.options);
           if (!response.ok) throw new Error(`${response.status}`);
+          onProgress?.(0.36 + index * 0.06, `${sourceName}已连接，正在接收文件`);
           const buffer = await response.arrayBuffer();
           if (!buffer.byteLength) throw new Error("empty file");
+          onProgress?.(0.56, "船期文件下载完成");
           return { buffer, label: source.label };
         } catch (error) {
           failures.push(`${source.label}: ${error.message || error}`);
@@ -4117,8 +4247,13 @@
       }
     }
 
-    async function lookupSchedule(vvd, laneInput = "", forceSchedule = false) {
-      const [rows, mapping] = await Promise.all([loadScheduleRows(forceSchedule), loadVesselMapping()]);
+    async function lookupSchedule(vvd, laneInput = "", forceSchedule = false, onProgress = null) {
+      onProgress?.(0.03, forceSchedule ? "准备刷新船期" : "准备读取船期");
+      const [rows, mapping] = await Promise.all([
+        loadScheduleRows(forceSchedule, (value, text) => onProgress?.(0.04 + value * 0.7, text)),
+        loadVesselMapping()
+      ]);
+      onProgress?.(0.78, "正在匹配航次和港序");
       const current = currentDirectionVvds(vvd);
       const vvds = [current.w, current.e].filter(Boolean);
       const lane = resolveLane(rows, vvds, laneInput);
@@ -4132,6 +4267,7 @@
       const ebRouteCalls = [];
       appendConsecutiveDedup(ebRouteCalls, ebCalls);
       appendConsecutiveDedup(ebRouteCalls, nextWCalls);
+      onProgress?.(1, "船期匹配完成");
 
       return {
         inputVvd: cleanVvd(vvd),
@@ -4270,12 +4406,18 @@
       $("vvd").value = vvd;
       $("serviceLane").value = lane;
       const forceSchedule = options?.forceSchedule === true;
-      $("status").textContent = forceSchedule ? "正在重新下载 GitHub 船期..." : "正在读取船期...";
+      const progressToken = beginLoadProgress(forceSchedule ? "准备刷新船期" : "准备读取船期", 3);
       $("generate").disabled = true;
       try {
-        const lookup = await lookupSchedule(vvd, lane, forceSchedule);
+        const lookup = await lookupSchedule(vvd, lane, forceSchedule, (value, text) => {
+          updateLoadProgress(progressToken, 4 + value * 76, text);
+        });
         applyLookup(lookup);
-        const cacheMessage = await applySavedRecordForVvd(lookup.inputVvd);
+        updateLoadProgress(progressToken, 82, "正在载入同步数据");
+        const cacheMessage = await applySavedRecordForVvd(lookup.inputVvd, (value, text) => {
+          updateLoadProgress(progressToken, 82 + value * 14, text);
+        });
+        updateLoadProgress(progressToken, 97, "正在更新页面");
         render();
         saveHistoryRecord({
           vvd: lookup.inputVvd,
@@ -4283,12 +4425,13 @@
           vesselName: lookup.vesselName,
           updatedAt: new Date().toISOString()
         }, "generated");
-        $("status").textContent = cacheMessage
+        const finalStatus = cacheMessage
           ? `${forceSchedule ? "GitHub 船期已更新" : "船期已读取"} · ${lookup.lane} · ${cacheMessage}`
           : `${forceSchedule ? "GitHub 船期已更新" : "船期已读取"} · ${lookup.lane}`;
+        endLoadProgress(progressToken, finalStatus);
       } catch (error) {
         console.error(error);
-        $("status").textContent = "船期读取失败";
+        endLoadProgress(progressToken, "船期读取失败", true);
         $("scheduleSummary").textContent = error.message || String(error);
       } finally {
         $("generate").disabled = false;
@@ -9829,21 +9972,27 @@
 
     async function initializePage() {
       state.initialized = true;
-      $("status").textContent = "Ready";
+      const progressToken = beginLoadProgress("正在加载船期和同步数据", 2);
       $("scheduleSummary").textContent = "尚未读取船期";
       $("summaryLine").textContent = "Schedule preview";
       renderHistory();
+      const parts = { schedule: 0, sync: 0 };
+      const updatePart = (part, value, text) => {
+        parts[part] = Math.max(parts[part], Math.max(0, Math.min(1, Number(value) || 0)));
+        const percent = 3 + parts.schedule * 67 + parts.sync * 28;
+        updateLoadProgress(progressToken, percent, text);
+      };
       try {
         await Promise.all([
-          loadScheduleRows(),
-          loadSharedCache(true)
+          loadScheduleRows(false, (value, text) => updatePart("schedule", value, text)),
+          loadSharedCache(true, (value, text) => updatePart("sync", value, text))
         ]);
         renderHistory();
-        $("status").textContent = "Ready";
+        endLoadProgress(progressToken, "船期及同步数据已载入");
         refreshVesselMappingIfDue().catch((error) => console.warn("Vessel mapping refresh failed", error));
       } catch (error) {
         console.warn(error);
-        $("status").textContent = "船期或历史读取失败";
+        endLoadProgress(progressToken, "船期或同步数据读取失败", true);
       }
     }
 
