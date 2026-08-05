@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-08-05T06:28:25.820Z",
+  "updatedAt": "2026-08-05T06:31:00.931Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -977,7 +977,7 @@
       "vvd": "BIBK2633WE",
       "lane": "HLX",
       "vesselName": "BIBK",
-      "updatedAt": "2026-08-05T06:27:24.344Z",
+      "updatedAt": "2026-08-05T06:30:17.531Z",
       "carriers": [
         {
           "code": "CUL",
