@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-08-05T06:54:16.156Z",
+  "updatedAt": "2026-08-05T06:55:29.256Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -1031,6 +1031,63 @@
         "THLCH::2026-08-16 23:00:00",
         "SGSIN::2026-08-21 03:00:00",
         "MYPKG::2026-08-23 09:30:00"
+      ],
+      "selectedWbPodPorts": [
+        "THLCH",
+        "SGSIN",
+        "MYPKG"
+      ]
+    },
+    "ZGTY2633WE": {
+      "vvd": "ZGTY2633WE",
+      "lane": "HLX",
+      "vesselName": "ZHONG GU TAI YUAN",
+      "updatedAt": "2026-08-05T06:54:46.205Z",
+      "carriers": [
+        {
+          "code": "CUL",
+          "tonPerTeu": 14,
+          "wbTeus": 655,
+          "wbMt": 9170,
+          "wbRf": 58,
+          "ebTeus": 655,
+          "ebMt": 9170,
+          "ebRf": 58
+        }
+      ],
+      "allocation": {
+        "wbTeus": 655,
+        "ebTeus": 655,
+        "tonPerTeu": 14,
+        "wbMt": 9170,
+        "ebMt": 9170,
+        "wbRf": 58,
+        "ebRf": 58
+      },
+      "entries": {
+        "WB": {},
+        "EB": {}
+      },
+      "tdrAudit": {},
+      "tdrImports": {},
+      "draft": {
+        "enabled": false,
+        "ports": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "moveCount": {
+        "enabled": true,
+        "limits": {
+          "INNSA::2026-09-07": 409
+        },
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "selectedWbPodKeys": [
+        "THLCH::2026-08-23 23:00:00",
+        "SGSIN::2026-08-28 03:00:00",
+        "MYPKG::2026-08-30 09:30:00"
       ],
       "selectedWbPodPorts": [
         "THLCH",
