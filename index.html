@@ -2446,6 +2446,7 @@
       wrap.classList.add("active");
       wrap.classList.remove("failed");
       $("loadProgress").value = 0;
+      $("status").title = "";
       updateLoadProgress(loadProgressToken, percent, text);
       return loadProgressToken;
     }
@@ -2469,6 +2470,16 @@
         if (token !== loadProgressToken) return;
         wrap.classList.remove("active", "failed");
       }, failed ? 3200 : 2200);
+    }
+
+    function describeScheduleError(error) {
+      const message = normalizeText(error?.message || error);
+      if (/Excel parser is not loaded/i.test(message)) return "Excel 解析组件加载失败，请刷新页面";
+      if (/Cannot read schedule/i.test(message)) return "船期下载失败，已重试同步服务和 GitHub";
+      if (/Schedule is missing columns/i.test(message)) return "船期文件格式错误，缺少必要字段";
+      if (/Cannot parse VVD/i.test(message)) return "VVD 格式无法识别，请检查输入";
+      if (/Cannot infer one lane|Cannot resolve lane/i.test(message)) return "未找到匹配船期，请检查 LANE 与 VVD";
+      return message ? `船期处理失败：${message.slice(0, 60)}` : "船期处理失败";
     }
 
     function emptySharedCache() {
@@ -3865,20 +3876,28 @@
     async function fetchScheduleWorkbookBuffer(onProgress = null) {
       const failures = [];
       const sources = scheduleSourceCandidates();
-      for (let index = 0; index < sources.length; index += 1) {
-        const source = sources[index];
-        try {
-          const sourceName = index === 0 ? "同步服务" : index === 1 ? "GitHub" : "备用源";
-          onProgress?.(0.08 + index * 0.12, `正在从${sourceName}下载船期`);
-          const response = await fetch(source.url, source.options);
-          if (!response.ok) throw new Error(`${response.status}`);
-          onProgress?.(0.36 + index * 0.06, `${sourceName}已连接，正在接收文件`);
-          const buffer = await response.arrayBuffer();
-          if (!buffer.byteLength) throw new Error("empty file");
-          onProgress?.(0.56, "船期文件下载完成");
-          return { buffer, label: source.label };
-        } catch (error) {
-          failures.push(`${source.label}: ${error.message || error}`);
+      for (let round = 0; round < 2; round += 1) {
+        const candidates = round ? sources.slice(0, 2) : sources;
+        if (round) {
+          onProgress?.(0.52, "船期读取未成功，正在自动重试");
+          await new Promise((resolve) => setTimeout(resolve, 700));
+        }
+        for (let index = 0; index < candidates.length; index += 1) {
+          const source = candidates[index];
+          try {
+            const sourceName = index === 0 ? "同步服务" : index === 1 ? "GitHub" : "备用源";
+            const action = round ? `正在重试${sourceName}船期` : `正在从${sourceName}下载船期`;
+            onProgress?.(0.08 + index * 0.12 + round * 0.3, action);
+            const response = await fetch(source.url, source.options);
+            if (!response.ok) throw new Error(`${response.status}`);
+            onProgress?.(0.36 + index * 0.06 + round * 0.12, `${sourceName}已连接，正在接收文件`);
+            const buffer = await response.arrayBuffer();
+            if (!buffer.byteLength) throw new Error("empty file");
+            onProgress?.(0.56, "船期文件下载完成");
+            return { buffer, label: source.label };
+          } catch (error) {
+            failures.push(`${source.label}: ${error.message || error}`);
+          }
         }
       }
       throw new Error(`Cannot read schedule (${failures.join("; ")})`);
@@ -4431,7 +4450,9 @@
         endLoadProgress(progressToken, finalStatus);
       } catch (error) {
         console.error(error);
-        endLoadProgress(progressToken, "船期读取失败", true);
+        const statusMessage = describeScheduleError(error);
+        endLoadProgress(progressToken, statusMessage, true);
+        $("status").title = error.message || String(error);
         $("scheduleSummary").textContent = error.message || String(error);
       } finally {
         $("generate").disabled = false;
