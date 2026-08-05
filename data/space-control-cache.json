@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-08-05T02:50:35.421Z",
+  "updatedAt": "2026-08-05T02:52:04.115Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -902,6 +902,67 @@
         "CNNGB::2026-08-12 23:00:00",
         "CNSHK::2026-08-16 05:00:00",
         "MYPKG::2026-08-22 11:00:00"
+      ],
+      "selectedWbPodPorts": [
+        "KRPUS",
+        "KRKAN",
+        "CNSHA",
+        "CNNGB",
+        "CNSHK",
+        "MYPKG"
+      ]
+    },
+    "MEBB2631WE": {
+      "vvd": "MEBB2631WE",
+      "lane": "KCI",
+      "vesselName": "MELBOURNE BRIDGE",
+      "updatedAt": "2026-08-05T02:51:21.610Z",
+      "carriers": [
+        {
+          "code": "CUL",
+          "tonPerTeu": 14,
+          "wbTeus": 837,
+          "wbMt": 11718,
+          "wbRf": 97,
+          "ebTeus": 837,
+          "ebMt": 11718,
+          "ebRf": 97
+        }
+      ],
+      "allocation": {
+        "wbTeus": 837,
+        "ebTeus": 837,
+        "tonPerTeu": 14,
+        "wbMt": 11718,
+        "ebMt": 11718,
+        "wbRf": 97,
+        "ebRf": 97
+      },
+      "entries": {
+        "WB": {},
+        "EB": {}
+      },
+      "tdrAudit": {},
+      "tdrImports": {},
+      "draft": {
+        "enabled": false,
+        "ports": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "moveCount": {
+        "enabled": false,
+        "limits": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "selectedWbPodKeys": [
+        "KRPUS::2026-08-14 09:00:00",
+        "KRKAN::2026-08-15 10:00:00",
+        "CNSHA::2026-08-17 13:00:00",
+        "CNNGB::2026-08-19 00:00:00",
+        "CNSHK::2026-08-21 21:00:00",
+        "MYPKG::2026-08-27 09:00:00"
       ],
       "selectedWbPodPorts": [
         "KRPUS",
