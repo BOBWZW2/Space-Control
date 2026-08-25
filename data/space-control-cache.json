@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-08-05T06:57:18.700Z",
+  "updatedAt": "2026-08-25T02:56:04.357Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -752,7 +752,7 @@
       "vvd": "RACE2632WE",
       "lane": "KCI",
       "vesselName": "RACINE",
-      "updatedAt": "2026-08-05T02:34:29.999Z",
+      "updatedAt": "2026-08-25T02:55:00.666Z",
       "carriers": [
         {
           "code": "CUL",
@@ -821,10 +821,22 @@
       "tdrAudit": {},
       "tdrImports": {},
       "draft": {
-        "enabled": false,
-        "ports": {},
-        "partnerOverrideEnabled": false,
-        "partnerOverrides": {}
+        "enabled": true,
+        "ports": {
+          "CNSHA": 45000
+        },
+        "partnerOverrideEnabled": true,
+        "partnerOverrides": {
+          "WB": {
+            "CNSHA": {
+              "CUL": 7205,
+              "HAS": 7415,
+              "SNK": 7415,
+              "RCL": 14894,
+              "TSL": 8071
+            }
+          }
+        }
       },
       "moveCount": {
         "enabled": false,
@@ -833,12 +845,12 @@
         "partnerOverrides": {}
       },
       "selectedWbPodKeys": [
-        "KRPUS::2026-08-16 09:00:00",
-        "KRKAN::2026-08-17 09:00:00",
-        "CNSHA::2026-08-19 12:00:00",
-        "CNNGB::2026-08-20 23:00:00",
-        "CNSHK::2026-08-23 20:00:00",
-        "MYPKG::2026-08-29 08:00:00"
+        "KRPUS::2026-08-22 07:00:00",
+        "KRKAN::2026-08-22 23:00:00",
+        "CNSHA::2026-08-28 08:00:00",
+        "CNNGB::2026-08-30 19:00:00",
+        "CNSHK::2026-09-02 10:00:00",
+        "MYPKG::2026-09-07 22:00:00"
       ],
       "selectedWbPodPorts": [
         "KRPUS",
