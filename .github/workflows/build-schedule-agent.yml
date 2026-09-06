@@ -67,10 +67,12 @@ jobs:
           if ($LASTEXITCODE) { throw 'Installer build failed' }
           Get-FileHash outputs/*.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content outputs/SHA256SUMS.txt -Encoding ascii
       - name: Verify installed helper starts without saved credentials
+        timeout-minutes: 3
         shell: pwsh
         run: |
           $installed = Join-Path $env:RUNNER_TEMP 'Installed Schedule Agent'
-          $setup = Start-Process -FilePath (Resolve-Path outputs/SpaceControl-Schedule-Agent-Setup-1.1.1.exe) -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="'+$installed+'"')) -Wait -PassThru
+          $setup = Start-Process -FilePath (Resolve-Path outputs/SpaceControl-Schedule-Agent-Setup-1.1.1.exe) -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="'+$installed+'"')) -PassThru
+          if (-not $setup.WaitForExit(120000)) { throw 'Installer timed out' }
           if ($setup.ExitCode) { throw 'Installation failed' }
           try {
             & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $installed 'start-tdr-helper.ps1') -NoBrowser
