@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: allegro-schedule-cloud
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./schedule-cloud/Dockerfile
+    dockerContext: ./schedule-cloud
+    healthCheckPath: /healthz
+    autoDeployTrigger: "off"
+    envVars:
+      - key: RUNNER_TOKEN
+        generateValue: true
+      - key: MAX_SESSIONS
+        value: "1"
+      - key: PYTHONUNBUFFERED
+        value: "1"
