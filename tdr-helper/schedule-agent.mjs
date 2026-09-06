@@ -59,7 +59,7 @@ export function createScheduleAgent({root,resolveBrowserExecutable,beforeLogin})
  async function query(t,state){
   const f=await openSchedule();await f.locator('#vslSvceLaneCd').fill(t.lane);await f.locator('#vslCd').fill(t.vessel);await f.locator('#radioPeriod2').check();await setDate(f,'fmDt',t.dates[0]);await setDate(f,'toDt',t.dates[1]);await f.getByRole('button',{name:'Search',exact:true}).click();
   let found=false;for(let i=0;i<120;i++){const text=await f.locator('body').innerText();if(text.includes('Result :')){found=true;break}if(/no data|no records|not found/i.test(text))return {blocks:[],notes:[]};await new Promise(r=>setTimeout(r,500))}if(!found)throw fail('未收到明确查询结果，请重试');
-  state.state='downloading';const pending=page.waitForEvent('download',{timeout:60000});await f.getByRole('button',{name:'Export Excel',exact:true}).click();const download=await pending;
+  state.state='downloading';const pending=page.waitForEvent('download',{timeout:60000});pending.catch(()=>{});await f.getByRole('button',{name:'Export Excel',exact:true}).click();const download=await pending;
   try{if(await download.failure())throw fail('原始文件下载失败');const stream=await download.createReadStream();if(!stream)throw fail('下载为空');let chunks=[],size=0;for await(const c of stream){size+=c.length;if(size>8*1024*1024){stream.destroy();throw fail('原始文件超过 8MB')}chunks.push(c)}return await convert(root,{operation:'parse',data:Buffer.concat(chunks).toString('base64'),task:t})}finally{await download.delete()}
  }
  async function run(tasks,current){
@@ -80,7 +80,7 @@ export function createScheduleAgent({root,resolveBrowserExecutable,beforeLogin})
   if(req.method==='OPTIONS'){res.writeHead(204);return res.end()}
   if(req.headers['x-allegro-client']!=='schedule-v1')return json(403,{error:'客户端标识无效'});
   try{
-   if(req.method==='GET'&&url.pathname==='/api/schedule/status'){if(reservation&&!busy&&Date.now()>expires)await close();let ready=true;try{await resolveBrowserExecutable()}catch{ready=false}return json(200,{configured:true,ready,connected,office,version:'1.1.0',jobId:job?.id})}
+   if(req.method==='GET'&&url.pathname==='/api/schedule/status'){if(reservation&&!busy&&Date.now()>expires)await close();let ready=true;try{await resolveBrowserExecutable()}catch{ready=false}return json(200,{configured:true,ready,connected,office,version:'1.1.1',jobId:job?.id})}
    let body={};if(req.method==='POST'){if(!req.headers['content-type']?.startsWith('application/json'))throw fail('请求格式无效',415);let bytes=0,chunks=[];for await(const c of req){bytes+=c.length;if(bytes>131072)throw fail('请求过大',413);chunks.push(c)}try{body=JSON.parse(Buffer.concat(chunks).toString())}catch{throw fail('请求格式无效')}}
    if(req.method==='POST'&&url.pathname==='/api/schedule/login')return json(200,await login(body));
    if(req.method==='POST'&&url.pathname==='/api/schedule/logout'){if(busy)throw fail('操作执行中，请完成后断开',409);await close();return json(200,{ok:true})}

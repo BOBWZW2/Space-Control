@@ -56,7 +56,7 @@ jobs:
               Start-Sleep -Milliseconds 500
               try { $health = Invoke-RestMethod http://127.0.0.1:4318/api/health; break } catch {}
             }
-            if ($health.version -ne '1.1.0') { throw 'Helper did not start' }
+            if ($health.version -ne '1.1.1') { throw 'Helper did not start' }
             $status = Invoke-RestMethod http://127.0.0.1:4318/api/schedule/status -Headers @{ Origin='https://allegro-schedules-bob.brave-cocoa-4698.chatgpt.site'; 'X-Allegro-Client'='schedule-v1' }
             if (-not $status.ready -or $status.connected) { throw 'Unexpected helper state' }
           } finally { Stop-Process -Id $p.Id -ErrorAction SilentlyContinue }
@@ -66,6 +66,22 @@ jobs:
           & 'C:/Program Files (x86)/Inno Setup 6/ISCC.exe' installer/SpaceControlTdrAgent.iss
           if ($LASTEXITCODE) { throw 'Installer build failed' }
           Get-FileHash outputs/*.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content outputs/SHA256SUMS.txt -Encoding ascii
+      - name: Verify installed helper starts without saved credentials
+        shell: pwsh
+        run: |
+          $installed = Join-Path $env:RUNNER_TEMP 'Installed Schedule Agent'
+          $setup = Start-Process -FilePath (Resolve-Path outputs/SpaceControl-Schedule-Agent-Setup-1.1.1.exe) -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="'+$installed+'"')) -Wait -PassThru
+          if ($setup.ExitCode) { throw 'Installation failed' }
+          try {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $installed 'start-tdr-helper.ps1') -NoBrowser
+            if ($LASTEXITCODE) { throw 'Installed startup failed' }
+            $health = Invoke-RestMethod http://127.0.0.1:4318/api/health
+            if ($health.version -ne '1.1.1') { throw 'Installed version mismatch' }
+            & (Join-Path $installed 'runtime/python/python.exe') (Join-Path $installed 'tdr-helper/schedule-convert.test.py')
+            if ($LASTEXITCODE) { throw 'Installed Excel component failed' }
+          } finally {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $installed 'stop-tdr-agent.ps1')
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: SpaceControl-Schedule-Agent-Windows
@@ -75,10 +91,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view schedule-agent-v1.1.0 *> $null
+          gh release view schedule-agent-v1.1.1 *> $null
           if ($LASTEXITCODE) {
-            gh release create schedule-agent-v1.1.0 --prerelease --target $env:GITHUB_SHA --title 'Free Schedule and TDR Helper 1.1.0' --notes-file installer/SCHEDULE-RELEASE.md
+            gh release create schedule-agent-v1.1.1 --prerelease --target $env:GITHUB_SHA --title 'Free Schedule and TDR Helper 1.1.1' --notes-file installer/SCHEDULE-RELEASE.md
             if ($LASTEXITCODE) { throw 'Release creation failed' }
           }
-          gh release upload schedule-agent-v1.1.0 outputs/SpaceControl-Schedule-Agent-Setup-1.1.0.exe outputs/SHA256SUMS.txt --clobber
+          gh release upload schedule-agent-v1.1.1 outputs/SpaceControl-Schedule-Agent-Setup-1.1.1.exe outputs/SHA256SUMS.txt --clobber
           if ($LASTEXITCODE) { throw 'Release upload failed' }

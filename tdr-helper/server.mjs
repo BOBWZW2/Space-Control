@@ -18,7 +18,7 @@ const CONFIGURE_SCRIPT = path.join(ROOT, "configure-tdr-agent.ps1");
 const LOGIN_URL = "https://ops.culines.com/oceans/nawlogon.do";
 const TDR_URL = "https://ops.culines.com/oceans/VOP_M3001.do";
 const ONLINE_ORIGIN = "https://bobwzw2.github.io";
-const AGENT_VERSION = "1.1.0";
+const AGENT_VERSION = "1.1.1";
 
 let context;
 let page;

@@ -1,5 +1,5 @@
 ﻿#define MyAppName "Space Control Schedule and TDR Agent"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.1.1"
 #define MyAppPublisher "CULines Space Control"
 #define MyAppURL "https://bobwzw2.github.io/Space-Control/"
 
@@ -17,7 +17,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\outputs
-OutputBaseFilename=SpaceControl-Schedule-Agent-Setup-1.1.0
+OutputBaseFilename=SpaceControl-Schedule-Agent-Setup-1.1.1
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
