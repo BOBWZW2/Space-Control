@@ -1,5 +1,5 @@
-#define MyAppName "Space Control TDR Agent"
-#define MyAppVersion "1.0.1"
+﻿#define MyAppName "Space Control Schedule and TDR Agent"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "CULines Space Control"
 #define MyAppURL "https://bobwzw2.github.io/Space-Control/"
 
@@ -17,7 +17,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\outputs
-OutputBaseFilename=SpaceControl-TDR-Agent-Setup-1.0.1
+OutputBaseFilename=SpaceControl-Schedule-Agent-Setup-1.1.0
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -33,7 +33,12 @@ Source: "..\start-tdr-helper.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\configure-tdr-agent.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\stop-tdr-agent.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
+Source: "..\tdr-helper\schedule-agent.mjs"; DestDir: "{app}\tdr-helper"; Flags: ignoreversion
+Source: "..\tdr-helper\*.py"; DestDir: "{app}\tdr-helper"; Flags: ignoreversion
+Source: "..\runtime\python\*"; DestDir: "{app}\runtime\python"; Flags: ignoreversion recursesubdirs createallsubdirs
+
 [Icons]
+Name: "{group}\船期查询与导出"; Filename: "https://allegro-schedules-bob.brave-cocoa-4698.chatgpt.site"
 Name: "{group}\打开 Space Control"; Filename: "powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\start-tdr-helper.ps1"""; WorkingDir: "{app}"
 Name: "{group}\设置 TDR 账号"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\configure-tdr-agent.ps1"""; WorkingDir: "{app}"
 Name: "{userdesktop}\Space Control"; Filename: "powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\start-tdr-helper.ps1"""; WorkingDir: "{app}"
@@ -42,7 +47,7 @@ Name: "{userdesktop}\Space Control"; Filename: "powershell.exe"; Parameters: "-N
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "SpaceControlTdrAgent"; ValueData: "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\start-tdr-helper.ps1"" -NoBrowser"; Flags: uninsdeletevalue
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\configure-tdr-agent.ps1"" -NoStart"; Description: "配置共享 TDR 账号"; Flags: postinstall waituntilterminated skipifsilent; Check: CredentialsMissing
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\configure-tdr-agent.ps1"" -NoStart"; Description: "配置共享 TDR 账号"; Flags: postinstall waituntilterminated skipifsilent unchecked; Check: CredentialsMissing
 Filename: "powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\start-tdr-helper.ps1"" -NoBrowser"; Flags: postinstall runhidden nowait
 Filename: "{#MyAppURL}"; Description: "打开 Space Control"; Flags: postinstall shellexec skipifsilent unchecked
 

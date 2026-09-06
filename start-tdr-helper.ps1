@@ -14,13 +14,8 @@ try {
   exit 0
 } catch {}
 
-if (-not (Test-Path -LiteralPath $credentialPath)) {
-  if (-not $NoBrowser) {
-    & (Join-Path $root 'configure-tdr-agent.ps1')
-  }
-  if (-not (Test-Path -LiteralPath $credentialPath)) { exit 2 }
-}
-
+if (Test-Path -LiteralPath $credentialPath) {
+  try {
 $credential = Get-Content -LiteralPath $credentialPath -Raw | ConvertFrom-Json
 $secure = ConvertTo-SecureString $credential.passwordCipher
 $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
@@ -29,6 +24,12 @@ try {
   $env:ALLEGRO_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
 } finally {
   [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+}
+
+  } catch {
+    Remove-Item Env:ALLEGRO_USER -ErrorAction SilentlyContinue
+    Remove-Item Env:ALLEGRO_PASSWORD -ErrorAction SilentlyContinue
+  }
 }
 
 $node = Join-Path $root 'runtime\node.exe'

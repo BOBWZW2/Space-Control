@@ -1,0 +1,84 @@
+name: Build free schedule helper
+on:
+  push:
+    branches: [allegro-schedule-agent]
+    paths: ['tdr-helper/**', 'installer/**', '*tdr*.ps1', '.github/workflows/build-schedule-agent.yml']
+permissions:
+  contents: read
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10'
+          run_install: false
+      - name: Install locked helper dependencies
+        working-directory: tdr-helper
+        run: pnpm install --frozen-lockfile
+      - name: Download bundled runtimes
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force runtime/python, wheelhouse | Out-Null
+          $nodeVersion = '22.23.2'
+          $nodeFile = "node-v$nodeVersion-win-x64.zip"
+          Invoke-WebRequest "https://nodejs.org/dist/v$nodeVersion/$nodeFile" -OutFile node.zip
+          $checksums = (Invoke-WebRequest "https://nodejs.org/dist/v$nodeVersion/SHASUMS256.txt").Content
+          $line = ($checksums -split "`n" | Where-Object { $_.Trim().EndsWith($nodeFile) })
+          $expected = ($line.Trim() -split '\s+')[0]
+          if ((Get-FileHash node.zip -Algorithm SHA256).Hash.ToLower() -ne $expected) { throw 'Node checksum mismatch' }
+          Expand-Archive node.zip runtime/node-download
+          Copy-Item "runtime/node-download/node-v$nodeVersion-win-x64/node.exe" runtime/node.exe
+          Invoke-WebRequest 'https://www.python.org/ftp/python/3.14.7/python-3.14.7-embed-amd64.zip' -OutFile python.zip
+          Expand-Archive python.zip runtime/python
+          python -m pip download --only-binary=:all: --no-deps xlrd==2.0.1 -d wheelhouse
+          python -c "import zipfile,pathlib; p=next(pathlib.Path('wheelhouse').glob('*.whl')); zipfile.ZipFile(p).extractall('runtime/python/Lib/site-packages')"
+          Set-Content runtime/python/python314._pth "python314.zip`n.`nLib/site-packages`nimport site" -Encoding ascii
+      - name: Verify helper without using live credentials
+        shell: pwsh
+        run: |
+          node --test tdr-helper/schedule-agent.test.mjs
+          if ($LASTEXITCODE) { throw 'API checks failed' }
+          runtime/python/python.exe tdr-helper/schedule-convert.test.py
+          if ($LASTEXITCODE) { throw 'Excel checks failed' }
+          $env:TDR_PID_FILE = Join-Path $env:RUNNER_TEMP 'schedule-helper.pid'
+          $p = Start-Process -FilePath (Resolve-Path runtime/node.exe) -ArgumentList 'tdr-helper/server.mjs' -PassThru -WindowStyle Hidden
+          try {
+            $health = $null
+            for ($i=0; $i -lt 30; $i++) {
+              Start-Sleep -Milliseconds 500
+              try { $health = Invoke-RestMethod http://127.0.0.1:4318/api/health; break } catch {}
+            }
+            if ($health.version -ne '1.1.0') { throw 'Helper did not start' }
+            $status = Invoke-RestMethod http://127.0.0.1:4318/api/schedule/status -Headers @{ Origin='https://allegro-schedules-bob.brave-cocoa-4698.chatgpt.site'; 'X-Allegro-Client'='schedule-v1' }
+            if (-not $status.ready -or $status.connected) { throw 'Unexpected helper state' }
+          } finally { Stop-Process -Id $p.Id -ErrorAction SilentlyContinue }
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & 'C:/Program Files (x86)/Inno Setup 6/ISCC.exe' installer/SpaceControlTdrAgent.iss
+          if ($LASTEXITCODE) { throw 'Installer build failed' }
+          Get-FileHash outputs/*.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content outputs/SHA256SUMS.txt -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SpaceControl-Schedule-Agent-Windows
+          path: outputs/*
+      - name: Publish optional schedule helper preview
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view schedule-agent-v1.1.0 *> $null
+          if ($LASTEXITCODE) {
+            gh release create schedule-agent-v1.1.0 --prerelease --target $env:GITHUB_SHA --title 'Free Schedule and TDR Helper 1.1.0' --notes-file installer/SCHEDULE-RELEASE.md
+            if ($LASTEXITCODE) { throw 'Release creation failed' }
+          }
+          gh release upload schedule-agent-v1.1.0 outputs/SpaceControl-Schedule-Agent-Setup-1.1.0.exe outputs/SHA256SUMS.txt --clobber
+          if ($LASTEXITCODE) { throw 'Release upload failed' }

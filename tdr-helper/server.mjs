@@ -1,4 +1,5 @@
 import http from "node:http";
+import { createScheduleAgent } from "./schedule-agent.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -17,7 +18,7 @@ const CONFIGURE_SCRIPT = path.join(ROOT, "configure-tdr-agent.ps1");
 const LOGIN_URL = "https://ops.culines.com/oceans/nawlogon.do";
 const TDR_URL = "https://ops.culines.com/oceans/VOP_M3001.do";
 const ONLINE_ORIGIN = "https://bobwzw2.github.io";
-const AGENT_VERSION = "1.0.1";
+const AGENT_VERSION = "1.1.0";
 
 let context;
 let page;
@@ -335,8 +336,12 @@ async function fetchTdrWithRetry(vvd, pol) {
   throw lastError;
 }
 
+const scheduleAgent = createScheduleAgent({root:ROOT,resolveBrowserExecutable,beforeLogin:async()=>{await queue;await resetBrowser()}});
+
 const server = http.createServer(async (req, res) => {
   try {
+    const scheduleUrl = new URL(req.url || "/", `http://${HOST}:${PORT}`);
+    if (scheduleUrl.pathname.startsWith("/api/schedule/")) return await scheduleAgent.handle(req,res,scheduleUrl);
     if (!allowRequestOrigin(req, res)) return json(res, 403, { error: "Origin not allowed" });
     if (req.method === "OPTIONS") {
       res.writeHead(204, { "Cache-Control": "no-store" });
@@ -347,7 +352,9 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, version: AGENT_VERSION, browser: browserExecutable ? path.basename(browserExecutable) : "auto" });
     }
     if (req.method === "POST" && url.pathname === "/api/tdr") {
+      if(scheduleAgent.reserved()) return json(res,409,{error:"请先在船期工作台断开 Allegro 连接，再使用 TDR"});
       const input = await bodyJson(req);
+      if(scheduleAgent.reserved()) return json(res,409,{error:"请先断开船期连接"});
       const vvd = normalizeCode(input.vvd, 12);
       const pol = normalizeCode(input.pol, 5);
       const task = queue.then(() => fetchTdrWithRetry(vvd, pol));
@@ -377,6 +384,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 async function shutdown(code = 0) {
+  await scheduleAgent.close();
   await resetBrowser();
   await fs.unlink(PID_FILE).catch(() => undefined);
   server.close(() => process.exit(code));
