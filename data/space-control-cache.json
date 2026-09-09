@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-08-31T08:19:46.345Z",
+  "updatedAt": "2026-09-09T07:18:41.919Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -1230,6 +1230,83 @@
         "CNNGB",
         "CNSHK",
         "CNNAS",
+        "MYPKG"
+      ]
+    },
+    "BIBK2638WE": {
+      "vvd": "BIBK2638WE",
+      "lane": "HLX",
+      "vesselName": "BAMSI BERYEK",
+      "updatedAt": "2026-09-09T07:17:10.913Z",
+      "carriers": [
+        {
+          "code": "CUL",
+          "tonPerTeu": 14,
+          "wbTeus": 108,
+          "wbMt": 1512,
+          "wbRf": null,
+          "ebTeus": 108,
+          "ebMt": 1512,
+          "ebRf": null
+        },
+        {
+          "code": "XFD",
+          "tonPerTeu": 14,
+          "wbTeus": 1688,
+          "wbMt": 23632,
+          "wbRf": null,
+          "ebTeus": 1688,
+          "ebMt": 23632,
+          "ebRf": null
+        },
+        {
+          "code": "NSS",
+          "tonPerTeu": 14,
+          "wbTeus": 40,
+          "wbMt": 560,
+          "wbRf": null,
+          "ebTeus": 40,
+          "ebMt": 560,
+          "ebRf": null
+        }
+      ],
+      "allocation": {
+        "wbTeus": 108,
+        "ebTeus": 108,
+        "tonPerTeu": 14,
+        "wbMt": 1512,
+        "ebMt": 1512,
+        "wbRf": null,
+        "ebRf": null
+      },
+      "entries": {
+        "WB": {},
+        "EB": {}
+      },
+      "tdrAudit": {},
+      "tdrImports": {},
+      "draft": {
+        "enabled": false,
+        "ports": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "moveCount": {
+        "enabled": true,
+        "limits": {
+          "INNSA::2026-10-05": 2500
+        },
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "selectedWbPodKeys": [
+        "THLCH::2026-09-20 21:30:00",
+        "SGSIN::2026-09-25 01:30:00",
+        "MYPKG::2026-09-27 07:30:00"
+      ],
+      "selectedWbPodPorts": [
+        "THLCH",
+        "SGSIN",
         "MYPKG"
       ]
     }
