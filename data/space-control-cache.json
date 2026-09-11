@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-11T07:32:54.492Z",
+  "updatedAt": "2026-09-11T07:48:54.864Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -1420,6 +1420,69 @@
         "CNNGB::2026-09-19 04:00:00",
         "CNSHK::2026-09-22 21:00:00",
         "MYPKG::2026-09-27 13:00:00"
+      ],
+      "selectedWbPodPorts": [
+        "KRPUS",
+        "KRKAN",
+        "CNSHA",
+        "CNNGB",
+        "CNSHK",
+        "MYPKG"
+      ]
+    },
+    "JRBM2637WE": {
+      "vvd": "JRBM2637WE",
+      "lane": "KCI",
+      "vesselName": "JIRA BHUM",
+      "updatedAt": "2026-09-11T07:47:31.759Z",
+      "carriers": [
+        {
+          "code": "CUL",
+          "tonPerTeu": 14,
+          "wbTeus": 1045,
+          "wbMt": 14630,
+          "wbRf": null,
+          "ebTeus": 1045,
+          "ebMt": 14630,
+          "ebRf": null
+        }
+      ],
+      "allocation": {
+        "wbTeus": 1045,
+        "ebTeus": 1045,
+        "tonPerTeu": 14,
+        "wbMt": 14630,
+        "ebMt": 14630,
+        "wbRf": null,
+        "ebRf": null
+      },
+      "entries": {
+        "WB": {},
+        "EB": {}
+      },
+      "tdrAudit": {},
+      "tdrImports": {},
+      "draft": {
+        "enabled": false,
+        "ports": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "moveCount": {
+        "enabled": true,
+        "limits": {
+          "CNSHA::2026-09-23": 8894
+        },
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "selectedWbPodKeys": [
+        "KRPUS::2026-09-20 15:30:00",
+        "KRKAN::2026-09-21 13:30:00",
+        "CNSHA::2026-09-23 16:30:00",
+        "CNNGB::2026-09-25 05:00:00",
+        "CNSHK::2026-09-28 00:00:00",
+        "MYPKG::2026-10-03 04:30:00"
       ],
       "selectedWbPodPorts": [
         "KRPUS",
