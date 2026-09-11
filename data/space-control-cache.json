@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-11T07:48:54.864Z",
+  "updatedAt": "2026-09-11T07:49:54.435Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -1434,7 +1434,7 @@
       "vvd": "JRBM2637WE",
       "lane": "KCI",
       "vesselName": "JIRA BHUM",
-      "updatedAt": "2026-09-11T07:47:31.759Z",
+      "updatedAt": "2026-09-11T07:48:31.196Z",
       "carriers": [
         {
           "code": "CUL",
@@ -1463,15 +1463,17 @@
       "tdrAudit": {},
       "tdrImports": {},
       "draft": {
-        "enabled": false,
-        "ports": {},
+        "enabled": true,
+        "ports": {
+          "CNSHA": 8894
+        },
         "partnerOverrideEnabled": false,
         "partnerOverrides": {}
       },
       "moveCount": {
         "enabled": true,
         "limits": {
-          "CNSHA::2026-09-23": 8894
+          "INNSA::2026-10-10": 484
         },
         "partnerOverrideEnabled": false,
         "partnerOverrides": {}
