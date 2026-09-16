@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-11T07:49:54.435Z",
+  "updatedAt": "2026-09-16T05:58:02.169Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -1492,6 +1492,65 @@
         "CNSHA",
         "CNNGB",
         "CNSHK",
+        "MYPKG"
+      ]
+    },
+    "LION2638WE": {
+      "vvd": "LION2638WE",
+      "lane": "CGX",
+      "vesselName": "LION",
+      "updatedAt": "2026-09-16T05:57:28.103Z",
+      "carriers": [
+        {
+          "code": "CUL",
+          "tonPerTeu": 13.1429,
+          "wbTeus": 7000,
+          "wbMt": 92000,
+          "wbRf": null,
+          "ebTeus": 7000,
+          "ebMt": 92000,
+          "ebRf": null
+        }
+      ],
+      "allocation": {
+        "wbTeus": 7000,
+        "ebTeus": 7000,
+        "tonPerTeu": 13.1429,
+        "wbMt": 92000,
+        "ebMt": 92000,
+        "wbRf": null,
+        "ebRf": null
+      },
+      "entries": {
+        "WB": {},
+        "EB": {}
+      },
+      "tdrAudit": {},
+      "tdrImports": {},
+      "draft": {
+        "enabled": false,
+        "ports": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "moveCount": {
+        "enabled": false,
+        "limits": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "selectedWbPodKeys": [
+        "CNTAO::2026-09-17 18:00:00",
+        "CNNGB::2026-09-22 04:00:00",
+        "CNSHK::2026-09-25 08:00:00",
+        "CNNAS::2026-09-26 18:00:00",
+        "MYPKG::2026-10-02 10:00:00"
+      ],
+      "selectedWbPodPorts": [
+        "CNTAO",
+        "CNNGB",
+        "CNSHK",
+        "CNNAS",
         "MYPKG"
       ]
     }
