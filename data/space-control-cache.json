@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-18T05:10:53.392Z",
+  "updatedAt": "2026-09-21T08:16:04.890Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -1615,6 +1615,71 @@
         "CNSHA",
         "CNNGB",
         "CNSHK"
+      ]
+    },
+    "ZGHZ2639WE": {
+      "vvd": "ZGHZ2639WE",
+      "lane": "KCI",
+      "vesselName": "ZHONG GU HANG ZHOU",
+      "updatedAt": "2026-09-21T08:15:23.774Z",
+      "carriers": [
+        {
+          "code": "CUL",
+          "tonPerTeu": 14,
+          "wbTeus": 918,
+          "wbMt": 12852,
+          "wbRf": null,
+          "ebTeus": 918,
+          "ebMt": 12852,
+          "ebRf": null
+        }
+      ],
+      "allocation": {
+        "wbTeus": 918,
+        "ebTeus": 918,
+        "tonPerTeu": 14,
+        "wbMt": 12852,
+        "ebMt": 12852,
+        "wbRf": null,
+        "ebRf": null
+      },
+      "entries": {
+        "WB": {},
+        "EB": {}
+      },
+      "tdrAudit": {},
+      "tdrImports": {},
+      "draft": {
+        "enabled": true,
+        "ports": {
+          "CNSHA": 9088
+        },
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "moveCount": {
+        "enabled": true,
+        "limits": {
+          "INNSA::2026-10-27": 484
+        },
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "selectedWbPodKeys": [
+        "KRPUS::2026-10-04 13:00:00",
+        "KRKAN::2026-10-05 13:00:00",
+        "CNSHA::2026-10-07 15:00:00",
+        "CNNGB::2026-10-09 02:00:00",
+        "CNSHK::2026-10-12 12:00:00",
+        "MYPKG::2026-10-18 10:00:00"
+      ],
+      "selectedWbPodPorts": [
+        "KRPUS",
+        "KRKAN",
+        "CNSHA",
+        "CNNGB",
+        "CNSHK",
+        "MYPKG"
       ]
     }
   }
