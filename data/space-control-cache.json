@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-21T08:16:04.890Z",
+  "updatedAt": "2026-09-22T08:05:00.621Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -752,7 +752,7 @@
       "vvd": "RACE2632WE",
       "lane": "KCI",
       "vesselName": "RACINE",
-      "updatedAt": "2026-08-25T02:56:08.642Z",
+      "updatedAt": "2026-09-22T08:04:18.035Z",
       "carriers": [
         {
           "code": "CUL",
@@ -857,10 +857,10 @@
       "selectedWbPodKeys": [
         "KRPUS::2026-08-22 07:00:00",
         "KRKAN::2026-08-22 23:00:00",
-        "CNSHA::2026-08-28 08:00:00",
-        "CNNGB::2026-08-30 19:00:00",
-        "CNSHK::2026-09-02 10:00:00",
-        "MYPKG::2026-09-07 22:00:00"
+        "CNSHA::2026-09-02 01:00:00",
+        "CNNGB::2026-09-09 12:00:00",
+        "CNSHK::2026-09-12 09:30:00",
+        "MYPKG::2026-09-20 02:00:00"
       ],
       "selectedWbPodPorts": [
         "KRPUS",
