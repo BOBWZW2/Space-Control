@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-23T08:18:11.449Z",
+  "updatedAt": "2026-09-28T02:58:58.613Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -1794,6 +1794,63 @@
         "THLCH",
         "SGSIN",
         "MYPKG"
+      ]
+    },
+    "BZCF2639WE": {
+      "vvd": "BZCF2639WE",
+      "lane": "CGX",
+      "vesselName": "BZ CHONGFU",
+      "updatedAt": "2026-09-28T02:58:05.548Z",
+      "carriers": [
+        {
+          "code": "CUL",
+          "tonPerTeu": 14,
+          "wbTeus": 5000,
+          "wbMt": 70000,
+          "wbRf": null,
+          "ebTeus": 5000,
+          "ebMt": 70000,
+          "ebRf": null
+        }
+      ],
+      "allocation": {
+        "wbTeus": 5000,
+        "ebTeus": 5000,
+        "tonPerTeu": 14,
+        "wbMt": 70000,
+        "ebMt": 70000,
+        "wbRf": null,
+        "ebRf": null
+      },
+      "entries": {
+        "WB": {},
+        "EB": {}
+      },
+      "tdrAudit": {},
+      "tdrImports": {},
+      "draft": {
+        "enabled": false,
+        "ports": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "moveCount": {
+        "enabled": false,
+        "limits": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "selectedWbPodKeys": [
+        "CNDCB::2026-09-29 16:00:00",
+        "CNSHK::2026-09-30 12:00:00",
+        "CNNAS::2026-10-01 20:00:00",
+        "HKHKG::2026-10-03 05:00:00"
+      ],
+      "selectedWbPodPorts": [
+        "CNDCB",
+        "CNSHK",
+        "CNNAS",
+        "HKHKG"
       ]
     }
   }
