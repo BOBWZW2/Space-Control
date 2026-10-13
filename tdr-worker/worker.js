@@ -111,7 +111,7 @@ class AllegroTdrClient {
     try {
       payload = JSON.parse(text);
     } catch {
-      throw codedError(`Allegro 返回无法解析的数据 (${response.status})`, "INVALID_RESPONSE");
+      throw codedError(`Allegro 接口 ${pathname} 返回无法解析的数据 (${response.status})`, "INVALID_RESPONSE");
     }
     if (!response.ok || payload.header?.errorMessageProcessed || String(payload.header?.returnCode || "0") !== "0") {
       throw codedError(payload.header?.messageCode || `Allegro 请求失败 (${response.status})`, "ALLEGRO_REQUEST_FAILED");
