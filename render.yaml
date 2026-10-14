@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: space-control-allegro-relay
+    runtime: node
+    plan: free
+    region: singapore
+    branch: fix/tdr-node-relay
+    rootDir: tdr-relay
+    buildCommand: node --check server.mjs && node --check upstream.mjs
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_VERSION
+        value: 24.19.0
+      - key: RELAY_ACCESS_TOKEN
+        generateValue: true

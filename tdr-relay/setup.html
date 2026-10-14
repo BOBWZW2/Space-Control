@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Allegro 云端连接检查</title>
+<style>
+body{font:16px/1.65 system-ui,sans-serif;background:#f4f7fa;color:#183145;margin:0;padding:48px 20px}main{max-width:620px;margin:auto;background:white;border:1px solid #dae3eb;border-radius:14px;padding:28px}h1{font-size:24px;margin-top:0}label{display:block;font-weight:600;margin-top:20px}input,button{box-sizing:border-box;width:100%;padding:12px;border-radius:7px;border:1px solid #b9c8d4;font:inherit}button{margin-top:14px;background:#087b78;color:white;cursor:pointer;border:0}button:disabled{opacity:.6}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#eff4f7;padding:14px;border-radius:7px}.note{color:#546c7f;font-size:14px}
+</style>
+<main>
+<h1>Allegro 云端连接检查</h1>
+<p>先确认这个云端代理能打开 Allegro 登录页。检查成功后，再接回原来的控舱网页。</p>
+<p class="note">此检查不使用 Allegro 账号密码。Render 免费服务休眠后的首次启动约需一分钟。</p>
+<form id="check" autocomplete="off">
+<label for="token">代理访问密钥</label>
+<input id="token" type="password" autocomplete="off" spellcheck="false" required placeholder="Render 环境变量 RELAY_ACCESS_TOKEN 的值">
+<button id="button" type="submit">检查 Allegro 连接</button>
+</form>
+<pre id="result" role="status" aria-live="polite">等待检查</pre>
+<p class="note">密钥只在本次检查中使用，不保存在浏览器。这里不需要填写 Allegro 密码。</p>
+</main>
+<script src="/setup.js"></script>
+</html>

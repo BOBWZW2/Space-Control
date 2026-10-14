@@ -10,6 +10,25 @@ Endpoints:
 
 ## Cloud-only fallback for HTTP 526 (v2.3.0)
 
+**Live result, 2026-10-14:** the browser fallback reached `Page.navigate` but
+Allegro navigation failed with `net::ERR_CONNECTION_RESET`. It did not solve the
+live connection issue.
+
+## Independent Node relay (v2.4.0, not yet live-verified)
+
+The new optional transport sends Allegro requests through an authenticated Node.js
+relay, which can supplement the officially signed GeoTrust intermediate while
+retaining TLS and hostname validation. Configure `ALLEGRO_RELAY_URL` (a Render
+HTTPS root URL) and `ALLEGRO_RELAY_TOKEN` (secret). All Allegro requests then use
+the relay; the original frontend and streaming response format stay the same.
+
+Deploy and check the relay **before** changing the live Worker. Follow
+[`tdr-relay/README.md`](../tdr-relay/README.md). The root `render.yaml` selects a
+free service for connectivity testing. Actual Allegro login and TDR results still
+require deployed verification.
+
+## Retained Browser Run fallback when the relay is not configured
+
 Normal requests still use the existing direct Allegro API client. If that client
 receives HTTP 526 and a `BROWSER` binding is available, the same incoming request
 is retried through a short-lived Cloudflare Browser Run Chromium session. No
@@ -27,7 +46,7 @@ failure. Credentials are used in memory and are not added to logs or health outp
 2. Under **Bindings**, add a **Browser Run / Browser Rendering** binding named
    **`BROWSER`**. Keep the existing `SYNC_BACKEND` service binding.
 3. Replace the Worker code with the complete `tdr-worker/worker.js` and deploy.
-4. Open `/api/health`: it should report `version: "2.3.0"` and
+4. Open `/api/health`: it should report `version: "2.4.0"` and
    `browserFallbackAvailable: true`. This verifies configuration, not an Allegro login.
 5. Run one single-port TDR query from the existing webpage. Actual connectivity,
    login and TDR data must be verified in the deployed Cloudflare environment

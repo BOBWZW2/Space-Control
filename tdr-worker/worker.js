@@ -1,4 +1,4 @@
-const VERSION = "2.3.0";
+const VERSION = "2.4.0";
 const ALLEGRO_BASE_URL = "https://ops.culines.com";
 const DEFAULT_ALLOWED_ORIGIN = "https://bobwzw2.github.io";
 
@@ -50,7 +50,8 @@ function specialRows(list) {
 }
 
 class AllegroTdrClient {
-  constructor({ username, password }) {
+  constructor({ username, password }, transport = fetch) {
+    this.transport = transport;
     this.username = String(username || "");
     this.password = String(password || "");
     this.cookies = new Map();
@@ -79,7 +80,7 @@ class AllegroTdrClient {
     if (!this.username || !this.password) {
       throw codedError("Allegro 账号或密码未填写", "AUTH_REQUIRED");
     }
-    const landing = await fetch(`${ALLEGRO_BASE_URL}/oceans/nawlogon.do`, { redirect: "manual" });
+    const landing = await this.transport(`${ALLEGRO_BASE_URL}/oceans/nawlogon.do`, { redirect: "manual" });
     this.absorbCookies(landing);
     await landing.text();
     const payload = await this.post("/oceans/general.signon", {
@@ -93,7 +94,7 @@ class AllegroTdrClient {
   }
 
   async post(pathname, body, referer = "/oceans/VOP_M3001.do") {
-    const response = await fetch(`${ALLEGRO_BASE_URL}${pathname}`, {
+    const response = await this.transport(`${ALLEGRO_BASE_URL}${pathname}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json; charset=UTF-8",
@@ -422,7 +423,8 @@ class ResilientTdrClient {
   constructor(credentials, env) {
     this.credentials = credentials;
     this.binding = env.BROWSER;
-    this.active = new AllegroTdrClient(credentials);
+    this.relay = env.ALLEGRO_RELAY_URL ? new RelayTransport(env) : null;
+    this.active = new AllegroTdrClient(credentials, this.relay ? this.relay.fetch.bind(this.relay) : fetch);
     this.browser = null;
     this.switchPromise = null;
     this.closed = false;
@@ -435,7 +437,7 @@ class ResilientTdrClient {
       return await client[method](...args);
     } catch (error) {
       if (this.closed) throw codedError("TDR 查询已取消", "TDR_QUERY_CANCELLED");
-      if (client === this.browser || error?.status !== 526 || !this.binding?.acquire) throw error;
+      if (this.relay || client === this.browser || error?.status !== 526 || !this.binding?.acquire) throw error;
       if (!this.switchPromise) this.switchPromise = (async () => {
         this.browser = new BrowserAllegroTdrClient(this.credentials, this.binding);
         await this.browser.login();
@@ -450,7 +452,76 @@ class ResilientTdrClient {
   query(...args) { return this.call("query", ...args); }
   login(...args) { return this.call("login", ...args); }
   voyage(...args) { return this.call("voyage", ...args); }
-  async close() { this.closed = true; await this.browser?.close(); }
+  async close() { this.closed = true; this.relay?.close(); await this.browser?.close(); }
+}
+
+class RelayTransport {
+  constructor(env) {
+    this.controllers = new Set();
+    this.closed = false;
+    let url;
+    try { url = new URL(String(env.ALLEGRO_RELAY_URL)); } catch { /* validated below */ }
+    if (!url || url.protocol !== "https:" || !url.hostname.endsWith(".onrender.com")
+        || url.port || url.username || url.password || url.pathname !== "/" || url.search || url.hash
+        || !/^[^\s]{32,}$/.test(String(env.ALLEGRO_RELAY_TOKEN || ""))) {
+      this.configurationError = codedError("云端代理配置不完整，请检查代理地址及访问密钥", "RELAY_CONFIGURATION_ERROR");
+      return;
+    }
+    this.url = new URL("/v1/allegro", url).href;
+    this.token = String(env.ALLEGRO_RELAY_TOKEN);
+  }
+
+  async fetch(url, init = {}) {
+    if (this.configurationError) throw this.configurationError;
+    if (this.closed) throw codedError("TDR 查询已取消", "TDR_QUERY_CANCELLED");
+    const destination = new URL(url);
+    if (destination.origin !== ALLEGRO_BASE_URL || destination.search || destination.hash
+        || !["/oceans/nawlogon.do", "/oceans/general.signon", "/serviceEndpoint/json"].includes(destination.pathname)) {
+      throw codedError("云端代理请求地址无效", "RELAY_DESTINATION_ERROR");
+    }
+    const controller = new AbortController();
+    this.controllers.add(controller);
+    // Includes the free service's first wake-up. Subsequent requests do not
+    // spend browser minutes, and the Node upstream has its own 20s deadline.
+    const timer = setTimeout(() => controller.abort(), 90000);
+    try {
+      const response = await fetch(this.url, {
+        method: "POST", redirect: "error", signal: controller.signal,
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.token}` },
+        body: JSON.stringify({ method: init.method || "GET", pathname: destination.pathname,
+          headers: Object.fromEntries(new Headers(init.headers)), body: init.body || "" })
+      });
+      const text = await response.text();
+      if (text.length > 12 * 1024 * 1024) throw codedError("云端代理返回的数据过大", "RELAY_RESPONSE_TOO_LARGE");
+      let result;
+      try { result = JSON.parse(text); } catch { throw codedError("云端代理尚未就绪，请稍后重试", "RELAY_UNAVAILABLE"); }
+      if (!response.ok) {
+        const code = /^[A-Z0-9_]{1,64}$/.test(result?.code || "") ? ` (${result.code})` : "";
+        throw codedError(`云端代理连接 Allegro 失败${code}`, "RELAY_UPSTREAM_ERROR");
+      }
+      if (!Number.isInteger(result.status) || result.status < 200 || result.status > 599
+          || typeof result.body !== "string" || !Array.isArray(result.headers)
+          || result.headers.some(pair => !Array.isArray(pair) || pair.length !== 2
+            || !["content-type", "set-cookie"].includes(pair[0]) || typeof pair[1] !== "string")) {
+        throw codedError("云端代理返回格式无效", "RELAY_INVALID_RESPONSE");
+      }
+      return new Response([204, 205, 304].includes(result.status) ? null : result.body,
+        { status: result.status, headers: result.headers });
+    } catch (error) {
+      if (this.closed) throw codedError("TDR 查询已取消", "TDR_QUERY_CANCELLED");
+      if (error?.code) throw error;
+      throw codedError("云端代理连接中断或超时，请稍后重试", "RELAY_UNAVAILABLE");
+    } finally {
+      clearTimeout(timer);
+      this.controllers.delete(controller);
+    }
+  }
+
+  close() {
+    this.closed = true;
+    for (const controller of this.controllers) controller.abort();
+    this.controllers.clear();
+  }
 }
 
 function allowedOrigin(request, env) {
@@ -629,7 +700,8 @@ export default {
     if (request.method === "GET" && url.pathname === "/api/health") {
       return jsonResponse(request, env, {
         ok: true, version: VERSION, mode: "cloud",
-        browserFallbackAvailable: typeof env.BROWSER?.acquire === "function"
+        browserFallbackAvailable: typeof env.BROWSER?.acquire === "function",
+        relayConfigured: Boolean(env.ALLEGRO_RELAY_URL && env.ALLEGRO_RELAY_TOKEN)
       });
     }
     if (env.SYNC_BACKEND && (

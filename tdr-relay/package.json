@@ -1,0 +1,7 @@
+{
+  "name": "space-control-allegro-relay",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.19.0" },
+  "scripts": { "start": "node server.mjs", "test": "node --test *.test.mjs" }
+}

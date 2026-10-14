@@ -129,6 +129,100 @@ function assertCargo(result) {
   assert.equal(result.rows[0].weight, 16.5);
 }
 
+const relayEnv = { ALLEGRO_RELAY_URL: "https://test-relay.onrender.com", ALLEGRO_RELAY_TOKEN: "test-only-relay-token-0123456789abcdef" };
+
+test("configured relay preserves login cookies and TDR results without contacting direct origin or browser", async t => {
+  const { binding, state } = mockBrowser();
+  const sent = [];
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    assert.equal(url, relayEnv.ALLEGRO_RELAY_URL + "/v1/allegro");
+    assert.equal(init.redirect, "error");
+    assert.equal(init.headers.Authorization, "Bearer " + relayEnv.ALLEGRO_RELAY_TOKEN);
+    const input = JSON.parse(init.body);
+    sent.push(input);
+    if (input.method === "GET") return json({ status: 200, body: "<html>login</html>", headers: [
+      ["set-cookie", "session=session-a; Secure; HttpOnly"], ["set-cookie", "route=route-b; Secure"]
+    ] });
+    assert.match(input.headers.cookie, /session=session-a/);
+    assert.match(input.headers.cookie, /route=route-b/);
+    return json({ status: 200, headers: [["content-type", "application/json"]],
+      body: JSON.stringify(fixture(input.pathname, JSON.parse(input.body))) });
+  });
+  const response = await worker.fetch(request("/api/tdr", query), { ...relayEnv, BROWSER: binding });
+  assertCargo(await response.json());
+  assert.equal(sent.filter(input => input.pathname === "/oceans/general.signon").length, 1);
+  assert.equal(state.acquired, 0);
+});
+
+test("relay batch retains the existing streaming format and one login per request", async t => {
+  let logins = 0;
+  t.mock.method(globalThis, "fetch", async (_url, init) => {
+    const input = JSON.parse(init.body);
+    if (input.method === "GET") return json({ status: 200, headers: [], body: "login" });
+    if (input.pathname === "/oceans/general.signon") logins++;
+    return json({ status: 200, headers: [], body: JSON.stringify(fixture(input.pathname, JSON.parse(input.body))) });
+  });
+  const response = await worker.fetch(request("/api/tdr/batch", { queries: [query, { ...query, pol: "MYPKG" }] }), relayEnv);
+  const lines = (await response.text()).trim().split("\n").map(JSON.parse);
+  assert.deepEqual(lines.map(line => [line.ok, line.result.pol]), [[true, "THLCH"], [true, "MYPKG"]]);
+  assert.equal(logins, 1);
+});
+
+test("invalid relay configuration fails before credentials leave the Worker", async t => {
+  t.mock.method(globalThis, "fetch", async () => assert.fail("network must not be contacted"));
+  for (const env of [
+    { ...relayEnv, ALLEGRO_RELAY_URL: "http://test-relay.onrender.com" },
+    { ...relayEnv, ALLEGRO_RELAY_URL: "https://other.example" },
+    { ...relayEnv, ALLEGRO_RELAY_URL: relayEnv.ALLEGRO_RELAY_URL + "/redirect" },
+    { ...relayEnv, ALLEGRO_RELAY_TOKEN: "" }
+  ]) {
+    const response = await worker.fetch(request("/api/tdr", query), env);
+    assert.equal((await response.json()).code, "RELAY_CONFIGURATION_ERROR");
+  }
+});
+
+test("relay upstream errors do not trigger a direct retry or leak credentials", async t => {
+  const { binding, state } = mockBrowser();
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async (url) => {
+    calls++; assert.equal(url, relayEnv.ALLEGRO_RELAY_URL + "/v1/allegro");
+    return json({ error: credentials.password, code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE" }, 502);
+  });
+  const response = await worker.fetch(request("/api/tdr", query), { ...relayEnv, BROWSER: binding });
+  const body = await response.text();
+  assert.ok(body.includes("UNABLE_TO_VERIFY_LEAF_SIGNATURE"));
+  assert.ok(!body.includes(credentials.password));
+  assert.equal(calls, 1);
+  assert.equal(state.acquired, 0);
+});
+
+test("relay redirects and unexpected response headers fail without exposing secrets", async t => {
+  t.mock.method(globalThis, "fetch", async () => json({ status: 200, body: credentials.password,
+    headers: [["location", "https://other.example"]] }));
+  const response = await worker.fetch(request("/api/tdr", query), relayEnv);
+  const body = await response.text();
+  assert.ok(body.includes("RELAY_INVALID_RESPONSE"));
+  assert.ok(!body.includes(credentials.password));
+});
+
+test("cancelling a relay batch aborts its active request before submitting login credentials", async t => {
+  let entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  let aborted = false;
+  t.mock.method(globalThis, "fetch", async (_url, init) => {
+    assert.equal(JSON.parse(init.body).method, "GET");
+    entered();
+    return new Promise((_resolve, reject) => init.signal.addEventListener("abort", () => {
+      aborted = true;
+      reject(new DOMException("Cancelled", "AbortError"));
+    }, { once: true }));
+  });
+  const response = await worker.fetch(request("/api/tdr/batch", { queries: [query] }), relayEnv);
+  await started;
+  await response.body.cancel();
+  assert.equal(aborted, true);
+});
+
 test("healthy direct queries do not allocate a cloud browser", async t => {
   mockDirect(t);
   const { binding, state } = mockBrowser();
@@ -253,7 +347,7 @@ test("health reports configuration without a login or browser allocation", async
   const direct = mockDirect(t);
   const { binding, state } = mockBrowser();
   const response = await worker.fetch(new Request("https://worker.example/api/health"), { BROWSER: binding });
-  assert.deepEqual(await response.json(), { ok: true, version: "2.3.0", mode: "cloud", browserFallbackAvailable: true });
+  assert.deepEqual(await response.json(), { ok: true, version: "2.4.0", mode: "cloud", browserFallbackAvailable: true, relayConfigured: false });
   assert.equal(state.acquired, 0);
   assert.equal(direct.length, 0);
 });
