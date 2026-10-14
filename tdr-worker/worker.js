@@ -1,4 +1,4 @@
-const VERSION = "2.4.1";
+const VERSION = "2.4.2";
 const ALLEGRO_BASE_URL = "https://ops.culines.com";
 const DEFAULT_ALLOWED_ORIGIN = "https://bobwzw2.github.io";
 
@@ -424,7 +424,8 @@ class ResilientTdrClient {
     this.credentials = credentials;
     this.binding = env.BROWSER;
     this.relay = env.ALLEGRO_RELAY_URL ? new RelayTransport(env) : null;
-    this.active = new AllegroTdrClient(credentials, this.relay ? this.relay.fetch.bind(this.relay) : fetch);
+    this.nativeTransport = typeof env.ALLEGRO_TRANSPORT === "function" ? env.ALLEGRO_TRANSPORT : null;
+    this.active = new AllegroTdrClient(credentials, this.relay ? this.relay.fetch.bind(this.relay) : this.nativeTransport || fetch);
     this.browser = null;
     this.switchPromise = null;
     this.closed = false;
@@ -452,7 +453,7 @@ class ResilientTdrClient {
   query(...args) { return this.call("query", ...args); }
   login(...args) { return this.call("login", ...args); }
   voyage(...args) { return this.call("voyage", ...args); }
-  async close() { this.closed = true; this.relay?.close(); await this.browser?.close(); }
+  async close() { this.closed = true; this.relay?.close(); this.nativeTransport?.close?.(); await this.browser?.close(); }
 }
 
 class RelayTransport {
@@ -701,6 +702,7 @@ export default {
       return jsonResponse(request, env, {
         ok: true, version: VERSION, mode: "cloud",
         browserFallbackAvailable: typeof env.BROWSER?.acquire === "function",
+        nativeTlsTransportAvailable: typeof env.ALLEGRO_TRANSPORT === "function",
         relayConfigured: Boolean(env.ALLEGRO_RELAY_URL && env.ALLEGRO_RELAY_TOKEN)
       });
     }

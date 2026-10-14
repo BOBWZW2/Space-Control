@@ -1,6 +1,17 @@
 # 不绑卡的 Netlify Free 部署路径
 
-当前状态：代码和本地检查已完成；尚未在 Netlify 部署，也未验证真实 Allegro 登录或 TDR 数据。Render 创建 Free 服务时对当前账户要求付款信息（HTTP 402）；用户明确不添加付款信息，因此停止 Render 路径。
+当前路径：Netlify 原生 Node.js TDR API，原 GitHub Pages 网页直接调用。Render 因 HTTP 402 要求付款信息而停止；Cloudflare 的 GitHub 登录返回“Unable to sign in”，因此完整查询也由 Netlify 承载，无需修改原 Worker。
+
+已部署的代理地址为 https://helpful-tapioca-edac80.netlify.app/ 。浏览器诊断和未携带 Netlify 登录 Cookie 的服务器诊断均已通过真实 Allegro TLS 校验，登录页返回 HTTP 200；未携带代理密钥时诊断接口返回 HTTP 401。真实账号登录及 TDR 数量、吨位仍需完整 API 发布后验证。
+
+## 原生 TDR API
+
+- `tdr-relay/netlify/functions/tdr.mjs` 复用原 Worker 的 TDR 数据提取与 NDJSON 格式，通过 Node 原生 HTTPS 补齐已验证的中间证书。
+- GitHub Pages 的 `TDR_API_BASE` 指向上述 Netlify 地址；同步、船期和历史数据仍使用原有同步端点。
+- `tdr-batch-client.js` 在用户点击一次后逐港发起请求，保留已成功口岸，单个口岸失败后继续其他口岸。认证失败会停止后续登录尝试。
+- Netlify 的单次执行上限为 60 秒，因此一个函数调用只接受一个口岸，内部设 45 秒总截止时间。整个 bound 由网页完成调度。
+- `/space-control.html` 是同一界面的部署验证入口，根地址继续提供不含 Allegro 账号的连接诊断。
+- 代理服务密钥仅供服务器调用旧的 `/v1/*` 接口；网页直接调用 `/api/tdr*` 时发送用户在原网页填写的 Allegro 账号，不公开服务密钥。
 
 ## 网页部署
 
@@ -18,7 +29,7 @@ https://app.netlify.com/start/deploy?repository=https://github.com/BOBWZW2/Space
 
 免费方案不会允许匿名云函数长期运行：这条路径仍需要 Netlify 账号。若特定账户的实际流程要求付款信息，应停止，不添加银行卡、不升级套餐。
 
-## 接回现有 Cloudflare
+## 可选：接回现有 Cloudflare
 
 诊断通过后，在原 `space-control-tdr` Worker 使用本分支的 `tdr-worker/worker.js`（v2.4.1），保留原有绑定，并设置：
 
@@ -40,7 +51,8 @@ https://app.netlify.com/start/deploy?repository=https://github.com/BOBWZW2/Space
 ## 本地验证
 
 - `cd tdr-worker && npm test`：23 项检查。
-- `cd tdr-relay && npm test`：21 项检查，包括本地真实 TLS 握手与 Netlify handler 检查。
+- `cd tdr-relay && npm test`：27 项检查，包括本地真实 TLS 握手、原生 TDR API、截止时间与取消连接。
+- `node --test tdr-batch-client.test.mjs`：4 项逐港请求、流式字符解码、部分失败和认证停止检查。
 - `node prepare-netlify.mjs` 生成静态检查页和内嵌证书模块；这些生成文件不作为源码提交。
 
 参考：

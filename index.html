@@ -2302,6 +2302,7 @@
   <script src="https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+  <script src="tdr-batch-client.js"></script>
   <script>
     const cargoLabels = ["LILIAN", "SUL", "T/S", "SOC", "TK", "DG", "RF", "MT", "Weight", "TTL"];
     const partnerCargoLabels = ["COC", "T/S", "SOC", "TK", "DG", "RF", "MT", "Weight", "TTL"];
@@ -2310,7 +2311,7 @@
     const partnerAuditLabelMap = { LILIAN: "COC" };
     const partnerRobTransferLabelMap = { LILIAN: "COC", SUL: null };
     const NORMAL_CUL_CO = new Set(["CUL", "CUS", "CUM"]);
-    const TDR_API_BASE = "https://space-control-tdr.2119990716.workers.dev";
+    const TDR_API_BASE = "https://helpful-tapioca-edac80.netlify.app";
     const TDR_CREDENTIALS_KEY = "spaceControl.tdrCredentials";
     const SCHEDULE_URL = "https://raw.githubusercontent.com/BOBWZW2/data-base/main/schedule_latest.xlsx";
     const SCHEDULE_CDN_URL = "https://cdn.jsdelivr.net/gh/BOBWZW2/data-base@main/schedule_latest.xlsx";
@@ -5802,43 +5803,14 @@
 
       const processed = new Set();
       try {
-        if (queryChoices.length) {
-          const response = await fetch(`${TDR_API_BASE}/api/tdr/batch`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              ...credentials,
-              queries: queryChoices.map((choice) => ({ vvd: choice.vvd, pol: choice.port }))
-            })
-          });
-          if (!response.ok) {
-            const errorPayload = await response.json().catch(() => ({}));
-            const requestError = new Error(errorPayload.error || `TDR 查询失败 (${response.status})`);
-            requestError.code = errorPayload.code || "TDR_QUERY_FAILED";
-            throw requestError;
-          }
-          if (!response.body) throw new Error("浏览器不支持 TDR 流式查询");
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-          while (true) {
-            const { done, value } = await reader.read();
-            buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-            const lines = buffer.split("\n");
-            buffer = done ? "" : lines.pop();
-            for (const text of lines) {
-              if (!text.trim()) continue;
-              const line = JSON.parse(text);
-              const choice = queryChoices[Number(line.index)];
-              if (!choice || processed.has(Number(line.index))) continue;
-              processed.add(Number(line.index));
-              recordTdrBatchLine(preview, choice, line);
-              const completed = processed.size;
-              setTdrProgress(Math.round(completed / choices.length * 100), `已完成 ${completed}/${choices.length} 个 POL：${choice.port}`, true);
-              renderTdrStatuses();
-            }
-            if (done) break;
-          }
+        for await (const line of fetchTdrBatchLines(TDR_API_BASE, credentials, queryChoices)) {
+          const choice = queryChoices[Number(line.index)];
+          if (!choice || processed.has(Number(line.index))) continue;
+          processed.add(Number(line.index));
+          recordTdrBatchLine(preview, choice, line);
+          const completed = processed.size;
+          setTdrProgress(Math.round(completed / choices.length * 100), `已完成 ${completed}/${choices.length} 个 POL：${choice.port}`, true);
+          renderTdrStatuses();
         }
       } catch (error) {
         console.error(error);
@@ -7319,22 +7291,12 @@
       setQuickTdrProgress(15, mode === "bound" ? `准备查询 ${queryChoices.length}/${choices.length} 个 POL` : `正在查询 ${vvd} · ${port}`, true);
       try {
         const lines = [];
-        if (queryChoices.length) {
-          const response = await fetch(`${TDR_API_BASE}/api/tdr/batch`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              ...credentials,
-              queries: queryChoices.map((choice) => ({ vvd: choice.vvd, pol: choice.port }))
-            })
-          });
-          if (!response.ok) {
-            const errorPayload = await response.json().catch(() => ({}));
-            const error = new Error(errorPayload.error || `TDR 查询失败 (${response.status})`);
-            error.code = errorPayload.code || "TDR_QUERY_FAILED";
-            throw error;
-          }
-          lines.push(...await readQuickTdrBatchLines(response, queryChoices));
+        for await (const line of fetchTdrBatchLines(TDR_API_BASE, credentials, queryChoices)) {
+          lines.push(line);
+          setQuickTdrProgress(
+            Math.min(85, 25 + Math.round((lines.length / Math.max(1, queryChoices.length)) * 55)),
+            `云端已返回 ${Math.min(lines.length, queryChoices.length)}/${queryChoices.length} 个 POL`, true
+          );
         }
         setQuickTdrProgress(88, "TDR 已返回，正在整理蓝色模板", true);
         const payloads = lines.filter((line) => line?.ok).map((line) => line.result || {});
