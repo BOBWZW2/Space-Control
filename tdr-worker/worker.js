@@ -1,4 +1,4 @@
-const VERSION = "2.2.0";
+const VERSION = "2.3.0";
 const ALLEGRO_BASE_URL = "https://ops.culines.com";
 const DEFAULT_ALLOWED_ORIGIN = "https://bobwzw2.github.io";
 
@@ -107,6 +107,11 @@ class AllegroTdrClient {
     });
     this.absorbCookies(response);
     const text = await response.text();
+    if (response.status === 526) {
+      const error = codedError(`Allegro 接口 ${pathname} 证书校验失败 (526)`, "ALLEGRO_TLS_ERROR");
+      error.status = 526;
+      throw error;
+    }
     let payload;
     try {
       payload = JSON.parse(text);
@@ -212,6 +217,242 @@ class AllegroTdrClient {
   }
 }
 
+// A new, short-lived browser session is created for each incoming TDR request.
+// Chromium keeps normal certificate verification enabled and owns its cookies.
+class CloudBrowserSession {
+  constructor(binding) {
+    this.binding = binding;
+    this.socket = null;
+    this.sessionId = null;
+    this.commandId = 0;
+    this.pending = new Map();
+    this.closed = false;
+  }
+
+  async open() {
+    try {
+      const session = await this.binding.acquire({ keepAlive: 10000, recording: false });
+      this.sessionId = session.sessionId;
+      if (this.closed) throw codedError("TDR 查询已取消", "TDR_QUERY_CANCELLED");
+      const target = await this.binding.devtools.newTarget(this.sessionId, "about:blank");
+      if (this.closed) throw codedError("TDR 查询已取消", "TDR_QUERY_CANCELLED");
+      const connection = await this.binding.connectSession(this.sessionId, { targetId: target.id });
+      const response = await connection.webSocket.fetch("https://browser-binding.invalid", {
+        headers: { Upgrade: "websocket" }
+      });
+      if (!response.webSocket) throw codedError("云端浏览器连接失败", "BROWSER_CONNECTION_FAILED");
+      this.socket = response.webSocket;
+      if (this.closed) throw codedError("TDR 查询已取消", "TDR_QUERY_CANCELLED");
+      this.socket.accept();
+      this.socket.addEventListener("message", (event) => {
+        let message;
+        try { message = JSON.parse(event.data); } catch { return; }
+        const pending = this.pending.get(message.id);
+        if (!pending) return;
+        this.pending.delete(message.id);
+        clearTimeout(pending.timer);
+        if (message.error) pending.reject(codedError("云端浏览器通信失败", "BROWSER_PROTOCOL_ERROR"));
+        else pending.resolve(message.result);
+      });
+      this.socket.addEventListener("close", () => {
+        for (const pending of this.pending.values()) {
+          clearTimeout(pending.timer);
+          pending.reject(codedError("云端浏览器连接已关闭", "BROWSER_CONNECTION_CLOSED"));
+        }
+        this.pending.clear();
+      });
+      await this.command("Page.enable");
+      const loaded = this.waitForLoad();
+      try {
+        const navigation = await this.command("Page.navigate", {
+          url: `${ALLEGRO_BASE_URL}/oceans/nawlogon.do`
+        });
+        if (navigation.errorText) {
+          throw codedError(`云端浏览器无法安全连接 Allegro (${navigation.errorText})`, "BROWSER_NAVIGATION_FAILED");
+        }
+        await loaded.promise;
+      } finally {
+        loaded.cancel();
+      }
+      const origin = await this.evaluate("location.origin");
+      if (origin !== ALLEGRO_BASE_URL) {
+        throw codedError("Allegro 登录页跳转到了其他网站，已停止查询", "BROWSER_ORIGIN_MISMATCH");
+      }
+    } catch (error) {
+      await this.close();
+      if (error?.code) throw error;
+      throw codedError("云端浏览器未能启动，请检查 Browser Run 绑定及可用额度", "BROWSER_UNAVAILABLE");
+    }
+  }
+
+  command(method, params = {}) {
+    if (this.closed) return Promise.reject(codedError("TDR 查询已取消", "TDR_QUERY_CANCELLED"));
+    const id = ++this.commandId;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(codedError("云端浏览器操作超时", "BROWSER_TIMEOUT"));
+      }, 45000);
+      this.pending.set(id, { resolve, reject, timer });
+      try {
+        this.socket.send(JSON.stringify({ id, method, params }));
+      } catch {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(codedError("云端浏览器连接失败", "BROWSER_CONNECTION_FAILED"));
+      }
+    });
+  }
+
+  waitForLoad() {
+    let cleanup;
+    let resolveWait;
+    const promise = new Promise((resolve, reject) => {
+      resolveWait = resolve;
+      const onMessage = (event) => {
+        let message;
+        try { message = JSON.parse(event.data); } catch { return; }
+        if (message.method === "Page.loadEventFired") { cleanup(); resolve(); }
+      };
+      const onClose = () => {
+        cleanup();
+        reject(codedError("云端浏览器连接已关闭", "BROWSER_CONNECTION_CLOSED"));
+      };
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(codedError("Allegro 登录页加载超时", "BROWSER_TIMEOUT"));
+      }, 45000);
+      cleanup = () => {
+        clearTimeout(timer);
+        this.socket?.removeEventListener("message", onMessage);
+        this.socket?.removeEventListener("close", onClose);
+      };
+      this.socket.addEventListener("message", onMessage);
+      this.socket.addEventListener("close", onClose);
+    });
+    // Navigation can fail before its load event; cancellation also clears the timer.
+    promise.catch(() => undefined);
+    return { promise, cancel: () => { cleanup(); resolveWait(); } };
+  }
+
+  async evaluate(expression) {
+    const result = await this.command("Runtime.evaluate", {
+      expression, awaitPromise: true, returnByValue: true
+    });
+    if (result.exceptionDetails) throw codedError("云端浏览器请求 Allegro 失败", "BROWSER_REQUEST_FAILED");
+    return result.result?.value;
+  }
+
+  async post(pathname, body, referer) {
+    if (!["/oceans/general.signon", "/serviceEndpoint/json"].includes(pathname)) {
+      throw codedError("不支持的 Allegro 接口", "INVALID_ALLEGRO_PATH");
+    }
+    const input = JSON.stringify({ origin: ALLEGRO_BASE_URL, pathname, body, referer });
+    return this.evaluate(`(async (input) => {
+      if (location.origin !== input.origin) throw new Error("Unexpected origin");
+      const response = await fetch(input.origin + input.pathname, {
+        method: "POST",
+        credentials: "include",
+        redirect: "error",
+        referrer: input.origin + input.referer,
+        headers: {
+          "Content-Type": "application/json; charset=UTF-8",
+          "X-Requested-With": "XMLHttpRequest"
+        },
+        body: JSON.stringify(input.body)
+      });
+      return { status: response.status, ok: response.ok, text: await response.text() };
+    })(${input})`);
+  }
+
+  async close() {
+    this.closed = true;
+    const sessionId = this.sessionId;
+    this.sessionId = null;
+    try { this.socket?.close(1000, "Complete"); } catch { /* Already closed. */ }
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(codedError("云端浏览器连接已关闭", "BROWSER_CONNECTION_CLOSED"));
+    }
+    this.pending.clear();
+    if (sessionId) {
+      try { await this.binding.closeSession(sessionId); } catch { /* keepAlive bounds orphan sessions. */ }
+    }
+  }
+}
+
+class BrowserAllegroTdrClient extends AllegroTdrClient {
+  constructor(credentials, binding) {
+    super(credentials);
+    this.browser = new CloudBrowserSession(binding);
+    this.loginPromise = null;
+  }
+
+  async login() {
+    if (!this.loginPromise) this.loginPromise = (async () => {
+      if (!this.username || !this.password) throw codedError("Allegro 账号或密码未填写", "AUTH_REQUIRED");
+      await this.browser.open();
+      const payload = await this.post("/oceans/general.signon", {
+        header: {}, signon: { usrId: this.username, usrPwd: this.password }
+      }, "/oceans/nawlogon.do");
+      if (!/^success$/i.test(String(payload.signon?.signOnResult || ""))) {
+        throw codedError("Allegro 登录失败，账号或密码不正确", "AUTH_FAILED");
+      }
+      this.authenticated = true;
+    })();
+    return this.loginPromise;
+  }
+
+  async post(pathname, body, referer = "/oceans/VOP_M3001.do") {
+    const response = await this.browser.post(pathname, body, referer);
+    let payload;
+    try { payload = JSON.parse(response.text); } catch {
+      throw codedError(`Allegro 接口 ${pathname} 返回无法解析的数据 (${response.status})`, "INVALID_RESPONSE");
+    }
+    if (!response.ok || payload.header?.errorMessageProcessed || String(payload.header?.returnCode || "0") !== "0") {
+      throw codedError(payload.header?.messageCode || `Allegro 请求失败 (${response.status})`, "ALLEGRO_REQUEST_FAILED");
+    }
+    return payload;
+  }
+
+  close() { return this.browser.close(); }
+}
+
+class ResilientTdrClient {
+  constructor(credentials, env) {
+    this.credentials = credentials;
+    this.binding = env.BROWSER;
+    this.active = new AllegroTdrClient(credentials);
+    this.browser = null;
+    this.switchPromise = null;
+    this.closed = false;
+  }
+
+  async call(method, ...args) {
+    if (this.closed) throw codedError("TDR 查询已取消", "TDR_QUERY_CANCELLED");
+    const client = this.active;
+    try {
+      return await client[method](...args);
+    } catch (error) {
+      if (this.closed) throw codedError("TDR 查询已取消", "TDR_QUERY_CANCELLED");
+      if (client === this.browser || error?.status !== 526 || !this.binding?.acquire) throw error;
+      if (!this.switchPromise) this.switchPromise = (async () => {
+        this.browser = new BrowserAllegroTdrClient(this.credentials, this.binding);
+        await this.browser.login();
+        this.active = this.browser;
+        return this.browser;
+      })();
+      const browser = await this.switchPromise;
+      return browser[method](...args);
+    }
+  }
+
+  query(...args) { return this.call("query", ...args); }
+  login(...args) { return this.call("login", ...args); }
+  voyage(...args) { return this.call("voyage", ...args); }
+  async close() { this.closed = true; await this.browser?.close(); }
+}
+
 function allowedOrigin(request, env) {
   const origin = request.headers.get("Origin") || "";
   const configured = String(env.ALLOWED_ORIGIN || DEFAULT_ALLOWED_ORIGIN);
@@ -264,7 +505,7 @@ async function parseRequest(request) {
 
 async function singleQuery(request, env) {
   const payload = await parseRequest(request);
-  const client = new AllegroTdrClient(payload);
+  const client = new ResilientTdrClient(payload, env);
   try {
     return jsonResponse(request, env, await client.query(payload.vvd, payload.pol));
   } catch (error) {
@@ -273,6 +514,8 @@ async function singleQuery(request, env) {
         : error?.code === "TERMINAL_NOT_FOUND" ? 404
           : 502;
     return jsonResponse(request, env, publicError(error), status);
+  } finally {
+    await client.close();
   }
 }
 
@@ -283,23 +526,33 @@ async function batchQuery(request, env) {
   if (!payload.username || !payload.password) {
     return jsonResponse(request, env, { error: "Allegro 账号或密码未填写", code: "AUTH_REQUIRED" }, 400);
   }
-  const client = new AllegroTdrClient(payload);
+  const client = new ResilientTdrClient(payload, env);
   const encoder = new TextEncoder();
+  let cancelled = false;
   const stream = new ReadableStream({
     async start(controller) {
-      for (let index = 0; index < queries.length; index += 1) {
-        const query = queries[index] || {};
-        let line;
-        try {
-          const result = await client.query(query.vvd, query.pol);
-          line = { index, ok: true, result };
-        } catch (error) {
-          line = { index, ok: false, ...publicError(error) };
+      try {
+        for (let index = 0; index < queries.length && !cancelled; index += 1) {
+          const query = queries[index] || {};
+          let line;
+          try {
+            const result = await client.query(query.vvd, query.pol);
+            line = { index, ok: true, result };
+          } catch (error) {
+            line = { index, ok: false, ...publicError(error) };
+          }
+          if (cancelled) break;
+          controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
+          if (line.code === "AUTH_FAILED" || line.code === "AUTH_REQUIRED") break;
         }
-        controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
-        if (line.code === "AUTH_FAILED" || line.code === "AUTH_REQUIRED") break;
+      } finally {
+        await client.close();
+        if (!cancelled) controller.close();
       }
-      controller.close();
+    },
+    async cancel() {
+      cancelled = true;
+      await client.close();
     }
   });
   return new Response(stream, {
@@ -335,7 +588,7 @@ async function vesselNameBatch(request, env) {
   if (!vvds.length) {
     return jsonResponse(request, env, { error: "没有可查询的 VVD", code: "INVALID_REQUEST" }, 400);
   }
-  const client = new AllegroTdrClient(payload);
+  const client = new ResilientTdrClient(payload, env);
   try {
     await client.login();
     const checked = await mapWithConcurrency(vvds, 5, async (vvd) => {
@@ -363,6 +616,8 @@ async function vesselNameBatch(request, env) {
   } catch (error) {
     const status = error?.code === "AUTH_FAILED" ? 401 : error?.code === "AUTH_REQUIRED" ? 400 : 502;
     return jsonResponse(request, env, publicError(error), status);
+  } finally {
+    await client.close();
   }
 }
 
@@ -372,7 +627,10 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(request, env) });
     if (!allowedOrigin(request, env)) return jsonResponse(request, env, { error: "Origin not allowed", code: "ORIGIN_NOT_ALLOWED" }, 403);
     if (request.method === "GET" && url.pathname === "/api/health") {
-      return jsonResponse(request, env, { ok: true, version: VERSION, mode: "cloud" });
+      return jsonResponse(request, env, {
+        ok: true, version: VERSION, mode: "cloud",
+        browserFallbackAvailable: typeof env.BROWSER?.acquire === "function"
+      });
     }
     if (env.SYNC_BACKEND && (
       url.pathname === "/api/cache"

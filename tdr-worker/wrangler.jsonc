@@ -3,6 +3,9 @@
   "name": "space-control-tdr",
   "main": "worker.js",
   "compatibility_date": "2026-06-21",
+  "browser": {
+    "binding": "BROWSER"
+  },
   "account_id": "2e6bced50545278e36df9269580c7619",
   "services": [
     {
