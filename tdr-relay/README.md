@@ -1,10 +1,10 @@
-# Allegro 云端代理（部署前验证版）
+# Allegro 原生 TDR API 与可选云端代理
 
-**最新部署路径：** 当前 Render 账户创建免费服务时返回 402，要求付款信息。用户不添加付款信息，因此改为准备 Netlify Free。请先看 [`NETLIFY.md`](./NETLIFY.md)；下方 Render 指南保留为原部署方式，当前不继续操作。代码已适配 Netlify；真实 Allegro 连通性仍待部署验证。
+**生产路径：** 原 GitHub Pages 网页 → Netlify Node.js TDR API → Allegro。详细部署、接口与验证记录见 [`NETLIFY.md`](./NETLIFY.md)。办公电脑只打开原网页，不安装助手。
 
-本服务供现有控舱网页使用。所有办公电脑仍只打开原网页，不需要安装助手。
+2026-10-14 已验证真实登录与 XPAG2639W / THLCH 的四条货量记录（DG 3），并完成整个 WB bound 的三个口岸请求。Netlify 账户为 Free，未添加付款信息。TLS、域名和证书有效期校验保持开启。
 
-2026-10-14 的实际结果：Cloudflare Worker 直连出现 526；v2.3.0 的 Browser Run 备用路径出现 `net::ERR_CONNECTION_RESET`，未打开登录页。这个 Node.js 代理改用另一云端出口，并补充官方 GeoTrust 中间证书，保留 TLS 证书、有效期及域名校验。它目前通过了本地 TLS 与接口测试，**尚未在 Render 上验证 Allegro 连通性、登录或真实 TDR 数据**。
+Cloudflare 登录失败后，完整 TDR API 直接放在 Netlify，原 Worker 继续承担既有同步服务。下方 Render/Cloudflare 代理步骤仅作为可选部署参考；当前 Render 因要求付款信息而停止，没有创建服务。
 
 ## 先部署，再检查连接
 
@@ -18,11 +18,11 @@
 
 ## 诊断通过后，接回原网页
 
-1. Cloudflare 的 `space-control-tdr` Worker 更新为本分支 `tdr-worker/worker.js`（v2.4.0）。保留既有 `SYNC_BACKEND` 和 `BROWSER` 绑定。
+1. Cloudflare 的 `space-control-tdr` Worker 更新为本分支 `tdr-worker/worker.js`（v2.4.2）。保留既有 `SYNC_BACKEND` 和 `BROWSER` 绑定。
 2. 在 Worker 的 Variables and Secrets 新增：
    - `ALLEGRO_RELAY_URL`（Text）：实际 Render 服务根地址，如 `https://你的服务.onrender.com`，不要附路径、查询参数或密钥。
    - `ALLEGRO_RELAY_TOKEN`（Secret）：与 Render 的 `RELAY_ACCESS_TOKEN` 完全一致。
-3. 部署后 `/api/health` 应显示 `version: "2.4.0"`、`relayConfigured: true`。这仍然只是配置状态。
+3. 部署后 `/api/health` 应显示 `version: "2.4.2"`、`relayConfigured: true`。这仍然只是配置状态。
 4. 原网页先查询 THLCH 单个港口，对照 Allegro 的真实 TDR。完成这一项后才视为修复。
 
 配置代理后，Allegro 请求直接走代理，不再先触发 526 或占用 Browser Run 时长。未配置时保留 v2.3.0 的原有直连和浏览器备用行为。
@@ -40,4 +40,4 @@
 
 `cd tdr-relay && npm test`。测试通过临时 OpenSSL CA 和本地 HTTPS 服务重现缺少中间证书的问题，并检查补齐后的成功连接、错误域名、过期证书、超时、重定向、鉴权和错误信息脱敏。测试所用私钥保存在临时目录并清理，不随项目发布。
 
-Render 免费方案用于这次验证；闲置会休眠，且有用量限制。当前配置没有付费服务或数据库；如需付费或保证持续可用，应另行决定。
+可选的 Render 免费方案闲置会休眠，且有用量限制；本次没有创建 Render 服务。当前配置没有付费服务或数据库；如需付费或保证持续可用，应另行决定。

@@ -1,4 +1,14 @@
-# Space Control TDR Worker
+# Shared Space Control TDR query engine
+
+## Current production route (v2.4.2)
+
+The original GitHub Pages frontend sends TDR queries directly to the Netlify Node API at `https://helpful-tapioca-edac80.netlify.app`. Its existing synchronization service remains on Cloudflare. No Cloudflare code or settings were changed during this deployment because dashboard GitHub sign-in failed.
+
+The Netlify adapter injects a native HTTPS transport into this shared query engine. It supplements the verified GeoTrust intermediate while retaining hostname, certificate validity and trust-chain checks. One click queries the whole selected bound through separate per-port invocations with 45-second deadlines.
+
+Live validation on 2026-10-14: XPAG2639W / THLCH returned four cargo records (DG 3). A whole-bound request completed all three ports; SGSIN returned the existing no-TDR state and MYPKG the existing not-departed state. Business classification decisions remain with the user. See [`NETLIFY.md`](../tdr-relay/NETLIFY.md).
+
+The Cloudflare-specific options below are retained for an optional future deployment.
 
 This Cloudflare Worker is isolated from the workbook generator. It only signs in to Allegro, reads TDR data, and returns the existing TDR payload shape to the GitHub Pages frontend.
 
@@ -14,7 +24,7 @@ Endpoints:
 Allegro navigation failed with `net::ERR_CONNECTION_RESET`. It did not solve the
 live connection issue.
 
-## Independent Node relay (v2.4.1, not yet live-verified)
+## Optional Cloudflare-to-Node relay
 
 The new optional transport sends Allegro requests through an authenticated Node.js
 relay, which can supplement the officially signed GeoTrust intermediate while
@@ -25,7 +35,7 @@ the relay; the original frontend and streaming response format stay the same.
 Deploy and check the relay **before** changing the live Worker. The current
 no-payment-information path is [`tdr-relay/NETLIFY.md`](../tdr-relay/NETLIFY.md).
 Render returned 402 for this account, so that deployment path has stopped.
-Actual Allegro login and TDR results still require deployed verification.
+The independent Netlify API has passed real login and query checks. A Cloudflare-to-relay route remains undeployed.
 
 ## Retained Browser Run fallback when the relay is not configured
 
@@ -46,7 +56,7 @@ failure. Credentials are used in memory and are not added to logs or health outp
 2. Under **Bindings**, add a **Browser Run / Browser Rendering** binding named
    **`BROWSER`**. Keep the existing `SYNC_BACKEND` service binding.
 3. Replace the Worker code with the complete `tdr-worker/worker.js` and deploy.
-4. Open `/api/health`: it should report `version: "2.4.1"` and
+4. Open `/api/health`: it should report `version: "2.4.2"` and
    `browserFallbackAvailable: true`. This verifies configuration, not an Allegro login.
 5. Run one single-port TDR query from the existing webpage. Actual connectivity,
    login and TDR data must be verified in the deployed Cloudflare environment

@@ -2,7 +2,7 @@
 
 当前路径：Netlify 原生 Node.js TDR API，原 GitHub Pages 网页直接调用。Render 因 HTTP 402 要求付款信息而停止；Cloudflare 的 GitHub 登录返回“Unable to sign in”，因此完整查询也由 Netlify 承载，无需修改原 Worker。
 
-已部署的代理地址为 https://helpful-tapioca-edac80.netlify.app/ 。浏览器诊断和未携带 Netlify 登录 Cookie 的服务器诊断均已通过真实 Allegro TLS 校验，登录页返回 HTTP 200；未携带代理密钥时诊断接口返回 HTTP 401。真实账号登录及 TDR 数量、吨位仍需完整 API 发布后验证。
+已部署的代理地址为 https://helpful-tapioca-edac80.netlify.app/ 。浏览器诊断和未携带 Netlify 登录 Cookie 的服务器诊断均已通过真实 Allegro TLS 校验，登录页返回 HTTP 200；未携带代理密钥时诊断接口返回 HTTP 401。完整 API v2.4.2 已发布并使用真实账号验证：XPAG2639W / THLCH 返回 4 条货量记录，页面显示 DG 3；整个 WB bound 的 THLCH、SGSIN、MYPKG 均完成请求。SGSIN 返回未导入 TDR/船期未更新，MYPKG 按现有船期规则显示未离港（ETD 10/20 08:45）。未替用户决定 CUC 计入 LILIAN 或 SOC，未改动业务分类规则。未将数量或吨位与另一份 Allegro 导出逐项独立对账。
 
 ## 原生 TDR API
 
@@ -20,7 +20,7 @@
 https://app.netlify.com/start/deploy?repository=https://github.com/BOBWZW2/Space-Control&branch=fix%2Ftdr-node-relay&base=tdr-relay#RELAY_ACCESS_TOKEN=
 
 1. 使用 GitHub 注册或登录 Netlify，选择 **Free**。不要选择需要付款的方案。部署入口会在你的 GitHub 下复制项目，并连接新的 Netlify 项目；也可以直接导入既有仓库，步骤见下方。
-2. 为提示的 `RELAY_ACCESS_TOKEN` 设置至少 32 个字符的随机访问密钥。只填入你的云端设置，不要贴到聊天或代码中。后续 Cloudflare 会用同一密钥连接代理。
+2. 为提示的 `RELAY_ACCESS_TOKEN` 设置至少 32 个字符的随机访问密钥。只填入你的云端设置，不要贴到聊天或代码中。该密钥仅用于 `/v1/*` 诊断及可选代理接口；直接 TDR 查询不需要把服务密钥放入网页。
 3. 确认分支为 `fix/tdr-node-relay`，Base directory 为 `tdr-relay`。Build command 为 `node prepare-netlify.mjs`，Publish directory 为 `netlify/public`，Functions directory 为 `netlify/functions`。
 4. 部署完成后打开生成的 `https://你的项目.netlify.app`。在连接检查页输入访问密钥，点击“检查 Allegro 连接”。该检查不提交 Allegro 账号密码。
 5. 只有看到“连接检查通过”之后，才把新代理接回原控舱网页。`/health` 仅表示配置就绪，不代表能访问 Allegro。
@@ -31,7 +31,7 @@ https://app.netlify.com/start/deploy?repository=https://github.com/BOBWZW2/Space
 
 ## 可选：接回现有 Cloudflare
 
-诊断通过后，在原 `space-control-tdr` Worker 使用本分支的 `tdr-worker/worker.js`（v2.4.1），保留原有绑定，并设置：
+诊断通过后，在原 `space-control-tdr` Worker 使用本分支的 `tdr-worker/worker.js`（v2.4.2），保留原有绑定，并设置：
 
 | 名称 | 类型 | 值 |
 | --- | --- | --- |
