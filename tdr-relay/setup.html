@@ -9,10 +9,10 @@ body{font:16px/1.65 system-ui,sans-serif;background:#f4f7fa;color:#183145;margin
 <main>
 <h1>Allegro 云端连接检查</h1>
 <p>先确认这个云端代理能打开 Allegro 登录页。检查成功后，再接回原来的控舱网页。</p>
-<p class="note">此检查不使用 Allegro 账号密码。Render 免费服务休眠后的首次启动约需一分钟。</p>
+<p class="note">此检查不使用 Allegro 账号密码。真实 TDR 数据仍需回到原控舱网页验证。</p>
 <form id="check" autocomplete="off">
 <label for="token">代理访问密钥</label>
-<input id="token" type="password" autocomplete="off" spellcheck="false" required placeholder="Render 环境变量 RELAY_ACCESS_TOKEN 的值">
+<input id="token" type="password" autocomplete="off" spellcheck="false" required placeholder="云端环境变量 RELAY_ACCESS_TOKEN 的值">
 <button id="button" type="submit">检查 Allegro 连接</button>
 </form>
 <pre id="result" role="status" aria-live="polite">等待检查</pre>

@@ -14,18 +14,18 @@ Endpoints:
 Allegro navigation failed with `net::ERR_CONNECTION_RESET`. It did not solve the
 live connection issue.
 
-## Independent Node relay (v2.4.0, not yet live-verified)
+## Independent Node relay (v2.4.1, not yet live-verified)
 
 The new optional transport sends Allegro requests through an authenticated Node.js
 relay, which can supplement the officially signed GeoTrust intermediate while
-retaining TLS and hostname validation. Configure `ALLEGRO_RELAY_URL` (a Render
+retaining TLS and hostname validation. Configure `ALLEGRO_RELAY_URL` (a Render or Netlify
 HTTPS root URL) and `ALLEGRO_RELAY_TOKEN` (secret). All Allegro requests then use
 the relay; the original frontend and streaming response format stay the same.
 
-Deploy and check the relay **before** changing the live Worker. Follow
-[`tdr-relay/README.md`](../tdr-relay/README.md). The root `render.yaml` selects a
-free service for connectivity testing. Actual Allegro login and TDR results still
-require deployed verification.
+Deploy and check the relay **before** changing the live Worker. The current
+no-payment-information path is [`tdr-relay/NETLIFY.md`](../tdr-relay/NETLIFY.md).
+Render returned 402 for this account, so that deployment path has stopped.
+Actual Allegro login and TDR results still require deployed verification.
 
 ## Retained Browser Run fallback when the relay is not configured
 
@@ -46,7 +46,7 @@ failure. Credentials are used in memory and are not added to logs or health outp
 2. Under **Bindings**, add a **Browser Run / Browser Rendering** binding named
    **`BROWSER`**. Keep the existing `SYNC_BACKEND` service binding.
 3. Replace the Worker code with the complete `tdr-worker/worker.js` and deploy.
-4. Open `/api/health`: it should report `version: "2.4.0"` and
+4. Open `/api/health`: it should report `version: "2.4.1"` and
    `browserFallbackAvailable: true`. This verifies configuration, not an Allegro login.
 5. Run one single-port TDR query from the existing webpage. Actual connectivity,
    login and TDR data must be verified in the deployed Cloudflare environment

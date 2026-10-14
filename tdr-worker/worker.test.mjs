@@ -129,7 +129,7 @@ function assertCargo(result) {
   assert.equal(result.rows[0].weight, 16.5);
 }
 
-const relayEnv = { ALLEGRO_RELAY_URL: "https://test-relay.onrender.com", ALLEGRO_RELAY_TOKEN: "test-only-relay-token-0123456789abcdef" };
+const relayEnv = { ALLEGRO_RELAY_URL: "https://test-relay.netlify.app", ALLEGRO_RELAY_TOKEN: "test-only-relay-token-0123456789abcdef" };
 
 test("configured relay preserves login cookies and TDR results without contacting direct origin or browser", async t => {
   const { binding, state } = mockBrowser();
@@ -171,7 +171,8 @@ test("relay batch retains the existing streaming format and one login per reques
 test("invalid relay configuration fails before credentials leave the Worker", async t => {
   t.mock.method(globalThis, "fetch", async () => assert.fail("network must not be contacted"));
   for (const env of [
-    { ...relayEnv, ALLEGRO_RELAY_URL: "http://test-relay.onrender.com" },
+    { ...relayEnv, ALLEGRO_RELAY_URL: "http://test-relay.netlify.app" },
+    { ...relayEnv, ALLEGRO_RELAY_URL: "https://test-relay.netlify.app.other.example" },
     { ...relayEnv, ALLEGRO_RELAY_URL: "https://other.example" },
     { ...relayEnv, ALLEGRO_RELAY_URL: relayEnv.ALLEGRO_RELAY_URL + "/redirect" },
     { ...relayEnv, ALLEGRO_RELAY_TOKEN: "" }
@@ -347,7 +348,7 @@ test("health reports configuration without a login or browser allocation", async
   const direct = mockDirect(t);
   const { binding, state } = mockBrowser();
   const response = await worker.fetch(new Request("https://worker.example/api/health"), { BROWSER: binding });
-  assert.deepEqual(await response.json(), { ok: true, version: "2.4.0", mode: "cloud", browserFallbackAvailable: true, relayConfigured: false });
+  assert.deepEqual(await response.json(), { ok: true, version: "2.4.1", mode: "cloud", browserFallbackAvailable: true, relayConfigured: false });
   assert.equal(state.acquired, 0);
   assert.equal(direct.length, 0);
 });

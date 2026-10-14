@@ -10,8 +10,7 @@ export const LOGIN = "/oceans/nawlogon.do";
 export const PATHS = new Set([LOGIN, "/oceans/general.signon", "/serviceEndpoint/json"]);
 const MAX_RESPONSE = 8 * 1024 * 1024;
 
-export function supplementedCa() {
-  const pem = readFileSync(new URL("./certs/geotrust-cn-intermediate.pem", import.meta.url), "utf8");
+export function supplementedCa(pem = readFileSync(new URL("./certs/geotrust-cn-intermediate.pem", import.meta.url), "utf8")) {
   const intermediate = new X509Certificate(pem);
   const now = Date.now();
   if (!intermediate.ca || Date.parse(intermediate.validFrom) > now || Date.parse(intermediate.validTo) < now) {

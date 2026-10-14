@@ -1,5 +1,7 @@
 # Allegro 云端代理（部署前验证版）
 
+**最新部署路径：** 当前 Render 账户创建免费服务时返回 402，要求付款信息。用户不添加付款信息，因此改为准备 Netlify Free。请先看 [`NETLIFY.md`](./NETLIFY.md)；下方 Render 指南保留为原部署方式，当前不继续操作。代码已适配 Netlify；真实 Allegro 连通性仍待部署验证。
+
 本服务供现有控舱网页使用。所有办公电脑仍只打开原网页，不需要安装助手。
 
 2026-10-14 的实际结果：Cloudflare Worker 直连出现 526；v2.3.0 的 Browser Run 备用路径出现 `net::ERR_CONNECTION_RESET`，未打开登录页。这个 Node.js 代理改用另一云端出口，并补充官方 GeoTrust 中间证书，保留 TLS 证书、有效期及域名校验。它目前通过了本地 TLS 与接口测试，**尚未在 Render 上验证 Allegro 连通性、登录或真实 TDR 数据**。

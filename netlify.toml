@@ -1,0 +1,14 @@
+[build]
+  base = "tdr-relay"
+  command = "node prepare-netlify.mjs"
+  publish = "netlify/public"
+
+[build.environment]
+  NODE_VERSION = "24"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[template.environment]
+  RELAY_ACCESS_TOKEN = "Set a random access token of at least 32 characters; keep it private."

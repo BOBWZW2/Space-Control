@@ -1,4 +1,4 @@
-const VERSION = "2.4.0";
+const VERSION = "2.4.1";
 const ALLEGRO_BASE_URL = "https://ops.culines.com";
 const DEFAULT_ALLOWED_ORIGIN = "https://bobwzw2.github.io";
 
@@ -461,7 +461,7 @@ class RelayTransport {
     this.closed = false;
     let url;
     try { url = new URL(String(env.ALLEGRO_RELAY_URL)); } catch { /* validated below */ }
-    if (!url || url.protocol !== "https:" || !url.hostname.endsWith(".onrender.com")
+    if (!url || url.protocol !== "https:" || ![".onrender.com", ".netlify.app"].some(suffix => url.hostname.endsWith(suffix))
         || url.port || url.username || url.password || url.pathname !== "/" || url.search || url.hash
         || !/^[^\s]{32,}$/.test(String(env.ALLEGRO_RELAY_TOKEN || ""))) {
       this.configurationError = codedError("云端代理配置不完整，请检查代理地址及访问密钥", "RELAY_CONFIGURATION_ERROR");
