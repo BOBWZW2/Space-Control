@@ -8,8 +8,9 @@
 
 - `tdr-relay/netlify/functions/tdr.mjs` 复用原 Worker 的 TDR 数据提取与 NDJSON 格式，通过 Node 原生 HTTPS 补齐已验证的中间证书。
 - GitHub Pages 的 `TDR_API_BASE` 指向上述 Netlify 地址；同步、船期和历史数据仍使用原有同步端点。
-- `tdr-batch-client.js` 在用户点击一次后逐港发起请求，保留已成功口岸，单个口岸失败后继续其他口岸。认证失败会停止后续登录尝试。
-- Netlify 的单次执行上限为 60 秒，因此一个函数调用只接受一个口岸，内部设 45 秒总截止时间。整个 bound 由网页完成调度。
+- `tdr-batch-client.js` 在用户点击一次后每两个口岸发起一组请求，同组共享登录、航次和码头列表，最多同时读取两个口岸，按完成顺序流式返回。结果保留原口岸索引；失败不会丢弃其他已成功口岸，认证失败停止后续请求。遇到尚未更新的单港 API 自动降为逐港模式。
+- v2.5.0 在每次请求内创建独立 HTTPS keepalive 连接池，结束或取消时销毁；不跨用户、跨请求保存登录或会话。两个口岸正常只需 8 次 Allegro 请求，原逐港方式需要 12 次；这属于调用次数验证，并非真实耗时承诺。
+- Netlify 的单次执行上限为 60 秒，因此一组最多两个口岸，内部保留 45 秒总截止时间。整个 bound 由网页完成分组调度。
 - `/space-control.html` 是同一界面的部署验证入口，根地址继续提供不含 Allegro 账号的连接诊断。
 - 代理服务密钥仅供服务器调用旧的 `/v1/*` 接口；网页直接调用 `/api/tdr*` 时发送用户在原网页填写的 Allegro 账号，不公开服务密钥。
 
@@ -21,7 +22,7 @@ https://app.netlify.com/start/deploy?repository=https://github.com/BOBWZW2/Space
 
 1. 使用 GitHub 注册或登录 Netlify，选择 **Free**。不要选择需要付款的方案。部署入口会在你的 GitHub 下复制项目，并连接新的 Netlify 项目；也可以直接导入既有仓库，步骤见下方。
 2. 为提示的 `RELAY_ACCESS_TOKEN` 设置至少 32 个字符的随机访问密钥。只填入你的云端设置，不要贴到聊天或代码中。该密钥仅用于 `/v1/*` 诊断及可选代理接口；直接 TDR 查询不需要把服务密钥放入网页。
-3. 确认分支为 `fix/tdr-node-relay`，Base directory 为 `tdr-relay`。Build command 为 `node prepare-netlify.mjs`，Publish directory 为 `netlify/public`，Functions directory 为 `netlify/functions`。
+3. 当前生产项目使用 `main` 分支，Base directory 为 `tdr-relay`。Build command 为 `node prepare-netlify.mjs`，Publish directory 为 `netlify/public`，Functions directory 为 `netlify/functions`。
 4. 部署完成后打开生成的 `https://你的项目.netlify.app`。在连接检查页输入访问密钥，点击“检查 Allegro 连接”。该检查不提交 Allegro 账号密码。
 5. 只有看到“连接检查通过”之后，才把新代理接回原控舱网页。`/health` 仅表示配置就绪，不代表能访问 Allegro。
 
@@ -51,8 +52,8 @@ https://app.netlify.com/start/deploy?repository=https://github.com/BOBWZW2/Space
 ## 本地验证
 
 - `cd tdr-worker && npm test`：23 项检查。
-- `cd tdr-relay && npm test`：27 项检查，包括本地真实 TLS 握手、原生 TDR API、截止时间与取消连接。
-- `node --test tdr-batch-client.test.mjs`：4 项逐港请求、流式字符解码、部分失败和认证停止检查。
+- `cd tdr-relay && npm test`：32 项检查，包括本地真实 TLS 连接复用、证书拒绝、双港共享登录、乱序结果、部分超时与取消连接。
+- `node --test tdr-batch-client.test.mjs`：6 项小批次、流式字符解码、部分失败、认证停止与旧接口兼容检查。
 - `node prepare-netlify.mjs` 生成静态检查页和内嵌证书模块；这些生成文件不作为源码提交。
 
 参考：

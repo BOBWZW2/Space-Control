@@ -1,4 +1,4 @@
-const VERSION = "2.4.2";
+const VERSION = "2.5.0";
 const ALLEGRO_BASE_URL = "https://ops.culines.com";
 const DEFAULT_ALLOWED_ORIGIN = "https://bobwzw2.github.io";
 
@@ -56,6 +56,7 @@ class AllegroTdrClient {
     this.password = String(password || "");
     this.cookies = new Map();
     this.authenticated = false;
+    this.loginPromise = null;
     this.voyageCache = new Map();
     this.portCache = new Map();
   }
@@ -77,6 +78,11 @@ class AllegroTdrClient {
 
   async login() {
     if (this.authenticated) return;
+    if (!this.loginPromise) this.loginPromise = this.signIn();
+    return this.loginPromise;
+  }
+
+  async signIn() {
     if (!this.username || !this.password) {
       throw codedError("Allegro 账号或密码未填写", "AUTH_REQUIRED");
     }
@@ -604,8 +610,11 @@ async function batchQuery(request, env) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        for (let index = 0; index < queries.length && !cancelled; index += 1) {
-          const query = queries[index] || {};
+        let authenticationFailed = false;
+        const concurrency = Math.max(1, Math.min(2, Number(env.TDR_QUERY_CONCURRENCY) || 1));
+        await mapWithConcurrency(queries, concurrency, async (query, index) => {
+          if (cancelled || authenticationFailed) return;
+          query ||= {};
           let line;
           try {
             const result = await client.query(query.vvd, query.pol);
@@ -613,10 +622,10 @@ async function batchQuery(request, env) {
           } catch (error) {
             line = { index, ok: false, ...publicError(error) };
           }
-          if (cancelled) break;
+          if (cancelled) return;
           controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
-          if (line.code === "AUTH_FAILED" || line.code === "AUTH_REQUIRED") break;
-        }
+          if (line.code === "AUTH_FAILED" || line.code === "AUTH_REQUIRED") authenticationFailed = true;
+        });
       } finally {
         await client.close();
         if (!cancelled) controller.close();

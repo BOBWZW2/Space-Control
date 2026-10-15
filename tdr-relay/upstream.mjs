@@ -54,8 +54,13 @@ export function validateInput(input) {
   return { method, pathname, body: input.body || "", headers };
 }
 
-export function createAllegroRequest({ ca = supplementedCa(), request = https.request, timeoutMs = 20000 } = {}) {
-  return function allegroRequest(rawInput, signal) {
+export function createAllegroRequest({ ca = supplementedCa(), request = https.request, timeoutMs = 20000, keepAlive = false } = {}) {
+  // Native TDR calls own this pool for one invocation only. Never keep an
+  // authenticated socket or TLS session around for the next user's request.
+  const agent = keepAlive ? new https.Agent({ keepAlive: true, maxSockets: 2, maxFreeSockets: 2, timeout: timeoutMs }) : false;
+  let closed = false;
+  const allegroRequest = function(rawInput, signal) {
+    if (closed) return Promise.reject(Object.assign(new Error("REQUEST_CANCELLED"), { code: "REQUEST_CANCELLED" }));
     const input = validateInput(rawInput);
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -70,7 +75,7 @@ export function createAllegroRequest({ ca = supplementedCa(), request = https.re
       const abort = () => req.destroy(Object.assign(new Error("REQUEST_CANCELLED"), { code: "REQUEST_CANCELLED" }));
       const req = request({
         hostname: HOST, servername: HOST, port: 443, path: input.pathname,
-        method: input.method, headers: input.headers, agent: false,
+        method: input.method, headers: input.headers, agent,
         ca, rejectUnauthorized: true, minVersion: "TLSv1.2"
       }, response => {
         const chunks = [];
@@ -106,6 +111,8 @@ export function createAllegroRequest({ ca = supplementedCa(), request = https.re
       else req.end(input.body || undefined);
     });
   };
+  allegroRequest.close = () => { closed = true; if (agent) agent.destroy(); };
+  return allegroRequest;
 }
 
 export async function diagnose(allegroRequest, signal) {

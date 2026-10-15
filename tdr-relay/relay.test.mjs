@@ -45,7 +45,7 @@ async function localTls(t, serverCert = cert, handler = (_req, res) => res.end("
 
 async function tlsRequester(t, options = {}) {
   const create = await localTls(t, options.cert, options.handler);
-  return createAllegroRequest({ ca: options.ca || [root, intermediate], timeoutMs: options.timeoutMs || 1000,
+  return createAllegroRequest({ ca: options.ca || [root, intermediate], timeoutMs: options.timeoutMs || 1000, keepAlive: options.keepAlive || false,
     request(opts, callback) { return create(opts).on("response", callback); } });
 }
 
@@ -59,12 +59,31 @@ test("real TLS fails with a missing intermediate and succeeds when supplemented"
   assert.equal((await complete(input)).body, "<html>Allegro login</html>");
 });
 test("supplemented chain still rejects a certificate for another hostname", async t => {
-  const request = await tlsRequester(t, { cert: wrongCert });
+  const request = await tlsRequester(t, { cert: wrongCert, keepAlive: true });
+  t.after(() => request.close());
   await assert.rejects(request(input), { code: "ERR_TLS_CERT_ALTNAME_INVALID" });
 });
 test("supplemented chain still rejects expired server certificates", async t => {
-  const request = await tlsRequester(t, { cert: expiredCert });
+  const request = await tlsRequester(t, { cert: expiredCert, keepAlive: true });
+  t.after(() => request.close());
   await assert.rejects(request(input), { code: "CERT_HAS_EXPIRED" });
+});
+
+test("request-scoped keepalive reuses a verified TLS connection and closes the pool", async t => {
+  const sockets = new Set();
+  const create = await localTls(t, cert, (req, res) => { sockets.add(req.socket); res.end("login"); });
+  const make = () => createAllegroRequest({ ca: [root, intermediate], keepAlive: true,
+    request(opts, callback) { return create(opts).on("response", callback); } });
+  const session = make();
+  t.after(() => session.close());
+  for (let i = 0; i < 6; i++) assert.equal((await session(input)).status, 200);
+  assert.equal(sockets.size, 1);
+  session.close();
+  await assert.rejects(session(input), { code: "REQUEST_CANCELLED" });
+  const next = make();
+  t.after(() => next.close());
+  await next(input);
+  assert.equal(sockets.size, 2);
 });
 test("upstream redirects are returned without forwarding credentials", async t => {
   let calls = 0;

@@ -1,14 +1,12 @@
-// One click still queries every selected port. Separate server invocations keep
-// a slow port within its own deadline and preserve already completed results.
+// Small batches share one Allegro login and return each port as it completes.
+// The server caps parallel reads at two and keeps a 45-second batch deadline.
 async function* fetchTdrBatchLines(base, credentials, queryChoices, fetchImpl = fetch) {
-  for (let index = 0; index < queryChoices.length; index += 1) {
-    const choice = queryChoices[index];
-    let authenticationFailed = false;
-    let received = false;
+  async function* readBatch(choices, start) {
+    const received = new Set();
     try {
       const response = await fetchImpl(`${base}/api/tdr/batch`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...credentials, queries: [{ vvd: choice.vvd, pol: choice.port }] })
+        body: JSON.stringify({ ...credentials, queries: choices.map(choice => ({ vvd: choice.vvd, pol: choice.port })) })
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
@@ -16,16 +14,13 @@ async function* fetchTdrBatchLines(base, credentials, queryChoices, fetchImpl = 
       }
       const parse = (text) => {
         const line = JSON.parse(text);
-        if (line.index !== 0 || typeof line.ok !== "boolean") throw new Error("TDR 返回格式无效");
-        return { ...line, index };
+        if (!Number.isInteger(line.index) || line.index < 0 || line.index >= choices.length
+          || received.has(line.index) || typeof line.ok !== "boolean") throw new Error("TDR 返回格式无效");
+        received.add(line.index);
+        return { ...line, index: start + line.index };
       };
       if (!response.body?.getReader) {
-        for (const text of (await response.text()).split(/\r?\n/).filter(line => line.trim())) {
-          const line = parse(text);
-          received = true;
-          authenticationFailed ||= ["AUTH_FAILED", "AUTH_REQUIRED"].includes(line.code);
-          yield line;
-        }
+        for (const text of (await response.text()).split(/\r?\n/).filter(line => line.trim())) yield parse(text);
       } else {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -37,24 +32,34 @@ async function* fetchTdrBatchLines(base, credentials, queryChoices, fetchImpl = 
             const parts = buffer.split("\n");
             buffer = parts.pop();
             if (done && buffer.trim()) { parts.push(buffer); buffer = ""; }
-            for (const text of parts.filter(line => line.trim())) {
-              const line = parse(text);
-              received = true;
-              authenticationFailed ||= ["AUTH_FAILED", "AUTH_REQUIRED"].includes(line.code);
-              yield line;
-            }
+            for (const text of parts.filter(line => line.trim())) yield parse(text);
             if (done) break;
           }
         } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
       }
-      if (!received) throw new Error("TDR 服务未返回查询结果");
+      if (received.size < choices.length) throw new Error("TDR 服务未返回部分口岸的查询结果");
     } catch (error) {
-      if (!received) {
-        const code = error.code || "TDR_QUERY_FAILED";
-        authenticationFailed ||= ["AUTH_FAILED", "AUTH_REQUIRED"].includes(code);
-        yield { index, ok: false, code, error: error.message || "TDR 查询失败" };
+      // Old deployments reject multiple ports before contacting Allegro.
+      if (error.code === "BATCH_LIMIT" && choices.length > 1) throw error;
+      for (let index = 0; index < choices.length; index += 1) {
+        if (!received.has(index)) yield { index: start + index, ok: false,
+          code: error.code || "TDR_QUERY_FAILED", error: error.message || "TDR 查询失败" };
       }
     }
-    if (authenticationFailed) return;
+  }
+  let batchSize = 2;
+  for (let start = 0; start < queryChoices.length;) {
+    const choices = queryChoices.slice(start, start + batchSize);
+    try {
+      for await (const line of readBatch(choices, start)) {
+        yield line;
+        if (["AUTH_FAILED", "AUTH_REQUIRED"].includes(line.code)) return;
+      }
+    } catch (error) {
+      if (error.code !== "BATCH_LIMIT") throw error;
+      batchSize = 1;
+      continue;
+    }
+    start += choices.length;
   }
 }

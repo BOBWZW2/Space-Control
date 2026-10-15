@@ -25,7 +25,7 @@ function nativeFixture(sent) {
       const operation = JSON.parse(input.body).header.operation;
       switch (operation) {
         case "udcMdm": payload = { ComUDCOutListOMM: { outUdcOmms: [{ value01: "XPAG", value02: "2639", value03: "W", value04: "HLX" }] } }; break;
-        case "udcBiz": payload = { ComUDCOutListOMM: { outUdcOmms: [{ value02: "THLCHT1", value03: "1", value05: "THLCH", value06: "1" }] } }; break;
+        case "udcBiz": payload = { ComUDCOutListOMM: { outUdcOmms: ["THLCH", "MYPKG"].map((port, i) => ({ value02: port + "T1", value03: String(i + 1), value05: port, value06: String(i + 1) })) } }; break;
         case "searchTdrSysCode": payload = { ComUDCOutOMM: { value01: "TDR" } }; break;
         case "searchTdrLodingListM3001": payload = { TdrLoadingGroupOMM: { oceanLoadingList: [{ pod: "INNSA", slotOwnPtrId: "CUL", contOprPtrId: "CUL", fds22: 2, fds42: 3, wt22: 11.5 }] } }; break;
         default: assert.fail("Unexpected service operation");
@@ -52,12 +52,90 @@ test("Netlify health is configuration-only and preflights accept the original pa
   const r = await app(new Request("https://test.netlify.app/api/tdr/batch", { method: "OPTIONS", headers: { Origin: "https://bobwzw2.github.io" } }));
   assert.equal(r.status, 204);
 });
-test("invalid origin, JSON, multi-port and excessive requests never reach Allegro", async () => {
+test("invalid origin, JSON, oversized batches and excessive requests never reach Allegro", async () => {
   const app = createTdrHandler({ allegroRequest: () => assert.fail("no network") });
   assert.equal((await app(request("/api/tdr", query, "https://other.example"))).status, 403);
-  assert.equal((await app(request("/api/tdr/batch", { queries: [query, query] }))).status, 400);
+  assert.equal((await app(request("/api/tdr/batch", { queries: [query, query, query] }))).status, 400);
   assert.equal((await app(new Request("https://test.netlify.app/api/tdr", { method: "POST", body: "{" }))).status, 400);
   assert.equal((await app(request("/api/tdr", { padding: "x".repeat(66000) }))).status, 413);
+});
+
+test("two ports share one login and voyage lookup, stream the fast port first, and retain correct indexes", async () => {
+  const sent = [];
+  const fixture = nativeFixture(sent);
+  let releaseFirst;
+  const firstPending = new Promise(resolve => { releaseFirst = resolve; });
+  let active = 0, peak = 0;
+  const app = createTdrHandler({ allegroRequest: async (input, signal) => {
+    const body = input.body ? JSON.parse(input.body) : {};
+    if (body.header?.operation === "searchTdrLodingListM3001") {
+      active++; peak = Math.max(peak, active);
+      if (body.TdrCondOMM.condPortCd === "THLCH") await firstPending;
+      active--;
+    }
+    return fixture(input, signal);
+  } });
+  const response = await app(request("/api/tdr/batch", { queries: [query, { ...query, pol: "MYPKG" }] }));
+  const reader = response.body.getReader();
+  const decode = value => JSON.parse(new TextDecoder().decode(value).trim());
+  const first = decode((await reader.read()).value);
+  assert.equal(first.index, 1); assert.equal(first.result.pol, "MYPKG");
+  releaseFirst();
+  const second = decode((await reader.read()).value);
+  assert.equal(second.index, 0); assert.equal(second.result.pol, "THLCH");
+  assert.equal((await reader.read()).done, true);
+  assert.equal(peak, 2);
+  assert.equal(sent.filter(x => x.pathname === "/oceans/general.signon").length, 1);
+  for (const operation of ["udcMdm", "udcBiz"]) assert.equal(sent.filter(x => x.body && JSON.parse(x.body).header?.operation === operation).length, 1);
+  assert.equal(sent.length, 8);
+});
+
+test("concurrent ports cannot cause duplicate failed login attempts", async () => {
+  let logins = 0, services = 0;
+  const app = createTdrHandler({ allegroRequest: async input => {
+    if (input.method === "GET") return { status: 200, headers: [], body: "login" };
+    if (input.pathname === "/oceans/general.signon") logins++;
+    else services++;
+    return { status: 200, headers: [], body: JSON.stringify({ signon: { signOnResult: "failed" } }) };
+  } });
+  const response = await app(request("/api/tdr/batch", { queries: [query, { ...query, pol: "MYPKG" }] }));
+  const lines = (await response.text()).trim().split("\n").map(JSON.parse);
+  assert.ok(lines.every(line => line.code === "AUTH_FAILED"));
+  assert.equal(logins, 1); assert.equal(services, 0);
+});
+
+test("a slow parallel port times out without discarding the already streamed port", async () => {
+  const fixture = nativeFixture([]);
+  const app = createTdrHandler({ deadlineMs: 30, allegroRequest: (input, signal) => {
+    const body = input.body ? JSON.parse(input.body) : {};
+    if (body.header?.operation === "searchTdrLodingListM3001" && body.TdrCondOMM.condPortCd === "MYPKG") {
+      return new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(Object.assign(new Error("cancelled"), { code: "REQUEST_CANCELLED" })), { once: true }));
+    }
+    return fixture(input, signal);
+  } });
+  const response = await app(request("/api/tdr/batch", { queries: [query, { ...query, pol: "MYPKG" }] }));
+  const [body] = await Promise.all([response.text(), new Promise(resolve => setTimeout(resolve, 50))]);
+  const lines = body.trim().split("\n").map(JSON.parse);
+  assert.equal(lines[0].index, 0); assert.equal(lines[0].ok, true);
+  assert.equal(lines[1].index, 1); assert.equal(lines[1].code, "ALLEGRO_TIMEOUT");
+});
+
+test("native sessions are created per invocation and closed exactly once after streaming", async () => {
+  const sessions = [];
+  const app = createTdrHandler({ allegroRequestFactory: () => {
+    const session = nativeFixture([]);
+    session.closeCount = 0;
+    session.close = () => session.closeCount++;
+    sessions.push(session);
+    return session;
+  } });
+  await Promise.all([1, 2].map(async () => {
+    const response = await app(request("/api/tdr/batch", { queries: [query] }));
+    assert.equal(JSON.parse((await response.text()).trim()).ok, true);
+  }));
+  assert.equal(sessions.length, 2);
+  assert.notEqual(sessions[0], sessions[1]);
+  assert.deepEqual(sessions.map(session => session.closeCount), [1, 1]);
 });
 test("native errors do not leak account details or trigger an insecure fallback", async t => {
   t.mock.method(globalThis, "fetch", () => assert.fail("no fallback"));

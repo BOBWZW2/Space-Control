@@ -348,7 +348,7 @@ test("health reports configuration without a login or browser allocation", async
   const direct = mockDirect(t);
   const { binding, state } = mockBrowser();
   const response = await worker.fetch(new Request("https://worker.example/api/health"), { BROWSER: binding });
-  assert.deepEqual(await response.json(), { ok: true, version: "2.4.2", mode: "cloud", browserFallbackAvailable: true, nativeTlsTransportAvailable: false, relayConfigured: false });
+  assert.deepEqual(await response.json(), { ok: true, version: "2.5.0", mode: "cloud", browserFallbackAvailable: true, nativeTlsTransportAvailable: false, relayConfigured: false });
   assert.equal(state.acquired, 0);
   assert.equal(direct.length, 0);
 });

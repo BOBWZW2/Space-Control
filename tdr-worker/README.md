@@ -1,10 +1,10 @@
 # Shared Space Control TDR query engine
 
-## Current production route (v2.4.2)
+## Current production route (v2.5.0)
 
 The original GitHub Pages frontend sends TDR queries directly to the Netlify Node API at `https://helpful-tapioca-edac80.netlify.app`. Its existing synchronization service remains on Cloudflare. No Cloudflare code or settings were changed during this deployment because dashboard GitHub sign-in failed.
 
-The Netlify adapter injects a native HTTPS transport into this shared query engine. It supplements the verified GeoTrust intermediate while retaining hostname, certificate validity and trust-chain checks. One click queries the whole selected bound through separate per-port invocations with 45-second deadlines.
+The Netlify adapter injects a native HTTPS transport into this shared query engine. It supplements the verified GeoTrust intermediate while retaining hostname, certificate validity and trust-chain checks. One click queries the whole selected bound in two-port batches with 45-second deadlines. Each batch shares a single login, voyage/terminal lookup, and request-scoped TLS keepalive pool, with at most two parallel read operations. Results retain their original port indexes and stream as each port completes. The default Cloudflare route remains sequential unless explicitly configured otherwise.
 
 Live validation on 2026-10-14: XPAG2639W / THLCH returned four cargo records (DG 3). A whole-bound request completed all three ports; SGSIN returned the existing no-TDR state and MYPKG the existing not-departed state. Business classification decisions remain with the user. See [`NETLIFY.md`](../tdr-relay/NETLIFY.md).
 
