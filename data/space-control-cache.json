@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-28T02:58:58.613Z",
+  "updatedAt": "2026-10-16T08:31:01.625Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -1851,6 +1851,107 @@
         "CNSHK",
         "CNNAS",
         "HKHKG"
+      ]
+    },
+    "RACE2638WE": {
+      "vvd": "RACE2638WE",
+      "lane": "KCI",
+      "vesselName": "RACINE",
+      "updatedAt": "2026-10-16T08:29:34.247Z",
+      "carriers": [
+        {
+          "code": "CUL",
+          "tonPerTeu": 14,
+          "wbTeus": 919,
+          "wbMt": 12866,
+          "wbRf": null,
+          "ebTeus": 919,
+          "ebMt": 12866,
+          "ebRf": null
+        },
+        {
+          "code": "RCL",
+          "tonPerTeu": 14,
+          "wbTeus": 2090,
+          "wbMt": 29260,
+          "wbRf": null,
+          "ebTeus": 2090,
+          "ebMt": 29260,
+          "ebRf": null
+        },
+        {
+          "code": "TSL",
+          "tonPerTeu": 14,
+          "wbTeus": 810,
+          "wbMt": 11340,
+          "wbRf": null,
+          "ebTeus": 810,
+          "ebMt": 11340,
+          "ebRf": null
+        },
+        {
+          "code": "HAS",
+          "tonPerTeu": 14,
+          "wbTeus": 1131,
+          "wbMt": 15834,
+          "wbRf": null,
+          "ebTeus": 1131,
+          "ebMt": 15834,
+          "ebRf": null
+        },
+        {
+          "code": "SOL",
+          "tonPerTeu": 14,
+          "wbTeus": 50,
+          "wbMt": 700,
+          "wbRf": null,
+          "ebTeus": 50,
+          "ebMt": 700,
+          "ebRf": null
+        }
+      ],
+      "allocation": {
+        "wbTeus": 919,
+        "ebTeus": 919,
+        "tonPerTeu": 14,
+        "wbMt": 12866,
+        "ebMt": 12866,
+        "wbRf": null,
+        "ebRf": null
+      },
+      "entries": {
+        "WB": {},
+        "EB": {}
+      },
+      "tdrAudit": {},
+      "tdrImports": {},
+      "draft": {
+        "enabled": false,
+        "ports": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "moveCount": {
+        "enabled": false,
+        "limits": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "selectedWbPodKeys": [
+        "KRPUS::2026-10-23 10:00:00",
+        "KRKAN::2026-10-24 10:30:00",
+        "CNSHA::2026-10-26 13:30:00",
+        "CNNGB::2026-10-28 00:30:00",
+        "CNSHK::2026-10-30 17:30:00",
+        "MYPKG::2026-11-04 23:00:00"
+      ],
+      "selectedWbPodPorts": [
+        "KRPUS",
+        "KRKAN",
+        "CNSHA",
+        "CNNGB",
+        "CNSHK",
+        "MYPKG"
       ]
     }
   }
