@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-10-16T08:31:01.625Z",
+  "updatedAt": "2026-10-20T02:35:23.142Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -1951,6 +1951,89 @@
         "CNSHA",
         "CNNGB",
         "CNSHK",
+        "MYPKG"
+      ]
+    },
+    "BIBK2643WE": {
+      "vvd": "BIBK2643WE",
+      "lane": "HLX",
+      "vesselName": "BAMSI BERYEK",
+      "updatedAt": "2026-10-20T02:35:21.811Z",
+      "carriers": [
+        {
+          "code": "CUL",
+          "tonPerTeu": 14,
+          "wbTeus": 78,
+          "wbMt": 1092,
+          "wbRf": null,
+          "ebTeus": 78,
+          "ebMt": 1092,
+          "ebRf": null
+        },
+        {
+          "code": "NSS",
+          "tonPerTeu": 14,
+          "wbTeus": 70,
+          "wbMt": 980,
+          "wbRf": null,
+          "ebTeus": 70,
+          "ebMt": 980,
+          "ebRf": null
+        },
+        {
+          "code": "XFD",
+          "tonPerTeu": 14,
+          "wbTeus": 1688,
+          "wbMt": 23632,
+          "wbRf": null,
+          "ebTeus": 1688,
+          "ebMt": 23632,
+          "ebRf": null
+        }
+      ],
+      "allocation": {
+        "wbTeus": 78,
+        "ebTeus": 78,
+        "tonPerTeu": 14,
+        "wbMt": 1092,
+        "ebMt": 1092,
+        "wbRf": null,
+        "ebRf": null
+      },
+      "entries": {
+        "WB": {},
+        "EB": {}
+      },
+      "tdrAudit": {},
+      "tdrImports": {},
+      "draft": {
+        "enabled": false,
+        "ports": {},
+        "partnerOverrideEnabled": false,
+        "partnerOverrides": {}
+      },
+      "moveCount": {
+        "enabled": true,
+        "limits": {
+          "INNSA::2026-11-09": 2500
+        },
+        "partnerOverrideEnabled": true,
+        "partnerOverrides": {
+          "INNSA::2026-11-09": {
+            "CUL": 816,
+            "NSS": 62,
+            "XFD": 1481
+          }
+        }
+      },
+      "selectedWbPodKeys": [
+        "THLCH::2026-10-27 21:00:00",
+        "SGSIN::2026-10-31 03:00:00",
+        "MYPKG::2026-11-01 18:00:00"
+      ],
+      "selectedWbPodPorts": [
+        "THLCH",
+        "SGSIN",
         "MYPKG"
       ]
     }
