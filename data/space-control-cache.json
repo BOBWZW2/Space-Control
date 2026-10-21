@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-10-21T02:32:14.397Z",
+  "updatedAt": "2026-10-21T02:33:53.995Z",
   "records": {
     "XPBL2625WE": {
       "vvd": "XPBL2625WE",
@@ -1857,47 +1857,47 @@
       "vvd": "RACE2638WE",
       "lane": "KCI",
       "vesselName": "RACINE",
-      "updatedAt": "2026-10-21T02:32:13.219Z",
+      "updatedAt": "2026-10-21T02:33:53.079Z",
       "carriers": [
         {
           "code": "CUL",
           "tonPerTeu": 14,
           "wbTeus": 919,
           "wbMt": 12866,
-          "wbRf": null,
+          "wbRf": 92,
           "ebTeus": 919,
           "ebMt": 12866,
-          "ebRf": null
+          "ebRf": 92
         },
         {
           "code": "RCL",
           "tonPerTeu": 14,
           "wbTeus": 2090,
           "wbMt": 29260,
-          "wbRf": null,
+          "wbRf": 222,
           "ebTeus": 2090,
           "ebMt": 29260,
-          "ebRf": null
+          "ebRf": 222
         },
         {
           "code": "TSL",
           "tonPerTeu": 14,
           "wbTeus": 810,
           "wbMt": 11340,
-          "wbRf": null,
+          "wbRf": 54,
           "ebTeus": 810,
           "ebMt": 11340,
-          "ebRf": null
+          "ebRf": 54
         },
         {
           "code": "HAS",
           "tonPerTeu": 14,
           "wbTeus": 1131,
           "wbMt": 15834,
-          "wbRf": null,
+          "wbRf": 132,
           "ebTeus": 1131,
           "ebMt": 15834,
-          "ebRf": null
+          "ebRf": 132
         },
         {
           "code": "SOL",
@@ -1916,8 +1916,8 @@
         "tonPerTeu": 14,
         "wbMt": 12866,
         "ebMt": 12866,
-        "wbRf": null,
-        "ebRf": null
+        "wbRf": 92,
+        "ebRf": 92
       },
       "entries": {
         "WB": {},
@@ -1946,14 +1946,14 @@
       "moveCount": {
         "enabled": true,
         "limits": {
-          "INNSA::2026-11-12": 2420
+          "INNSA::2026-11-12": 2500
         },
         "partnerOverrideEnabled": true,
         "partnerOverrides": {
           "INNSA::2026-11-12": {
-            "RCL": 484,
-            "TSL": 484,
-            "HAS": 484,
+            "RCL": 1045,
+            "TSL": 405,
+            "HAS": 566,
             "CUL": 434,
             "SOL": 50
           }
