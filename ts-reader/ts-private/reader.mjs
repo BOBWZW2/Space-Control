@@ -177,33 +177,50 @@ export function readCounts(tsText, sizeText) {
   return {boxes,teu};
 }
 
+function reportFrame(page,cfg) {
+  return page.frames().find(frame=>frame.url().split(/[?#]/,1)[0]===cfg.origin+cfg.reportPath);
+}
+async function signedOut(page,cfg) {
+  return new URL(page.url()).pathname===cfg.loginPath || await page.locator('input[type=password]:visible').count()>0;
+}
 async function getFrame(page,cfg) {
-  const exact=cfg.origin+cfg.reportPath;
-  const until=Date.now()+15000;
-  while (Date.now()<until) {
-    if (new URL(page.url()).pathname===cfg.loginPath || await page.locator('input[type=password]:visible').count()) throw fault(401,'login_required','登录会话已过期，请重新登录。');
-    for (const frame of page.frames()) {
-      if (frame.url().split(/[?#]/,1)[0]===exact && await frame.locator(cfg.controls.vvd).isVisible()) return frame;
-    }
+  const until=Date.now()+20000;
+  while(Date.now()<until) {
+    if(await signedOut(page,cfg)) throw fault(401,'login_required','登录会话已过期，请重新登录。');
+    const frame=reportFrame(page,cfg);
+    if(frame && await frame.locator(cfg.controls.vvd).isVisible() && await frame.locator(cfg.controls.search).isVisible()) return frame;
     await pause(150);
   }
   throw fault(503,'report_unavailable','未能打开装卸清单。');
 }
-
-async function findMenuItem(page,name) {
-  for (const item of [page.getByRole('button',{name,exact:true}),page.getByRole('link',{name,exact:true}),page.getByText(name,{exact:true})]) {
-    const matches=await item.filter({visible:true}).all();
-    if (matches.length===1) {await matches[0].click({timeout:5000});return;}
+async function clickMenuItem(page,cfg,name,root=false) {
+  const timeout=Date.now()+12000;
+  while(Date.now()<timeout) {
+    if(await signedOut(page,cfg)) throw fault(401,'login_required','登录会话已过期，请重新登录。');
+    const controls=[page.getByRole('button',{name,exact:true}),page.getByRole('link',{name,exact:true}),
+      page.getByRole('menuitem',{name,exact:true}), page.getByText(name,{exact:true})];
+    for(const control of controls) {
+      const match=control.filter({visible:true});
+      if(await match.count()===1) {
+        try {await match.click({timeout:4000});return;}
+        catch {throw fault(503,root?'shell_unavailable':'menu_unavailable','Allegro 菜单暂时不可用。');}
+      }
+    }
+    await pause(150);
   }
-  throw fault(403,'report_unavailable','当前账号未能打开装卸清单。');
+  throw fault(503,root?'shell_unavailable':'menu_unavailable','未能找到 Allegro 菜单项目。');
 }
-async function openReport(page,cfg) {
-  await page.goto(cfg.origin+cfg.mainPath,{waitUntil:'domcontentloaded',timeout:35000});
-  if (new URL(page.url()).pathname===cfg.loginPath || await page.locator('input[type=password]:visible').count()) throw fault(401,'login_required','登录会话已过期，请重新登录。');
-  let frame=page.frames().find(f=>f.url().split(/[?#]/,1)[0]===cfg.origin+cfg.reportPath);
-  if (frame && await frame.locator(cfg.controls.vvd).isVisible()) return frame;
-  await page.getByRole('button',{name:'Menu',exact:true}).click({timeout:10000});
-  for (const label of cfg.menuLabels) await findMenuItem(page,label);
+async function openReport(page,cfg,stage) {
+  stage('shell');
+  const shell=await page.goto(cfg.origin+cfg.mainPath,{waitUntil:'domcontentloaded',timeout:35000}).catch(()=>null);
+  if(await signedOut(page,cfg)) throw fault(401,'login_required','登录会话已过期，请重新登录。');
+  if(!shell?.ok()) throw fault(503,'shell_unavailable','未能打开 Allegro 主页面。');
+  const frame=reportFrame(page,cfg);
+  if(frame) return getFrame(page,cfg);
+  await clickMenuItem(page,cfg,'Menu',true);
+  stage('menu');
+  for(const label of cfg.menuLabels) await clickMenuItem(page,cfg,label);
+  stage('report');
   return getFrame(page,cfg);
 }
 async function inputCodes(frame,C,vvd,port) {
@@ -231,20 +248,26 @@ async function checkForm(frame,C,vvd,port,time) {
   if (gotVvd!==vvd || gotPort!==port || selected.length!==1 || normalizeTime(selected[0])!==time || !loading || local || !ts) throw fault(409,'selection_changed','原系统的查询条件已改变。');
 }
 
-async function summaryRow(frame,label) {
-  const rows=frame.getByRole('row').filter({has:frame.getByRole('rowheader',{name:label,exact:true})});
-  return await rows.count()===1 && await rows.isVisible() ? (await rows.innerText()).replaceAll('\u00a0',' ') : '';
+async function summaryRow(frame,label,kind) {
+  // Grid columns may repeat these labels. Use the labeled native summary row, never a data row.
+  const candidates=await frame.getByText(label,{exact:true}).filter({visible:true}).evaluateAll(nodes=>
+    [...new Set(nodes.map(node=>node.closest('tr,[role="row"]')).filter(Boolean))].map(row=>row.innerText.replaceAll('\u00a0',' ')));
+  const declared=candidates.filter(text=>kind==='ts' ? /\bLocal\s*:/i.test(text) && /\bT\s*\/\s*S\s*:/i.test(text) : /\b\d{2}\s*['′’]\s*:/.test(text));
+  return declared.length===1 ? declared[0] : '';
 }
-async function exportCall(page,cfg,input,downloadTap) {
-  const frame=await openReport(page,cfg);
+async function exportCall(page,cfg,input,downloadTap,stage=()=>{}) {
+  const frame=await openReport(page,cfg,stage);
   const C=cfg.controls, {vvd,port}=input;
-  const pick=chooseCall(await inputCodes(frame,C,vvd,port),input.expectedCall);
+  stage('criteria');
+  const labels=await inputCodes(frame,C,vvd,port);
+  stage('call');
+  const pick=chooseCall(labels,input.expectedCall);
   if (pick.kind==='choose') return pick;
   const {call,index}=pick;
   await frame.locator(C.call).selectOption({index});
   await frame.locator(C.local).uncheck();await frame.locator(C.ts).check();
   await checkForm(frame,C,vvd,port,call);
-  const readText=()=>Promise.all([summaryRow(frame,cfg.headers.ts),summaryRow(frame,cfg.headers.size)]);
+  const readText=()=>Promise.all([summaryRow(frame,cfg.headers.ts,'ts'),summaryRow(frame,cfg.headers.size,'size')]);
   const prior=JSON.stringify(await readText());
   let emptyAlert=false, settled=false;
   const pending=new Set();
@@ -255,7 +278,9 @@ async function exportCall(page,cfg,input,downloadTap) {
   const initialEmpty=await visibleEmpty();
   page.on('request',onStart);page.on('requestfinished',onFinish);page.on('dialog',onDialog);
   try {
+    stage('search');
     await frame.locator(C.search).click();
+    stage('totals');
     const end=Date.now()+90000;let sums;
     const cargoRows=frame.getByRole('row',{name:new RegExp('^\\s*\\d+\\s+.*\\b'+vvd+'\\b','i')});
     while (Date.now()<end) {
@@ -267,11 +292,12 @@ async function exportCall(page,cfg,input,downloadTap) {
       }
       await pause(250);
     }
-    if (!sums) throw fault(504,'unconfirmed','未能核对原系统查询后的箱量。');
+    if (!sums) throw fault(504,'totals_unconfirmed','未能核对原系统查询后的箱量。');
     await checkForm(frame,C,vvd,port,call);
     if (!sums.boxes) return {kind:'empty',...sums,call};
     // Remote attachments are already available as verified HTTPS response bytes.
     // The local download event also handles workbooks generated in the page as a blob.
+    stage('download');
     const buffered=new Promise(resolve=>{downloadTap.receive=resolve;});
     const local=page.waitForEvent('download',{timeout:42000}).then(async download=>{
       try {
@@ -309,6 +335,7 @@ async function exportCall(page,cfg,input,downloadTap) {
       // Register listeners before clicking. A fulfilled attachment may be cancelled
       // by Chromium's download manager after the response itself is already complete.
       const [bytes]=await Promise.all([outcome,frame.locator(C.export).click()]);
+      stage('file');
       return {kind:'file',call,bytes,...sums};
     } finally {clearTimeout(deadline);downloadTap.receive=null;}
   } finally {page.off('request',onStart);page.off('requestfinished',onFinish);page.off('dialog',onDialog);}
@@ -383,11 +410,12 @@ export async function useBrowser(cfg,jar,execute,loginOnly=null) {
 }
 
 
-export async function readManifest(input, rawConfig) {
+export async function readManifest(input, rawConfig,stage=()=>{}) {
   const cfg=validateConfig(rawConfig);
   if (!/^[A-Z0-9]{4,16}$/.test(input?.vvd) || !/^[A-Z]{2}[A-Z0-9]{3}$/.test(input.port)) throw fault(400,'bad_selection','航次或港口格式无效。');
   const jar=suppliedCookies(input.cookies,new URL(cfg.origin).hostname);
-  return useBrowser(cfg,jar,(page,tap)=>exportCall(page,cfg,input,tap));
+  stage('browser');
+  return useBrowser(cfg,jar,(page,tap)=>exportCall(page,cfg,input,tap,stage));
 }
 
 export async function probeLanding(rawConfig) {
