@@ -97,6 +97,7 @@ async function requestPage(agent, request, origin) {
     if (key.startsWith(':') || ['connection','content-length','host','proxy-authorization','transfer-encoding','upgrade'].includes(key)) delete headers[key];
   }
   const data = request.postDataBuffer();
+  if (request.method()==='POST' && data!=null) headers['content-length']=String(data.length);
   if (data?.length > 256*1024) throw new Error('request size');
   const response = await new Promise((resolve,reject) => {
     const req = https.request(url,{method:request.method(),agent,headers,signal:AbortSignal.timeout(75000)}, resolve);
@@ -351,7 +352,10 @@ export async function useBrowser(cfg,jar,execute,loginOnly=null) {
       const req=route.request();
       if (!isPermittedUrl(req.url(),cfg.origin) || ['image','media','font'].includes(req.resourceType())) return route.abort().catch(()=>{});
       if (loginOnly && req.method()==='POST') {
-        if(submitted || !loginOnly.armed || req.url()!==loginOnly.submitUrl) return route.abort().catch(()=>{});
+        if(submitted || !loginOnly.armed || req.url()!==loginOnly.submitUrl) {
+          if(submitted && req.url()!==loginOnly.submitUrl) loginOnly.followup=true;
+          return route.abort().catch(()=>{});
+        }
         submitted=true;
       }
       try {

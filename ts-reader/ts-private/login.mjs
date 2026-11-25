@@ -1,4 +1,6 @@
 import {createHash} from 'node:crypto';
+import {setTimeout as pause} from 'node:timers/promises';
+import {nativeReply,nativeMessage} from './login-outcome.mjs';
 import {Invalid} from './protocol.mjs';
 import {useBrowser} from './reader.mjs';
 
@@ -58,6 +60,13 @@ export async function portalLogin(payload,reportStage=()=>{},run=useBrowser) {
         if(await checkSession(page,c)) throw new Invalid(502,'probe_session_check');
         setPhase('receipt');return {kind:'login-ready',landing:true,sessionCheck:true};
       }
+      let dialogReason=null, interaction=false;
+      page.on('dialog',async dialog=>{
+        // A confirm/prompt is never accepted automatically (including replacing another session).
+        dialogReason??=nativeMessage(dialog.message());
+        if (['confirm','prompt','beforeunload'].includes(dialog.type())) interaction=true;
+        await dialog.dismiss().catch(()=>{});
+      });
       await uid.fill(payload.username.trim());
       await pwd.fill(payload.password);
       setPhase('submit');
@@ -70,20 +79,30 @@ export async function portalLogin(payload,reportStage=()=>{},run=useBrowser) {
       finally {policy.armed=false;}
       if(response.status()===401) throw new Invalid(401,'invalid_credentials');
       if(!response.ok()) throw new Invalid(502,'login_submit_http');
-      const data=await response.json().catch(()=>null);
-      const result=(data?.[c.envelope] || data?.user || data)?.[c.successKey];
-      if(typeof result==='string' && result.trim().toLowerCase()!==c.successValue.toLowerCase()) throw new Invalid(401,'invalid_credentials');
-      // The native page can navigate in its sign-on callback. A stable same-origin page
-      // verifies the resulting session without repeating the form POST.
+      const outcome=await response.body().then(nativeReply).catch(()=>({kind:'reply_unreadable'}));
+      reportStage(outcome.kind);
       setPhase('session');
-      const checkPage=await page.context().newPage();
-      try {
-        const res=await checkPage.goto(c.origin+c.check,{waitUntil:'domcontentloaded',timeout:8500});
-        if(!res?.ok()) throw new Invalid(502,'login_check_http');
-        const data=await res.json().catch(()=>null);
-        if(typeof data?.[c.statusKey]!=='boolean') throw new Invalid(502,'unexpected_session_response');
-        if(!data[c.statusKey]) throw new Invalid(502,typeof result==='string'?'invalid_session':'unexpected_signon_response');
-      } finally {await checkPage.close().catch(()=>{});}
+      // Native completion can replace the main document. Give its callback time to run;
+      // both the probe and the real session check use the same read-only AJAX request.
+      let active=false;
+      for(let attempt=0;attempt<2;attempt++) {
+        await pause(attempt ? 650 : 180);
+        await page.waitForLoadState('domcontentloaded',{timeout:2500}).catch(()=>{});
+        try {active=await checkSession(page,c);}
+        catch(e){if(attempt || e.code!=='login_check_transport')throw e;continue;}
+        if(active) break;
+      }
+      if(!active || outcome.kind==='reply_rejected' || interaction || dialogReason) {
+        const notices=await page.locator('[role="alert"]:visible,[role="alertdialog"]:visible,[aria-live="assertive"]:visible').allTextContents().catch(()=>[]);
+        let reason=dialogReason || outcome.reason || notices.slice(0,6).map(nativeMessage).find(Boolean);
+        reason??=interaction?'login_interactive_needed':policy.followup && ['reply_other_json','reply_success'].includes(outcome.kind)?'login_followup_required':null;
+        if(reason)throw new Invalid(reason==='invalid_credentials'?401:reason==='login_access_denied'?403:409,reason);
+        const failure={reply_success:'invalid_session',reply_rejected:'login_rejected',reply_business_error:'login_business_error',
+          reply_login_html:'login_reply_login_html',reply_html:'login_reply_html',reply_xml:'login_reply_xml',
+          reply_empty:'login_reply_empty',reply_text:'login_reply_text',reply_other_json:'login_reply_json',
+          reply_unreadable:'login_reply_unreadable'};
+        throw new Invalid(502,failure[outcome.kind] || 'unexpected_signon_response');
+      }
       setPhase('receipt');
       return sessionCookies(page.context(),c.origin+c.check);
     },policy);
