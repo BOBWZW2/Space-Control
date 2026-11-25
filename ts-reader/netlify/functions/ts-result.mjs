@@ -10,14 +10,15 @@ export default async function result(request,context) {
   try {
     const id=storageKey(task), db=store();
     const raw=await db.get(id,{type:'arrayBuffer',consistency:'strong'});
-    if(!raw || !raw.byteLength) return json({status:'pending'},202);
+    if(!raw || !raw.byteLength) return json({status:'pending',stage:'queued'},202);
     let bytes;
     try {bytes=decrypt(task,raw);}catch{throw new Invalid(403,'unauthorized');}
+    const reply=unpack(bytes);
+    if(reply.status===202)return reply;
     if (task.ack===true) {
       await db.delete(id);context.waitUntil?.(collectExpired(db).catch(()=>{}));
       return new Response(null,{status:204,headers:{'cache-control':'no-store'}});
     }
-    const reply=unpack(bytes);
     if(reply.ok)return reply;
     const stored=await reply.json().catch(()=>null);
     return json(queryFailure(stored?.code));

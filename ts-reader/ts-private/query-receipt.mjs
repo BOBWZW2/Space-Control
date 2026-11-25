@@ -18,6 +18,27 @@ export function queryStage(stage) {
   if(stages.has(stage))console.info('ts-query stage',stage);
 }
 
+// Browser diagnostics can fire several times per native interaction. Persist only
+// user-facing milestones, with one ordered write in flight per authenticated job.
+const milestones = new Map([
+  ['browser','opening'], ['criteria','criteria'], ['search','searching'],
+  ['download','exporting'], ['grid_read','reading_grid'], ['file','returning']
+]);
+export function progressReporter(write) {
+  let current = 'queued', writing = Promise.resolve();
+  return {
+    stage(name) {
+      queryStage(name);
+      const next = milestones.get(name);
+      if (!next || next===current) return;
+      current = next;
+      writing = writing.then(()=>next===current ? write(next) : undefined)
+        .catch(()=>{}); // A transient progress outage does not discard the manifest.
+    },
+    finish() { return writing; }
+  };
+}
+
 export function queryFailure(code) {
   if(typeof code !== 'string'||!Object.hasOwn(failures,code))code='upstream_error';
   return {kind:'query-error',code,status:failures[code]};

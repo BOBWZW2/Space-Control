@@ -93,7 +93,7 @@ async function requestPage(agent, request, origin, requestLimit=256*1024) {
   const rawURL = request.url();
   if (!isPermittedUrl(rawURL,origin) || !['GET','POST','HEAD'].includes(request.method())) throw new Error('invalid target');
   const url = new URL(rawURL);
-  const headers = {...await request.allHeaders(), 'accept-encoding':'identity'};
+  const headers = {...await request.allHeaders(), 'accept-encoding':'gzip, br, deflate'};
   for (const key of Object.keys(headers)) {
     if (key.startsWith(':') || ['connection','content-length','host','proxy-authorization','transfer-encoding','upgrade'].includes(key)) delete headers[key];
   }
@@ -113,9 +113,12 @@ async function requestPage(agent, request, origin, requestLimit=256*1024) {
   const out = {...response.headers};
   if (out.location && !isPermittedUrl(new URL(out.location,url).href,origin)) throw new Error('redirect outside source');
   let body=Buffer.concat(chunks);
-  const decompress={gzip:gunzip,br:brotliDecompress,deflate:inflate}[out['content-encoding']];
-  if (decompress) body=await promisify(decompress)(body,{maxOutputLength:maximumFile});
-  else if (out['content-encoding'] && out['content-encoding']!=='identity') throw new Error('unsupported encoding');
+  if (body.length) {
+    const encoding=String(out['content-encoding'] || 'identity').trim().toLowerCase();
+    const decompress={gzip:gunzip,br:brotliDecompress,deflate:inflate}[encoding];
+    if (decompress) body=await promisify(decompress)(body,{maxOutputLength:maximumFile});
+    else if (encoding!=='identity') throw new Error('unsupported encoding');
+  }
   const cookies = out['set-cookie'] || [];
   for (const key of ['set-cookie','transfer-encoding','content-encoding','content-length','connection','keep-alive','trailer']) delete out[key];
   for (const [k,v] of Object.entries(out)) out[k]=Array.isArray(v)?v.join(', '):String(v);
@@ -150,12 +153,29 @@ export function normalizeTime(value) {
   return Number.isFinite(d.valueOf()) && d.toISOString().slice(0,16).replace('T',' ')===s ? s:null;
 }
 
-export function chooseCall(times, expected) {
+function soleCall(times) {
+  // Disabled options are represented by null. A nonempty unknown label is a
+  // potential second call and must never certify a schedule-date substitution.
+  const active=times.map((raw,index)=>({raw,index})).filter(({raw})=>raw!=null &&
+    !/^(?:|[-–—\s]+|(?:please\s+)?select(?:\s+an?\s+(?:option|call))?[.\s…]*)$/i.test(String(raw).trim()));
+  if (active.length!==1) return null;
+  const call=normalizeTime(active[0].raw);
+  return call ? {call,index:active[0].index} : null;
+}
+
+export function chooseCall(times, expected, allowSole=false) {
   const options=Array.from(new Set(times.map(normalizeTime).filter(Boolean)));
   if (!options.length) throw fault(409,'no_calls','没有可识别的靠次。');
   const want=normalizeTime(expected);
   const indices=times.map((v,i)=>normalizeTime(v)===want && want ? i:-1).filter(i=>i>=0);
-  if (!indices.length) return {kind:'choose',options};
+  if (!indices.length) {
+    const sole=allowSole && want && soleCall(times);
+    if (sole) return {kind:'selected',...sole,resolvedSole:true};
+    if (options.length===1 && !soleCall(times)) {
+      throw fault(409,'ambiguous_call','原系统的靠次重复或格式不明，请核实靠次。');
+    }
+    return {kind:'choose',options};
+  }
   if (indices.length!==1) throw fault(409,'ambiguous_call','有重复时间的靠次，请核实靠次。');
   return {kind:'selected',call:want,index:indices[0]};
 }
@@ -195,7 +215,7 @@ async function getFrame(page,cfg) {
   throw fault(503,'report_unavailable','未能打开装卸清单。');
 }
 async function clickMenuItem(page,cfg,name,root=false) {
-  const timeout=Date.now()+12000;
+  const timeout=Date.now()+(root ? 45000 : 12000);
   while(Date.now()<timeout) {
     if(await signedOut(page,cfg)) throw fault(401,'login_required','登录会话已过期，请重新登录。');
     const controls=[page.getByRole('button',{name,exact:true}),page.getByRole('link',{name,exact:true}),
@@ -213,7 +233,7 @@ async function clickMenuItem(page,cfg,name,root=false) {
 }
 async function openReport(page,cfg,stage) {
   stage('shell');
-  const shell=await page.goto(cfg.origin+cfg.mainPath,{waitUntil:'domcontentloaded',timeout:35000}).catch(()=>null);
+  const shell=await page.goto(cfg.origin+cfg.mainPath,{waitUntil:'commit',timeout:35000}).catch(()=>null);
   if(await signedOut(page,cfg)) throw fault(401,'login_required','登录会话已过期，请重新登录。');
   if(!shell?.ok()) throw fault(503,'shell_unavailable','未能打开 Allegro 主页面。');
   const frame=reportFrame(page,cfg);
@@ -224,15 +244,19 @@ async function openReport(page,cfg,stage) {
   stage('report');
   return getFrame(page,cfg);
 }
+function callLabels(frame, selector) {
+  return frame.locator(selector+' option').evaluateAll(options=>options.map(option=>
+    option.disabled || option.closest('optgroup')?.disabled ? null : option.textContent));
+}
 async function inputCodes(frame,C,vvd,port) {
   await frame.locator(C.loading).check();
   for (const [selector,value] of [[C.vvd,vvd],[C.port,port]]) {
     const input=frame.locator(selector);
-    await input.fill('');await input.pressSequentially(value,{delay:55});await input.press('Tab');
+    await input.fill('');await input.pressSequentially(value,{delay:15});await input.press('Tab');
   }
   const until=Date.now()+24500; let stable=null, stamp=0;
   while (Date.now()<until) {
-    const labels=await frame.locator(C.call+' option').allTextContents();
+    const labels=await callLabels(frame,C.call);
     const sig=JSON.stringify(labels);
     if (labels.some(v=>normalizeTime(v)) && await frame.locator(C.vvd).inputValue()===vvd && await frame.locator(C.port).inputValue()===port) {
       if (stable===sig && Date.now()-stamp>=500) return labels;
@@ -262,12 +286,19 @@ async function exportCall(page,cfg,input,downloadTap,stage=()=>{}) {
   stage('criteria');
   const labels=await inputCodes(frame,C,vvd,port);
   stage('call');
-  const pick=chooseCall(labels,input.expectedCall);
+  const pick=chooseCall(labels,input.expectedCall,input.allowSole===true);
   if (pick.kind==='choose') return pick;
   const {call,index}=pick;
+  const provenance=pick.resolvedSole ? {resolvedSole:true} : {};
+  async function verifySelection() {
+    await checkForm(frame,C,vvd,port,call);
+    if (pick.resolvedSole && soleCall(await callLabels(frame,C.call))?.call!==call) {
+      throw fault(409,'selection_changed','原系统的可选靠次已改变。');
+    }
+  }
   await frame.locator(C.call).selectOption({index});
   await frame.locator(C.local).uncheck();await frame.locator(C.ts).check();
-  await checkForm(frame,C,vvd,port,call);
+  await verifySelection();
   const readText=()=>Promise.all([summaryRow(frame,cfg.headers.ts,'ts'),summaryRow(frame,cfg.headers.size,'size')]);
   const prior=JSON.stringify(await readText());
   let emptyAlert=false, settled=false;
@@ -304,8 +335,8 @@ async function exportCall(page,cfg,input,downloadTap,stage=()=>{}) {
       await pause(250);
     }
     if (!sums) throw fault(504,'totals_unconfirmed','未能核对原系统查询后的箱量。');
-    await checkForm(frame,C,vvd,port,call);
-    if (!sums.boxes) return {kind:'empty',...sums,call};
+    await verifySelection();
+    if (!sums.boxes) return {kind:'empty',...sums,call,...provenance};
     stage('download');
     let bytes;
     try {
@@ -314,7 +345,7 @@ async function exportCall(page,cfg,input,downloadTap,stage=()=>{}) {
       // Use the same selected, displayed report. The fallback independently
       // checks container numbers, count, TEU and source gross weight.
       stage('grid_read');
-      await checkForm(frame,C,vvd,port,call);
+      await verifySelection();
       try {
         bytes=await workbookFromVisibleGrid(frame,{vvd,port,boxes:sums.boxes,teu:sums.teu,timeoutMs:24000});
         if (!isXlsx(bytes)) throw new Error('workbook');
@@ -322,9 +353,9 @@ async function exportCall(page,cfg,input,downloadTap,stage=()=>{}) {
         throw fault(422,'grid_unconfirmed','原生 Excel 下载失败，页面明细也未能与原系统合计逐项核对。');
       }
     }
-    await checkForm(frame,C,vvd,port,call);
+    await verifySelection();
     stage('file');
-    return {kind:'file',call,bytes,...sums};
+    return {kind:'file',call,bytes,...sums,...provenance};
   } finally {page.off('request',onStart);page.off('requestfinished',onFinish);page.context().off('dialog',onDialog);}
 }
 

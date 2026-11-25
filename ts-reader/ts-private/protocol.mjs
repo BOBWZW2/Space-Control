@@ -54,7 +54,7 @@ export function unpack(data) {
 export const jsonReply = (status,body)=>({status,headers:{'content-type':'application/json'},body:Buffer.from(JSON.stringify(body))});
 export function shape(result) {
   if(result.kind==='choose')return jsonReply(200,{kind:'choose',options:result.options});
-  if(result.kind==='empty')return jsonReply(200,{kind:'empty',call:result.call,boxes:0,teu:0});
+  if(result.kind==='empty')return jsonReply(200,{kind:'empty',call:result.call,boxes:0,teu:0,...(result.resolvedSole===true?{resolvedSole:true}:{})});
   if(result.kind!=='file' || !Buffer.isBuffer(result.bytes) || result.bytes.length<4 || result.bytes.length>FILE_LIMIT)throw new Invalid(422,'invalid_file');
-  return {status:200,headers:{'content-type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','x-ts-boxes':String(result.boxes),'x-ts-teu':String(result.teu),'x-ts-call':result.call},body:result.bytes};
+  return {status:200,headers:{'content-type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','x-ts-boxes':String(result.boxes),'x-ts-teu':String(result.teu),'x-ts-call':result.call,...(result.resolvedSole===true?{'x-ts-resolved-sole':'1'}:{})},body:result.bytes};
 }
