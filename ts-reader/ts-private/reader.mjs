@@ -1,4 +1,5 @@
 import https from 'node:https';
+import {workbookFromVisibleGrid} from './grid-report.mjs';
 import tls from 'node:tls';
 import { createHash, X509Certificate } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
@@ -88,7 +89,7 @@ function isPermittedUrl(value, origin) {
   } catch { return false; }
 }
 
-async function requestPage(agent, request, origin) {
+async function requestPage(agent, request, origin, requestLimit=256*1024) {
   const rawURL = request.url();
   if (!isPermittedUrl(rawURL,origin) || !['GET','POST','HEAD'].includes(request.method())) throw new Error('invalid target');
   const url = new URL(rawURL);
@@ -98,7 +99,7 @@ async function requestPage(agent, request, origin) {
   }
   const data = request.postDataBuffer();
   if (request.method()==='POST' && data!=null) headers['content-length']=String(data.length);
-  if (data?.length > 256*1024) throw new Error('request size');
+  if (data?.length > requestLimit) throw new Error('request size');
   const response = await new Promise((resolve,reject) => {
     const req = https.request(url,{method:request.method(),agent,headers,signal:AbortSignal.timeout(75000)}, resolve);
     req.once('error',reject); req.end(data);
@@ -273,10 +274,20 @@ async function exportCall(page,cfg,input,downloadTap,stage=()=>{}) {
   const pending=new Set();
   const onStart=req=>{if (['xhr','fetch'].includes(req.resourceType())&&req.frame()===frame&&isPermittedUrl(req.url(),cfg.origin)) {pending.add(req);settled=false;}};
   const onFinish=async req=>{if (pending.delete(req)){const res=await req.response().catch(()=>null);if(res?.ok()&&!pending.size) settled=true;}};
-  const onDialog=async dlg=>{if(messageNoData.test(dlg.message().trim())) emptyAlert=true;await dlg.dismiss().catch(()=>{});};
+  const onDialog=async dlg=>{
+    if (downloadTap.receive) {
+      if (dlg.type()==='confirm' && isExportConfirmation(dlg.message())) {
+        downloadTap.trace('export_confirm');
+        await dlg.accept().catch(()=>{});
+        return;
+      }
+      downloadTap.trace('export_dialog_blocked');
+    } else if (messageNoData.test(dlg.message().trim())) emptyAlert=true;
+    await dlg.dismiss().catch(()=>{});
+  };
   const visibleEmpty=()=>frame.getByText(messageNoData).filter({visible:true}).count();
   const initialEmpty=await visibleEmpty();
-  page.on('request',onStart);page.on('requestfinished',onFinish);page.on('dialog',onDialog);
+  page.on('request',onStart);page.on('requestfinished',onFinish);page.context().on('dialog',onDialog);
   try {
     stage('search');
     await frame.locator(C.search).click();
@@ -295,50 +306,113 @@ async function exportCall(page,cfg,input,downloadTap,stage=()=>{}) {
     if (!sums) throw fault(504,'totals_unconfirmed','未能核对原系统查询后的箱量。');
     await checkForm(frame,C,vvd,port,call);
     if (!sums.boxes) return {kind:'empty',...sums,call};
-    // Remote attachments are already available as verified HTTPS response bytes.
-    // The local download event also handles workbooks generated in the page as a blob.
     stage('download');
-    const buffered=new Promise(resolve=>{downloadTap.receive=resolve;});
-    const local=page.waitForEvent('download',{timeout:42000}).then(async download=>{
-      try {
-        if (!/\.xlsx$/i.test(download.suggestedFilename())) throw fault(502,'download_failed','未能取得原生清单。');
-        if (await download.failure()) {
-          const actual=download.url();
-          if (isPermittedUrl(actual,cfg.origin)) return await downloadTap.fetchAttachment(actual,frame.url());
-          if (actual.startsWith('blob:'+cfg.origin+'/')) {
-            const encoded=await frame.evaluate(async ([url,limit])=>{
-              const blob=await (await fetch(url)).blob();
-              if (!blob.size || blob.size>limit) return '';
-              return new Promise(resolve=>{
-                const reader=new FileReader();
-                reader.onerror=()=>resolve('');
-                reader.onload=()=>resolve(String(reader.result).split(',',2)[1]||'');
-                reader.readAsDataURL(blob);
-              });
-            },[actual,maximumFile]);
-            const bytes=Buffer.from(encoded,'base64');
-            if (isXlsx(bytes)) return bytes;
-          }
-          throw fault(502,'download_failed','未能取得原生清单。');
-        }
-        const path=await download.path();
-        if (!path || (await stat(path)).size>maximumFile) throw fault(413,'workbook_size','原生清单大小超出限制。');
-        const bytes=await readFile(path);
-        if (!isXlsx(bytes)) throw fault(502,'invalid_workbook','原生文件不是有效 Excel。');
-        return bytes;
-      } finally {await download.delete().catch(()=>{});}
-    });
-    let deadline;
+    let bytes;
     try {
-      const timeout=new Promise((_,reject)=>{deadline=setTimeout(()=>reject(fault(504,'download_failed','未能取得原生 Excel 清单。')),42500);});
-      const outcome=Promise.race([Promise.any([buffered,local]),timeout]);
-      // Register listeners before clicking. A fulfilled attachment may be cancelled
-      // by Chromium's download manager after the response itself is already complete.
-      const [bytes]=await Promise.all([outcome,frame.locator(C.export).click()]);
-      stage('file');
-      return {kind:'file',call,bytes,...sums};
-    } finally {clearTimeout(deadline);downloadTap.receive=null;}
-  } finally {page.off('request',onStart);page.off('requestfinished',onFinish);page.off('dialog',onDialog);}
+      bytes=await downloadWorkbook(page,frame,cfg,downloadTap,stage);
+    } catch {
+      // Use the same selected, displayed report. The fallback independently
+      // checks container numbers, count, TEU and source gross weight.
+      stage('grid_read');
+      await checkForm(frame,C,vvd,port,call);
+      try {
+        bytes=await workbookFromVisibleGrid(frame,{vvd,port,boxes:sums.boxes,teu:sums.teu,timeoutMs:24000});
+        if (!isXlsx(bytes)) throw new Error('workbook');
+      } catch {
+        throw fault(422,'grid_unconfirmed','原生 Excel 下载失败，页面明细也未能与原系统合计逐项核对。');
+      }
+    }
+    await checkForm(frame,C,vvd,port,call);
+    stage('file');
+    return {kind:'file',call,bytes,...sums};
+  } finally {page.off('request',onStart);page.off('requestfinished',onFinish);page.context().off('dialog',onDialog);}
+}
+
+function isExportConfirmation(message) {
+  const text=message.trim().replace(/\s+/g,' ');
+  return /^(?:(?:are you sure (?:that )?you (?:want|wish) to|(?:do|would) you (?:want|like) to|please confirm(?: you (?:want|wish) to)?) )?(?:export|download)(?: (?:this|the|an?))?(?: (?:list|data|report|file|results))?(?: (?:as|in|to)(?: an?)?)? (?:excel|xlsx)(?: (?:format|file|workbook))?[?.!]?$/i.test(text);
+}
+
+async function readDownload(download,frame,cfg,tap) {
+  try {
+    // A successful browser transfer has a local artifact even if its filename
+    // is localized or the URL carries no extension. Validate the workbook bytes.
+    if (!await download.failure()) {
+      const file=await download.path();
+      if (file) {
+        const size=(await stat(file)).size;
+        if (size>maximumFile) throw fault(413,'workbook_size','原生清单大小超出限制。');
+        if (size>0) {
+          const bytes=await readFile(file);
+          if (isXlsx(bytes)) return bytes;
+        }
+      }
+    }
+    const url=download.url();
+    tap.trace('export_event_recovery');
+    // Some report grids offer an exact data: URL through a native download.
+    if (url.startsWith('data:') && url.length<Math.ceil(maximumFile/3)*4+200) {
+      const comma=url.indexOf(',');
+      if (comma>0 && comma<180 && /;base64$/i.test(url.slice(0,comma))) {
+        const bytes=Buffer.from(url.slice(comma+1),'base64');
+        if (bytes.length<=maximumFile && isXlsx(bytes)) return bytes;
+      }
+    }
+    if (url.startsWith('blob:'+cfg.origin+'/')) {
+      const frames=[...new Set([frame,...download.page().frames()])];
+      for (const owner of frames) {
+        if (!isPermittedUrl(owner.url(),cfg.origin)) continue;
+        const encoded=await owner.evaluate(async ([url,limit])=>{
+          const blob=await (await fetch(url)).blob();
+          if (!blob.size || blob.size>limit) return '';
+          return new Promise(resolve=>{
+            const reader=new FileReader();
+            reader.onerror=()=>resolve('');
+            reader.onload=()=>resolve(String(reader.result).split(',',2)[1]||'');
+            reader.readAsDataURL(blob);
+          });
+        },[url,maximumFile]).catch(()=>'');
+        const bytes=Buffer.from(encoded,'base64');
+        if (isXlsx(bytes)) {tap.trace('export_blob');return bytes;}
+      }
+    } else if (isPermittedUrl(url,cfg.origin) && tap.getUrls?.has(url)) {
+      // Never turn a POST export into a second GET or re-submit a native form.
+      return await tap.fetchAttachment(url,frame.url());
+    }
+  } finally {await download.delete().catch(()=>{});}
+  throw fault(502,'download_failed','未能取得原生 Excel 清单。');
+}
+
+async function downloadWorkbook(page,frame,cfg,tap,stage) {
+  const ctx=page.context(),armed=new Set(),traced=new Set();
+  let timer;
+  const bytesReady=new Promise(resolve=>{tap.receive=resolve;});
+  tap.trace=label=>{if(!traced.has(label)){traced.add(label);stage(label);}};
+  tap.getUrls=new Set();
+  const button=frame.locator(cfg.controls.export);
+  // Chromium can bypass page routing when a native download link is handed
+  // straight to the download manager. Its own href identifies a safe GET retry.
+  const href=await button.evaluate(node=>node.closest('a[download][href]')?.href||'').catch(()=>'');
+  if (isPermittedUrl(href,cfg.origin)) tap.getUrls.add(href);
+  const onDownload=download=>{
+    tap.trace('export_event');
+    readDownload(download,frame,cfg,tap).then(bytes=>tap.receive?.(bytes)).catch(()=>{});
+  };
+  const arm=owner=>{if(!armed.has(owner)){armed.add(owner);owner.on('download',onDownload);}};
+  const onPage=owner=>{tap.trace('export_popup');arm(owner);};
+  ctx.on('page',onPage);
+  for (const owner of ctx.pages()) arm(owner);
+  try {
+    const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(fault(504,'download_failed','未能取得原生 Excel 清单。')),78000);});
+    const [bytes]=await Promise.all([Promise.race([bytesReady,timeout]),button.click({noWaitAfter:true})]);
+    return bytes;
+  } finally {
+    clearTimeout(timer);tap.receive=null;tap.getUrls=null;
+    // Outstanding browser download events can finish after the first valid byte stream.
+    tap.trace=()=>{};
+    ctx.off('page',onPage);
+    for(const owner of armed) owner.off('download',onDownload);
+  }
 }
 
 export function isXlsx(data) {
@@ -386,11 +460,21 @@ export async function useBrowser(cfg,jar,execute,loginOnly=null) {
         submitted=true;
       }
       try {
-        const res=await requestPage(agent,req,cfg.origin);
+        // Native report generators can POST the complete selected grid, including
+        // thousands of cells, to create a file. Keep the normal limit for all other operations.
+        const exportActive=!!downloadTap.receive && !loginOnly;
+        if(exportActive && req.method()==='POST') {
+          downloadTap.getUrls.delete(req.url());
+          downloadTap.trace('export_post');
+          if ((req.postDataBuffer()?.length||0)>256*1024) downloadTap.trace('export_post_large');
+        } else if(exportActive && req.method()==='GET' && downloadTap.getUrls.size<128) {
+          downloadTap.getUrls.add(req.url());
+        }
+        const res=await requestPage(agent,req,cfg.origin,exportActive && req.method()==='POST' ? maximumFile : undefined);
         if(loginOnly && req.method()==='POST' && [307,308].includes(res.status)) return route.abort().catch(()=>{});
         if (res.cookies.length) await applySourceCookies(ctx,res.cookies,req.url());
-        if (downloadTap.receive && res.status>=200 && res.status<300 &&
-            (/spreadsheet|octet-stream/i.test(res.headers['content-type'] || '') || /\.xlsx/i.test(res.headers['content-disposition'] || '')) && isXlsx(res.body)) {
+        if (exportActive && downloadTap.receive && res.status>=200 && res.status<300 && isXlsx(res.body)) {
+          downloadTap.trace('export_response');
           downloadTap.receive(res.body);
         }
         await route.fulfill({status:res.status,headers:res.headers,body:res.body});
@@ -398,7 +482,7 @@ export async function useBrowser(cfg,jar,execute,loginOnly=null) {
     });
     await ctx.routeWebSocket(/.*/, ws=>ws.close());
     const page=await ctx.newPage();page.setDefaultTimeout(12000);
-    return await Promise.race([execute(page,downloadTap),new Promise((_,reject)=>{timer=setTimeout(()=>reject(fault(504,'query_timeout','原系统查询超时，请重试。')),154000);})]);
+    return await Promise.race([execute(page,downloadTap),new Promise((_,reject)=>{timer=setTimeout(()=>reject(fault(504,'query_timeout','原系统查询超时，请重试。')),loginOnly ? 154000 : 204000);})]);
   } catch (error) {
     if (error instanceof ReadError || loginOnly && loginOnly.recognizes(error)) throw error;
     throw fault(502,'native_query_failed','未能核对原生装船清单。');
