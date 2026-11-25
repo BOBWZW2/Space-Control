@@ -217,6 +217,22 @@ export function readCounts(tsText, sizeText) {
   return {boxes,teu};
 }
 
+function explicitZeroTotals(tsText,sizeText) {
+  if (!/\bLocal\s*:\s*0(?![\d.,])\s*\/?\s*T\s*\/\s*S\s*:\s*0(?![\d.,])/i.test(tsText)) return false;
+  const matched=[...sizeText.matchAll(/\b(\d{2})\s*['′’]\s*:\s*(\d[\d,]*)/g)];
+  return matched.some(([,size])=>size==='20') && matched.some(([,size])=>size==='40') &&
+    matched.every(([,,quantity])=>quantity==='0') && readCounts(tsText,sizeText)?.boxes===0;
+}
+
+// The first body row can be a split-pane group/spacer. Real source rows
+// have a displayed numeric row ordinal, even if another VVD is rendered.
+async function hasContainerRows(frame,cargoRows) {
+  if (await cargoRows.count()) return true;
+  return frame.locator('.grid-left-pnl .grid-body-pnl tr').evaluateAll(rows=>rows.some(row=>
+    row.getClientRects().length && row.cells.length>1 &&
+    Array.from(row.cells).some((cell,index)=>index<2 && /^\d+$/.test(cell.innerText.trim()))));
+}
+
 function reportFrame(page,cfg) {
   return page.frames().find(frame=>frame.url().split(/[?#]/,1)[0]===cfg.origin+cfg.reportPath);
 }
@@ -324,11 +340,19 @@ async function exportCall(page,cfg,input,downloadTap,stage=()=>{}) {
   await frame.locator(C.local).uncheck();await frame.locator(C.ts).check();
   await verifySelection();
   const readText=()=>Promise.all([summaryRow(frame,cfg.headers.ts,'ts'),summaryRow(frame,cfg.headers.size,'size')]);
-  const prior=JSON.stringify(await readText());
-  let emptyAlert=false, settled=false;
+  const before=await readText();
+  const prior=JSON.stringify(before), startedAtZero=explicitZeroTotals(...before);
+  let emptyAlert=false, settled=false, sourceFailed=false;
   const pending=new Set();
   const onStart=req=>{if (['xhr','fetch'].includes(req.resourceType())&&req.frame()===frame&&isPermittedUrl(req.url(),cfg.origin)) {pending.add(req);settled=false;}};
-  const onFinish=async req=>{if (pending.delete(req)){const res=await req.response().catch(()=>null);if(res?.ok()&&!pending.size) settled=true;}};
+  const onFinish=async req=>{
+    if (!pending.has(req)) return;
+    const res=await req.response().catch(()=>null);
+    pending.delete(req);
+    if (!res?.ok()) sourceFailed=true;
+    if (res?.ok() && !pending.size) settled=true;
+  };
+  const onFailure=req=>{if (pending.delete(req)) sourceFailed=true;};
   const onDialog=async dlg=>{
     if (downloadTap.receive) {
       if (dlg.type()==='confirm' && isExportConfirmation(dlg.message())) {
@@ -337,24 +361,32 @@ async function exportCall(page,cfg,input,downloadTap,stage=()=>{}) {
         return;
       }
       downloadTap.trace('export_dialog_blocked');
-    } else if (messageNoData.test(dlg.message().trim())) emptyAlert=true;
+    } else if (messageNoData.test(dlg.message().trim()) ||
+        dlg.type()==='alert' && /^There is no list\.$/i.test(dlg.message().trim())) emptyAlert=true;
     await dlg.dismiss().catch(()=>{});
   };
   const visibleEmpty=()=>frame.getByText(messageNoData).filter({visible:true}).count();
   const initialEmpty=await visibleEmpty();
-  page.on('request',onStart);page.on('requestfinished',onFinish);page.context().on('dialog',onDialog);
+  page.on('request',onStart);page.on('requestfinished',onFinish);page.on('requestfailed',onFailure);page.context().on('dialog',onDialog);
   try {
     stage('search');
     await frame.locator(C.search).click();
     stage('totals');
-    const end=Date.now()+90000;let sums;
+    const end=Date.now()+90000;let sums, zeroSince=0;
     const cargoRows=frame.getByRole('row',{name:new RegExp('^\\s*\\d+\\s+.*\\b'+vvd+'\\b','i')});
     while (Date.now()<end) {
       const texts=await readText();
-      if (JSON.stringify(texts)!==prior || settled || emptyAlert) {
+      const changed=JSON.stringify(texts)!==prior;
+      if (changed || settled || emptyAlert) {
         const counts=readCounts(...texts);
         if (counts?.boxes>0 && await cargoRows.count()) {sums=counts;break;}
-        if ((!counts || counts.boxes===0) && (emptyAlert || await visibleEmpty() && (!initialEmpty || settled))) {sums={boxes:0,teu:0};break;}
+        const freshZero=changed && !startedAtZero && settled && !sourceFailed && !pending.size && explicitZeroTotals(...texts);
+        if (freshZero && !await hasContainerRows(frame,cargoRows)) {
+          if (zeroSince && Date.now()-zeroSince>=350) {sums={boxes:0,teu:0};break;}
+          zeroSince ||= Date.now();
+        } else zeroSince=0;
+        if ((!counts || counts.boxes===0) && (emptyAlert || await visibleEmpty() && (!initialEmpty || settled)) &&
+            !await hasContainerRows(frame,cargoRows)) {sums={boxes:0,teu:0};break;}
       }
       await pause(250);
     }
@@ -380,7 +412,7 @@ async function exportCall(page,cfg,input,downloadTap,stage=()=>{}) {
     await verifySelection();
     stage('file');
     return {kind:'file',call,bytes,...sums,...provenance};
-  } finally {page.off('request',onStart);page.off('requestfinished',onFinish);page.context().off('dialog',onDialog);}
+  } finally {page.off('request',onStart);page.off('requestfinished',onFinish);page.off('requestfailed',onFailure);page.context().off('dialog',onDialog);}
 }
 
 function isExportConfirmation(message) {
