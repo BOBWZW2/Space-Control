@@ -5,7 +5,7 @@ const rules=[
   ['login_account_locked',/(?:account|user\s*id).{0,30}(?:is |has been )?(?:locked|disabled|suspended|inactive)|账号.{0,8}(?:被锁|锁定|停用)|계정.{0,10}잠/i],
   ['login_interactive_needed',/(?:enter|provide|verify|verification|authentication|请输入|校验).{0,22}(?:one.time|security code|authenticator|验证码)|(?:multi.?factor|two.?factor|captcha|human verification|2FA\b)|\bMFA\s+(?:required|challenge)|\bSSO (?:login |sign.in )?(?:required|only)|多因素|双因素/i],
   ['login_access_denied',/(?:access|request) (?:has been |is )?(?:denied|forbidden|blocked|rejected)|not (?:authorized|permitted|allowed) (?:to|from)|(?:IP(?: address)?|network|region|country).{0,22}(?:restricted|denied|not allowed|blocked)|permission denied|you have been blocked|拒绝访问|禁止访问|无权(?:访问|登录)/i],
-  ['invalid_credentials',/(?:invalid|incorrect|unknown|wrong) (?:user\s*(?:name|id)|password|credentials|login ID)|(?:password|credentials|user\s*id) (?:is |are )?(?:incorrect|invalid|wrong|not found)|(?:account|user\s*(?:name|id)) (?:does not exist|not found)|(?:用户名|账号|密码).{0,12}(?:不正确|错误|不存在)|비밀번호.{0,8}(?:불일치|일치하지)/i]
+  ['invalid_credentials',/(?:(?:account|user\s*(?:name|id))\s+(?:or|and)\s+password|password\s+(?:or|and)\s+(?:account|user\s*(?:name|id)))\s+(?:do|does)\s+not\s+match\b|(?:invalid|incorrect|unknown|wrong) (?:user\s*(?:name|id)|password|credentials|login ID)|(?:password|credentials|user\s*id) (?:is |are )?(?:incorrect|invalid|wrong|not found)|(?:account|user\s*(?:name|id)) (?:does not exist|not found)|(?:用户名|账号|密码).{0,12}(?:不正确|错误|不存在)|비밀번호.{0,8}(?:불일치|일치하지)/i]
 ];
 export function nativeMessage(text){
   if(typeof text!=='string') return null;
