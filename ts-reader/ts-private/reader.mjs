@@ -233,20 +233,36 @@ async function hasContainerRows(frame,cargoRows) {
     Array.from(row.cells).some((cell,index)=>index<2 && /^\d+$/.test(cell.innerText.trim()))));
 }
 
-function reportFrame(page,cfg) {
-  return page.frames().find(frame=>frame.url().split(/[?#]/,1)[0]===cfg.origin+cfg.reportPath);
+function reportFrames(page,cfg) {
+  return page.frames().filter(frame=>frame.url().split(/[?#]/,1)[0]===cfg.origin+cfg.reportPath);
+}
+async function visibleReport(frame,cfg) {
+  if (frame.isDetached()) return false;
+  // A native tab can keep its report DOM mounted inside a hidden iframe.
+  for (let owner=frame; owner.parentFrame(); owner=owner.parentFrame()) {
+    const host=await owner.frameElement();
+    try { if (!await host.isVisible()) return false; } finally { await host.dispose(); }
+  }
+  return await frame.locator(cfg.controls.vvd).isVisible() && await frame.locator(cfg.controls.search).isVisible();
 }
 async function signedOut(page,cfg) {
   return new URL(page.url()).pathname===cfg.loginPath || await page.locator('input[type=password]:visible').count()>0;
 }
-async function getFrame(page,cfg) {
-  const until=Date.now()+20000;
-  while(Date.now()<until) {
-    if(await signedOut(page,cfg)) throw fault(401,'login_required','登录会话已过期，请重新登录。');
-    const frame=reportFrame(page,cfg);
-    if(frame && await frame.locator(cfg.controls.vvd).isVisible() && await frame.locator(cfg.controls.search).isVisible()) return frame;
+async function getFrame(page,cfg,timeout=20000) {
+  const until=Date.now()+timeout;
+  let found=false;
+  while(Date.now()<until && !page.isClosed()) {
+    if(await signedOut(page,cfg).catch(()=>false)) throw fault(401,'login_required','登录会话已过期，请重新登录。');
+    const frames=reportFrames(page,cfg);
+    found ||= Boolean(frames.length);
+    const active=[];
+    for (const frame of frames) {
+      if (await visibleReport(frame,cfg).catch(()=>false)) active.push(frame);
+    }
+    if(active.length===1) return active[0];
     await pause(150);
   }
+  if(found) throw fault(503,'form_not_ready','装卸清单表单尚未就绪。');
   throw fault(503,'report_unavailable','未能打开装卸清单。');
 }
 async function clickMenuItem(page,cfg,name,root=false) {
@@ -271,8 +287,7 @@ async function openReport(page,cfg,stage) {
   const shell=await page.goto(cfg.origin+cfg.mainPath,{waitUntil:'commit',timeout:35000}).catch(()=>null);
   if(await signedOut(page,cfg)) throw fault(401,'login_required','登录会话已过期，请重新登录。');
   if(!shell?.ok()) throw fault(503,'shell_unavailable','未能打开 Allegro 主页面。');
-  const frame=reportFrame(page,cfg);
-  if(frame) return getFrame(page,cfg);
+  if(reportFrames(page,cfg).length) return getFrame(page,cfg);
   await clickMenuItem(page,cfg,'Menu',true);
   stage('menu');
   for(const label of cfg.menuLabels) await clickMenuItem(page,cfg,label);
@@ -283,25 +298,110 @@ function callLabels(frame, selector) {
   return frame.locator(selector+' option').evaluateAll(options=>options.map(option=>
     option.disabled || option.closest('optgroup')?.disabled ? null : option.textContent));
 }
-async function inputCodes(frame,C,vvd,port) {
-  await frame.locator(C.loading).check();
-  for (const [selector,value] of [[C.vvd,vvd],[C.port,port]]) {
-    const input=frame.locator(selector);
-    await input.fill('');await input.pressSequentially(value,{delay:15});await input.press('Tab');
-  }
-  const until=Date.now()+24500; let stable=null, stamp=0;
-  while (Date.now()<until) {
-    const labels=await callLabels(frame,C.call);
-    const sig=JSON.stringify(labels);
-    if (labels.some(v=>normalizeTime(v)) && await frame.locator(C.vvd).inputValue()===vvd && await frame.locator(C.port).inputValue()===port) {
-      if (stable===sig && Date.now()-stamp>=500) return labels;
-      if (stable!==sig) {stable=sig;stamp=Date.now();}
-    }
-    await pause(170);
-  }
-  throw fault(409,'no_calls','原系统未列出此航次和中转港的靠次。');
+const fieldTimeout=10000;
+async function selectLoading(frame,C) {
+  const radio=frame.locator(C.loading);
+  const options={timeout:fieldTimeout};
+  await radio.waitFor({state:'attached',...options});
+  if (await radio.isChecked(options)) return;
+  const label=frame.locator('label[for="'+C.loading.slice(1)+'"]').filter({visible:true});
+  if (await label.count()===1) await label.click(options);
+  else await radio.check(options);
+  if (!await radio.isChecked(options)) throw new Error('mode');
 }
-
+async function enterCode(frame,selector,value,origin,checkAlert) {
+  const input=frame.locator(selector);
+  const options={timeout:fieldTimeout};
+  const page=frame.page(), pending=new Set();
+  let changed=Date.now();
+  // Each native code lookup can disable/replace the next control. Observe only
+  // the official report frame's own lookup traffic, allowing cache-only lookups.
+  const started=req=>{
+    if (['xhr','fetch'].includes(req.resourceType()) && isPermittedUrl(req.url(),origin) && req.frame()===frame) {
+      pending.add(req);
+      changed=Date.now();
+    }
+  };
+  const finished=req=>{if (pending.delete(req)) changed=Date.now();};
+  page.on('request',started);page.on('requestfinished',finished);page.on('requestfailed',finished);
+  try {
+    // Ordinary native actions: wait out overlays and readonly lookup states.
+    await input.click(options);
+    checkAlert();
+    // Replacing the complete code never leaves a blank or partially typed voyage
+    // for native validation. Replacing its final selected character with itself
+    // also raises the normal printable-key event that some code lookups require.
+    await input.fill(value,options);
+    checkAlert();
+    await input.press('End',options);
+    await input.press('Shift+ArrowLeft',options);
+    await input.pressSequentially(value.slice(-1),options);
+    checkAlert();
+    if (await input.inputValue(options)!==value) throw new Error('input not accepted');
+    await input.press('Tab',options);
+    changed=Date.now();
+    const until=changed+fieldTimeout;
+    while (pending.size || Date.now()-changed<450) {
+      checkAlert();
+      if (frame.isDetached() || Date.now()>=until) throw new Error('lookup still initializing');
+      await pause(90);
+    }
+    checkAlert();
+    if (await input.inputValue(options)!==value) throw new Error('input not accepted');
+  } finally {
+    page.off('request',started);page.off('requestfinished',finished);page.off('requestfailed',finished);
+  }
+}
+async function prepareCriteria(page,cfg,frame,vvd,port,stage) {
+  const C=cfg.controls;
+  for (let attempt=0;;attempt++) {
+    let code='form_not_ready', rejected='';
+    const onDialog=dialog=>{
+      // Dismiss without accepting native validation/confirmation actions; the
+      // search is ineligible until a complete attempt passes without an alert.
+      rejected ||= code;
+      void dialog.dismiss().catch(()=>{});
+    };
+    const checkAlert=()=>{if (rejected) throw new Error('Allegro rejected the form input');};
+    page.on('dialog',onDialog);
+    try {
+      if (attempt) frame=await getFrame(page,cfg,10000);
+      code='mode_not_ready'; stage('criteria_mode');
+      await selectLoading(frame,C);
+      checkAlert();
+      code='voyage_not_ready'; stage('criteria_voyage');
+      await enterCode(frame,C.vvd,vvd,cfg.origin,checkAlert);
+      code='port_not_ready'; stage('criteria_port');
+      await enterCode(frame,C.port,port,cfg.origin,checkAlert);
+      code='form_not_ready'; stage('criteria_calls');
+      const until=Date.now()+24500; let stable=null, stamp=0;
+      while (Date.now()<until) {
+        checkAlert();
+        const [voyage,hub]=await Promise.all([frame.locator(C.vvd).inputValue({timeout:1500}),frame.locator(C.port).inputValue({timeout:1500})]);
+        if (voyage!==vvd || hub!==port) {
+          code=voyage!==vvd?'voyage_not_ready':'port_not_ready';
+          throw new Error('lookup changed the criteria');
+        }
+        if (!await visibleReport(frame,cfg) || !(await frame.locator(C.call).count())) throw new Error('form replaced');
+        const labels=await callLabels(frame,C.call);
+        const sig=JSON.stringify(labels);
+        if (labels.some(v=>normalizeTime(v))) {
+          if (stable===sig && Date.now()-stamp>=500) return {frame,labels};
+          if (stable!==sig) {stable=sig;stamp=Date.now();}
+        } else stable=null;
+        await pause(170);
+      }
+      throw fault(409,'no_calls','原系统未列出此航次和中转港的靠次。');
+    } catch(error) {
+      if (error instanceof ReadError) throw error;
+      if (await signedOut(page,cfg).catch(()=>false)) throw fault(401,'login_required','登录会话已过期，请重新登录。');
+      if (attempt || page.isClosed()) throw fault(503,rejected || code,'Allegro 查询条件未就绪。');
+      // No Search has been submitted. Reacquire the visible screen and reenter
+      // BOTH requested fields if a native lookup re-renders one of the inputs.
+      await pause(350);
+    }
+  }
+}
 async function checkForm(frame,C,vvd,port,time) {
   const [gotVvd,gotPort,selected,loading,local,ts]=await Promise.all([
     frame.locator(C.vvd).inputValue(),frame.locator(C.port).inputValue(),frame.locator(C.call+' option:checked').allTextContents(),frame.locator(C.loading).isChecked(),frame.locator(C.local).isChecked(),frame.locator(C.ts).isChecked()]);
@@ -316,10 +416,10 @@ async function summaryRow(frame,label,kind) {
   return declared.length===1 ? declared[0] : '';
 }
 async function exportCall(page,cfg,input,downloadTap,stage=()=>{}) {
-  const frame=await openReport(page,cfg,stage);
+  const opened=await openReport(page,cfg,stage);
   const C=cfg.controls, {vvd,port}=input;
   stage('criteria');
-  const labels=await inputCodes(frame,C,vvd,port);
+  const {frame,labels}=await prepareCriteria(page,cfg,opened,vvd,port,stage);
   stage('call');
   const pick=chooseCall(labels,input.expectedCall,input.allowSole===true,input.allowNearest===true);
   if (pick.kind==='choose') return pick;

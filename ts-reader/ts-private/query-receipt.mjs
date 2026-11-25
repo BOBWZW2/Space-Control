@@ -1,5 +1,6 @@
 const stages = new Set([
   'claim','smoke','browser','shell','menu','report','criteria','call','search','totals','download',
+  'criteria_mode','criteria_voyage','criteria_port','criteria_calls',
   'export_popup','export_post','export_post_large','export_response','export_confirm',
   'export_event','export_event_recovery','export_blob','export_dialog_blocked','grid_read','file','store','ready'
 ]);
@@ -10,6 +11,7 @@ const failures = {
   busy:429, landing_unverified:502, manifest_mismatch:502, call_mismatch:502,
   download_failed:502,invalid_workbook:502,source_tls:502,native_query_failed:502,
   shell_unavailable:503,menu_unavailable:503,report_unavailable:503,job_store_unavailable:503,
+  form_not_ready:503,mode_not_ready:503,voyage_not_ready:503,port_not_ready:503,
   upstream_timeout:504,query_timeout:504,unconfirmed:504,totals_unconfirmed:504,
   upstream_error:502
 };
