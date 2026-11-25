@@ -1,4 +1,5 @@
 import {authenticate,encrypt,json,Invalid} from '../../ts-private/protocol.mjs';
+import {safeLoginDetail} from '../../ts-private/login-outcome.mjs';
 import {portalLogin} from '../../ts-private/login.mjs';
 
 const knownStatus = {
@@ -33,6 +34,7 @@ export default async function login(request) {
     const status=knownStatus[code];
     console.info('ts-login outcome',code,status);
     value={kind:'login-error',code,status};
+    if(!payload.probe && code!=='allegro_unavailable') Object.assign(value,safeLoginDetail(error,payload));
   }
   const packet=encrypt(payload,Buffer.from(JSON.stringify(value))).toString('base64url');
   record('receipt');

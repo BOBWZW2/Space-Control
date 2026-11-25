@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {setTimeout as pause} from 'node:timers/promises';
-import {nativeReply,nativeMessage} from './login-outcome.mjs';
+import {nativeReply,nativeMessage,safeHumanReason} from './login-outcome.mjs';
 import {Invalid} from './protocol.mjs';
 import {useBrowser} from './reader.mjs';
 
@@ -60,10 +60,11 @@ export async function portalLogin(payload,reportStage=()=>{},run=useBrowser) {
         if(await checkSession(page,c)) throw new Invalid(502,'probe_session_check');
         setPhase('receipt');return {kind:'login-ready',landing:true,sessionCheck:true};
       }
-      let dialogReason=null, interaction=false;
+      let dialogReason=null, dialogDetail=null, interaction=false;
       page.on('dialog',async dialog=>{
         // A confirm/prompt is never accepted automatically (including replacing another session).
         dialogReason??=nativeMessage(dialog.message());
+        dialogDetail??=safeHumanReason(dialog.message(),payload);
         if (['confirm','prompt','beforeunload'].includes(dialog.type())) interaction=true;
         await dialog.dismiss().catch(()=>{});
       });
@@ -79,7 +80,7 @@ export async function portalLogin(payload,reportStage=()=>{},run=useBrowser) {
       finally {policy.armed=false;}
       if(response.status()===401) throw new Invalid(401,'invalid_credentials');
       if(!response.ok()) throw new Invalid(502,'login_submit_http');
-      const outcome=await response.body().then(nativeReply).catch(()=>({kind:'reply_unreadable'}));
+      const outcome=await response.body().then(bytes=>nativeReply(bytes,payload)).catch(()=>({kind:'reply_unreadable'}));
       reportStage(outcome.kind);
       setPhase('session');
       // Native completion can replace the main document. Give its callback time to run;
@@ -96,12 +97,18 @@ export async function portalLogin(payload,reportStage=()=>{},run=useBrowser) {
         const notices=await page.locator('[role="alert"]:visible,[role="alertdialog"]:visible,[aria-live="assertive"]:visible').allTextContents().catch(()=>[]);
         let reason=dialogReason || outcome.reason || notices.slice(0,6).map(nativeMessage).find(Boolean);
         reason??=interaction?'login_interactive_needed':policy.followup && ['reply_other_json','reply_success'].includes(outcome.kind)?'login_followup_required':null;
-        if(reason)throw new Invalid(reason==='invalid_credentials'?401:reason==='login_access_denied'?403:409,reason);
+
         const failure={reply_success:'invalid_session',reply_rejected:'login_rejected',reply_business_error:'login_business_error',
           reply_login_html:'login_reply_login_html',reply_html:'login_reply_html',reply_xml:'login_reply_xml',
           reply_empty:'login_reply_empty',reply_text:'login_reply_text',reply_other_json:'login_reply_json',
           reply_unreadable:'login_reply_unreadable'};
-        throw new Invalid(502,failure[outcome.kind] || 'unexpected_signon_response');
+        const failureStatus=!reason?502:reason==='invalid_credentials'?401:reason==='login_access_denied'?403:409;
+        const error=new Invalid(failureStatus,reason || failure[outcome.kind] || 'unexpected_signon_response');
+        const visible=notices.slice(0,6).map(msg=>safeHumanReason(msg,payload)).find(Boolean);
+        const safe=dialogDetail || outcome.sourceMessage || visible;
+        if(safe)error.sourceMessage=safe;
+        if(outcome.sourceReference)error.sourceReference=outcome.sourceReference;
+        throw error;
       }
       setPhase('receipt');
       return sessionCookies(page.context(),c.origin+c.check);
