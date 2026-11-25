@@ -153,25 +153,44 @@ export function normalizeTime(value) {
   return Number.isFinite(d.valueOf()) && d.toISOString().slice(0,16).replace('T',' ')===s ? s:null;
 }
 
-function soleCall(times) {
-  // Disabled options are represented by null. A nonempty unknown label is a
-  // potential second call and must never certify a schedule-date substitution.
-  const active=times.map((raw,index)=>({raw,index})).filter(({raw})=>raw!=null &&
-    !/^(?:|[-–—\s]+|(?:please\s+)?select(?:\s+an?\s+(?:option|call))?[.\s…]*)$/i.test(String(raw).trim()));
-  if (active.length!==1) return null;
-  const call=normalizeTime(active[0].raw);
-  return call ? {call,index:active[0].index} : null;
+function completeCalls(times) {
+  const active=[], seen=new Set();
+  for (const [index,raw] of times.entries()) {
+    // Disabled options are supplied as null; other nonempty unknown labels
+    // could be real calls and prevent a complete, automatic match.
+    if (raw==null || /^(?:|[-–—\s]+|(?:please\s+)?select(?:\s+an?\s+(?:option|call))?[.\s…]*)$/i.test(String(raw).trim())) continue;
+    const call=normalizeTime(raw);
+    if (!call || seen.has(call) || active.length>=200) return null;
+    active.push({call,index}); seen.add(call);
+  }
+  return active.sort((a,b)=>a.call<b.call?-1:a.call>b.call?1:0);
 }
 
-export function chooseCall(times, expected, allowSole=false) {
+function nearestCall(active, want) {
+  const asTime=call=>Date.parse(call.replace(' ','T')+':00Z');
+  const scheduled=asTime(want);
+  let best, smallest=Infinity;
+  for (const entry of active) {
+    const gap=Math.abs(asTime(entry.call)-scheduled);
+    if (gap<smallest) {best=entry;smallest=gap;}
+    else if (gap===smallest) best=null;
+  }
+  return best;
+}
+
+export function chooseCall(times, expected, allowSole=false, allowNearest=false) {
   const options=Array.from(new Set(times.map(normalizeTime).filter(Boolean)));
   if (!options.length) throw fault(409,'no_calls','没有可识别的靠次。');
   const want=normalizeTime(expected);
   const indices=times.map((v,i)=>normalizeTime(v)===want && want ? i:-1).filter(i=>i>=0);
   if (!indices.length) {
-    const sole=allowSole && want && soleCall(times);
-    if (sole) return {kind:'selected',...sole,resolvedSole:true};
-    if (options.length===1 && !soleCall(times)) {
+    const active=completeCalls(times);
+    if (allowSole && want && active?.length===1) return {kind:'selected',...active[0],resolvedSole:true};
+    if (allowNearest && want && active?.length>1) {
+      const closest=nearestCall(active,want);
+      if (closest) return {kind:'selected',...closest,resolvedNearest:true,nativeCalls:active.map(entry=>entry.call)};
+    }
+    if (options.length===1 && active?.length!==1) {
       throw fault(409,'ambiguous_call','原系统的靠次重复或格式不明，请核实靠次。');
     }
     return {kind:'choose',options};
@@ -286,14 +305,19 @@ async function exportCall(page,cfg,input,downloadTap,stage=()=>{}) {
   stage('criteria');
   const labels=await inputCodes(frame,C,vvd,port);
   stage('call');
-  const pick=chooseCall(labels,input.expectedCall,input.allowSole===true);
+  const pick=chooseCall(labels,input.expectedCall,input.allowSole===true,input.allowNearest===true);
   if (pick.kind==='choose') return pick;
   const {call,index}=pick;
-  const provenance=pick.resolvedSole ? {resolvedSole:true} : {};
+  const provenance=pick.resolvedSole ? {resolvedSole:true} :
+    pick.resolvedNearest ? {resolvedNearest:true,nativeCalls:pick.nativeCalls} : {};
+  const attestedCalls=pick.resolvedNearest ? pick.nativeCalls : (pick.resolvedSole ? [call] : null);
   async function verifySelection() {
     await checkForm(frame,C,vvd,port,call);
-    if (pick.resolvedSole && soleCall(await callLabels(frame,C.call))?.call!==call) {
-      throw fault(409,'selection_changed','原系统的可选靠次已改变。');
+    if (attestedCalls) {
+      const active=completeCalls(await callLabels(frame,C.call));
+      if (active?.length!==attestedCalls.length || active.some(({call},i)=>call!==attestedCalls[i])) {
+        throw fault(409,'selection_changed','原系统的可选靠次已改变。');
+      }
     }
   }
   await frame.locator(C.call).selectOption({index});

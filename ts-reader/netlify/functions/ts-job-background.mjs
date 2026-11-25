@@ -27,8 +27,8 @@ export default async function run(request) {
       const jar = task.jar;
       if (!jar || typeof jar!=='object' || Array.isArray(jar) || !Object.keys(jar).length || Object.keys(jar).length>40 || !task.call || !task.cfg) throw new Invalid(400,'invalid_parameters');
       const cookies=Object.entries(jar).map(([name,value])=>{if(!/^[!#$%&'*+.^_A-Za-z0-9|~-]{1,90}$/.test(name) || typeof value!=='string' || /[\r\n;]/.test(value)||value.length>4096) throw new Invalid(400,'invalid_session');return {name,value};});
-      const {vvd,port,allegroCall,eta,allowSole}=task.call;
-      const output=await readManifest({vvd,port,expectedCall:allegroCall||eta||'',allowSole:allowSole===true,cookies},task.cfg,progress.stage);
+      const {vvd,port,allegroCall,eta,allowSole,allowNearest}=task.call;
+      const output=await readManifest({vvd,port,expectedCall:allegroCall||eta||'',allowSole:allowSole===true,allowNearest:allowNearest===true,cookies},task.cfg,progress.stage);
       result=shape(output);
     }
   } catch(error) {
