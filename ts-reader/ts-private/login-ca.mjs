@@ -1,4 +1,6 @@
------BEGIN CERTIFICATE-----
+import tls from 'node:tls';
+import {X509Certificate} from 'node:crypto';
+const intermediatePem = `-----BEGIN CERTIFICATE-----
 MIIFxjCCBK6gAwIBAgIQDwa7CTBhSCZ/yhtxwduAfTANBgkqhkiG9w0BAQsFADBh
 MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
 d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBH
@@ -30,4 +32,15 @@ aGeboE3d1KAN4Gt+eioRvgNdmDKbVFCYY0C6ErIXIvSGXafsprU2dclka/kmH+9U
 0r1Z+Xya1adf9/e1LFj1CGdq9HfQ/HFWP2khzxQZ4u62sOHuZdPgtNidFOhQLC+2
 5cNsPgqsaCrGLbSjzni7VN7NhAbTsLhA1oz41vHHB+q4ZzNlC01elmPBOtupe2HM
 /lqMA/J/nTxc718THdxpszFllAET1/lFEolnqihpUFPaPjRwU7yZIseS
------END CERTIFICATE-----
+-----END CERTIFICATE-----`;
+export function verifiedCA() {
+  const member = new X509Certificate(intermediatePem);
+  const now = Date.now();
+  if (!member.ca || Date.parse(member.validFrom)>now || Date.parse(member.validTo)<now ||
+      !tls.rootCertificates.some(pem => {
+        const root = new X509Certificate(pem);
+        return member.checkIssued(root) && member.verify(root.publicKey);
+      })) throw new Error('source_tls');
+  return [...tls.rootCertificates, intermediatePem];
+}
+

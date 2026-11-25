@@ -1,7 +1,7 @@
 [build]
-  base = "tdr-relay"
-  command = "node prepare-netlify.mjs"
-  publish = "netlify/public"
+  base = "ts-reader"
+  command = "node --check netlify/functions/ts-job-background.mjs && node --check netlify/functions/ts-result.mjs && node --check netlify/functions/ts-login.mjs"
+  publish = "public"
 
 [build.environment]
   NODE_VERSION = "24"
@@ -10,9 +10,5 @@
   directory = "netlify/functions"
   node_bundler = "esbuild"
 
-[template.environment]
-  RELAY_ACCESS_TOKEN = "Set a random access token of at least 32 characters; keep it private."
-
-# Isolate heavy browser dependencies to the T/S loading background function.
 [functions."ts-job-background"]
   external_node_modules = ["@sparticuz/chromium", "playwright-core"]
