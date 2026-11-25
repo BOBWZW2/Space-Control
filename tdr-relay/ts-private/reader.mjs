@@ -293,7 +293,7 @@ async function useBrowser(cfg, jar, execute) {
   const agent=new https.Agent({keepAlive:true,maxSockets:16,ca:verifiedCA(),rejectUnauthorized:true});
   let browser,ctx,timer;
   try {
-    browser=await chromium.launch({executablePath,args:binary.args.filter(arg=>arg!=='--ignore-certificate-errors'&&arg!=='--disable-web-security'&&arg!=='--allow-running-insecure-content'),headless:true,timeout:35000});
+    browser=await chromium.launch({executablePath,args:binary.args.filter(arg=>!['--ignore-certificate-errors','--disable-web-security','--allow-running-insecure-content','--disable-site-isolation-trials'].includes(arg) && !arg.startsWith('--disable-features=')),headless:true,timeout:35000});
     ctx=await browser.newContext({acceptDownloads:true,locale:'en-US',serviceWorkers:'block',viewport:{width:1440,height:960}});
     await ctx.addCookies(jar);
     await ctx.route('**/*',async route=>{
