@@ -99,7 +99,7 @@ async function requestPage(agent, request, origin) {
   const data = request.postDataBuffer();
   if (data?.length > 256*1024) throw new Error('request size');
   const response = await new Promise((resolve,reject) => {
-    const req = https.request(url,{method:request.method(),agent,headers,signal:AbortSignal.timeout(32000)}, resolve);
+    const req = https.request(url,{method:request.method(),agent,headers,signal:AbortSignal.timeout(75000)}, resolve);
     req.once('error',reject); req.end(data);
   });
   const chunks = []; let total = 0;

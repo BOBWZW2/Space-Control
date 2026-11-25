@@ -1,6 +1,6 @@
 import {createHash,createPublicKey,verify,createCipheriv,createDecipheriv,randomBytes} from 'node:crypto';
 
-const key = createPublicKey({format:'jwk', key:{kty:'EC',crv:'P-256',x:'Zy61ZMr-RuTWLNRsJiaGlisQGVyoKoUQca1sW6WijuU',y:'kcawdqdkEsJbYSLj8h-R8kCGz5rTjlpLR26juJqk-GY'}});
+const key = createPublicKey({format:'jwk', key:{kty:'EC',crv:'P-256',x:'yATVM126sPD7AZ8wbWTXQ5AmRBmCnJ0Sn3Ww7LXFZnM',y:'bzPZjnXueowKD86S8A5G96Hs1o5gMQD6ZnN067qYM8A'}});
 export const TTL = 8 * 60 * 1000;
 export const FILE_LIMIT = 4 * 1024 * 1024;
 export const json = (obj,status=200) => Response.json(obj,{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff'}});
