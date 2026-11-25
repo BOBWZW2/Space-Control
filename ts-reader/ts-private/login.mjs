@@ -1,8 +1,6 @@
-import https from 'node:https';
-import {gunzipSync,inflateSync,brotliDecompressSync} from 'node:zlib';
 import {createHash} from 'node:crypto';
-import {verifiedCA} from './login-ca.mjs';
 import {Invalid} from './protocol.mjs';
+import {useBrowser} from './reader.mjs';
 
 const fields=['origin','form','submit','check','uid','pwd','button','envelope','userField','passField','successKey','successValue','statusKey'];
 const targetPin='7a2a69d8a92f6d3451d71e040065dd041a03486bb51783e4f0eb1c4f37ebbc2e';
@@ -11,113 +9,86 @@ function target(c) {
     createHash('sha256').update(JSON.stringify(fields.map(k=>c[k]))).digest('hex')!==targetPin) throw new Invalid(400,'invalid');
   return Object.fromEntries(fields.map(k=>[k,c[k]]));
 }
-const maximumResponse = 1024 * 1024;
-export function decodeNativeBody(bytes, encoding) {
-  const decompress = {gzip:gunzipSync,deflate:inflateSync,br:brotliDecompressSync}[String(encoding || '').toLowerCase()];
-  if (decompress) bytes=decompress(bytes,{maxOutputLength:maximumResponse});
-  else if (encoding && encoding !== 'identity') throw new Error('unsupported_encoding');
-  return bytes.toString('utf8').replace(/^\uFEFF/,'');
+
+async function checkSession(page,c) {
+  // Same HTTPS session and read-only session check used by the source application's signed-in shell.
+  const status=await page.evaluate(async ([url,field])=>{
+    const res=await fetch(url,{method:'GET',credentials:'same-origin',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(8000),
+      headers:{'Accept':'application/json, text/plain, */*','X-Requested-With':'XMLHttpRequest'}});
+    if(!res.ok) return 'http';
+    const data=await res.json().catch(()=>null);
+    return data && typeof data[field]==='boolean' ? data[field] : 'invalid';
+  },[c.origin+c.check,c.statusKey]).catch(()=>{throw new Invalid(502,'login_check_transport');});
+  if(status==='http') throw new Invalid(502,'login_check_http');
+  if(typeof status!=='boolean') throw new Invalid(502,'unexpected_session_response');
+  return status;
 }
 
-function nativeRequest(url,options,body) {
-  return new Promise((resolve,reject)=>{
-    const req=https.request(url,options,async res=>{
-      try {
-        const chunks=[];let length=0;
-        for await(const chunk of res) {
-          length+=chunk.length;
-          if(length>maximumResponse) {res.destroy();throw new Error();}
-          chunks.push(chunk);
-        }
-        resolve({status:res.statusCode,headers:res.headers,text:decodeNativeBody(Buffer.concat(chunks),res.headers['content-encoding'])});
-      } catch{reject(new Invalid(502,'allegro_unavailable'));}
-    });
-    req.once('error',()=>reject(new Invalid(502,'allegro_unavailable')));
-    req.end(body);
-  });
-}
-function capture(jar,values) {
-  for(const cookie of (typeof values==='string'?[values]:values||[])) {
-    const pair=cookie.split(';',1)[0], index=pair.indexOf('=');
-    if(index<1) continue;
-    const k=pair.slice(0,index).trim(),v=pair.slice(index+1).trim();
-    if(!/^[\w.-]{1,80}$/.test(k)||['constructor','prototype','__proto__'].includes(k)||v.length>4096||/[^\x21-\x7e]|[;,]/.test(v)) continue;
-    if(!v || /;\s*max-age\s*=\s*(?:0|-\d+)\b/i.test(cookie)) delete jar[k]; else jar[k]=v;
+async function sessionCookies(context,checkURL) {
+  const jar=Object.create(null);
+  for(const {name,value} of await context.cookies(checkURL)) {
+    if(!/^[\w.-]{1,80}$/.test(name) || ['constructor','__proto__','prototype'].includes(name) ||
+        !value || value.length>4096 || /[^\x21-\x7e]|[;,]/.test(value)) continue;
+    if(Object.hasOwn(jar,name) && jar[name]!==value) throw new Invalid(502,'invalid_session');
+    jar[name]=value;
   }
-  if(Object.keys(jar).length>80 || Buffer.byteLength(JSON.stringify(jar))>6000)throw new Invalid(502,'invalid_session');
-}
-function knownForm(html,c) {
-  const tags=html.match(/<(?:input|button)\b[^>]*>/gi)||[];
-  const controls=tags.map(tag=>new Map([...tag.matchAll(/\s([a-z][\w:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s/>]+))/gi)]
-    .map(m=>[m[1].toLowerCase(),m[2]??m[3]??m[4]])));
-  if(!controls.some(a=>a.get('id')===c.pwd))return false;
-  return html.includes(c.submit.slice(c.submit.lastIndexOf('/'))) ||
-    (controls.some(a=>a.get('id')===c.pwd && a.get('type')?.toLowerCase()==='password') &&
-      controls.some(a=>a.get('id')===c.uid) && controls.some(a=>a.get('id')===c.button));
-}
-function objectJSON(text,code) {
-  try {
-    const object=JSON.parse(text);
-    if(!object || Array.isArray(object) || typeof object!=='object')throw Error();
-    return object;
-  } catch{throw new Invalid(502,code);}
+  if(!Object.keys(jar).length || Object.keys(jar).length>80 || Buffer.byteLength(JSON.stringify(jar))>6000) throw new Invalid(502,'invalid_session');
+  return jar;
 }
 
-export async function portalLogin(payload,send=nativeRequest) {
+export async function portalLogin(payload,reportStage=()=>{},run=useBrowser) {
   const c=target(payload.cfg);
-  const {username,password}=payload;
   const probe=Object.hasOwn(payload,'probe');
   if(probe && (payload.probe!==true || Object.hasOwn(payload,'username') || Object.hasOwn(payload,'password'))) throw new Invalid(400,'invalid_probe');
-  if(!probe && (typeof username!=='string' || !username.trim() || username.length>100 || typeof password!=='string' || !password || password.length>256)) throw new Invalid(400,'invalid');
-  const jar=Object.create(null);
-  let agent;
-  try {agent=new https.Agent({ca:verifiedCA(),minVersion:'TLSv1.2',rejectUnauthorized:true,keepAlive:true,maxSockets:1});}
-  catch {throw new Invalid(502,'login_form_transport');}
-  const deadline=AbortSignal.timeout(22500);
-  async function request(path,method='GET',body) {
-    const stage=path===c.form?'login_form':path===c.submit?'login_submit':'login_check';
-    let url=new URL(path,c.origin);
-    const headers={'accept-encoding':'identity','accept-language':'en-US,en;q=0.8',origin:c.origin,referer:new URL(c.form,c.origin).href,'cache-control':'no-cache'};
-    headers.accept=path===c.form ? 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' :
-      path===c.check ? 'application/json, text/plain, */*' : 'application/json, text/javascript, */*; q=0.01';
-    if(path!==c.form) headers['x-requested-with']='XMLHttpRequest';
-    if(body) {
-      headers['content-type']='application/json; charset=UTF-8';
-      headers['content-length']=String(Buffer.byteLength(body));
-    }
-    for (let hop=0;hop<=3;hop++) {
-      headers.cookie=Object.entries(jar).map(([k,v])=>k+'='+v).join('; ');
-      let response;
-      try {response=await send(url,{method,headers,agent,signal:deadline},body);}
-      catch {throw new Invalid(502,stage+'_transport');}
-      capture(jar,response.headers['set-cookie']);
-      if (response.status>=200 && response.status<300) return response.text;
-      if (path===c.submit && response.status===401) throw new Invalid(401,'invalid_credentials');
-      if (method==='GET' && [301,302,303,307,308].includes(response.status) && response.headers.location && hop<3) {
-        let next;
-        try {next=new URL(response.headers.location,url);} catch {throw new Invalid(502,stage+'_http');}
-        if(next.protocol==='http:' && next.hostname===url.hostname && !next.port) next.protocol='https:';
-        if(next.origin===c.origin && !next.username && !next.password && next.pathname.startsWith(c.form.slice(0,c.form.lastIndexOf('/')+1))) {
-          url=next; continue;
-        }
+  if(!probe && (typeof payload.username!=='string' || !payload.username.trim() || payload.username.length>100 ||
+      typeof payload.password!=='string' || !payload.password || payload.password.length>256)) throw new Invalid(400,'invalid');
+  const policy={submitUrl:c.origin+c.submit,armed:false,recognizes:e=>e instanceof Invalid};
+  let phase='page';
+  function setPhase(value){phase=value;reportStage(value);}
+  try {
+    setPhase('page');
+    return await run(c,[],async page=>{
+      const formResponse=await page.goto(c.origin+c.form,{waitUntil:'domcontentloaded',timeout:17000});
+      if(!formResponse || !formResponse.ok() || new URL(page.url()).origin!==c.origin) throw new Invalid(502,'login_form_http');
+      setPhase('form');
+      const uid=page.locator('#'+c.uid),pwd=page.locator('input[type="password"]#'+c.pwd),button=page.locator('#'+c.button);
+      try {await Promise.all([uid,pwd,button].map(n=>n.waitFor({state:'visible',timeout:5000})));} catch {throw new Invalid(502,'unexpected_login_page');}
+      if(probe) {
+        setPhase('session');
+        if(await checkSession(page,c)) throw new Invalid(502,'probe_session_check');
+        setPhase('receipt');return {kind:'login-ready',landing:true,sessionCheck:true};
       }
-      throw new Invalid(502,stage+'_http');
-    }
+      await uid.fill(payload.username.trim());
+      await pwd.fill(payload.password);
+      setPhase('submit');
+      const responsePromise=page.waitForResponse(res=>res.url()===policy.submitUrl && res.request().method()==='POST',{timeout:14000});
+      policy.armed=true;
+      let response;
+      try {
+        [response]=await Promise.all([responsePromise,button.click({timeout:7000,noWaitAfter:true})]);
+      } catch {throw new Invalid(502,'login_submit_transport');}
+      finally {policy.armed=false;}
+      if(response.status()===401) throw new Invalid(401,'invalid_credentials');
+      if(!response.ok()) throw new Invalid(502,'login_submit_http');
+      const data=await response.json().catch(()=>null);
+      const result=(data?.[c.envelope] || data?.user || data)?.[c.successKey];
+      if(typeof result==='string' && result.trim().toLowerCase()!==c.successValue.toLowerCase()) throw new Invalid(401,'invalid_credentials');
+      // The native page can navigate in its sign-on callback. A stable same-origin page
+      // verifies the resulting session without repeating the form POST.
+      setPhase('session');
+      const checkPage=await page.context().newPage();
+      try {
+        const res=await checkPage.goto(c.origin+c.check,{waitUntil:'domcontentloaded',timeout:8500});
+        if(!res?.ok()) throw new Invalid(502,'login_check_http');
+        const data=await res.json().catch(()=>null);
+        if(typeof data?.[c.statusKey]!=='boolean') throw new Invalid(502,'unexpected_session_response');
+        if(!data[c.statusKey]) throw new Invalid(502,typeof result==='string'?'invalid_session':'unexpected_signon_response');
+      } finally {await checkPage.close().catch(()=>{});}
+      setPhase('receipt');
+      return sessionCookies(page.context(),c.origin+c.check);
+    },policy);
+  } catch(e) {
+    if(e instanceof Invalid) throw e;
+    throw new Invalid(502,phase==='submit'?'login_submit_transport':phase==='session'?'login_check_transport':phase==='receipt'?'invalid_session':'login_form_transport');
   }
-  try{
-    if(!knownForm(await request(c.form),c))throw new Invalid(502,'unexpected_login_page');
-    if(probe) {
-      const check=objectJSON(await request(c.check),'probe_session_check');
-      if(check[c.statusKey]!==false)throw new Invalid(502,'probe_session_check');
-      return {kind:'login-ready',landing:true,sessionCheck:true};
-    }
-    const data=objectJSON(await request(c.submit,'POST',JSON.stringify({header:{},[c.envelope]:{[c.userField]:username.trim(),[c.passField]:password}})),'unexpected_signon_response');
-    const signon=data[c.envelope] || data.user || data;
-    if(typeof signon[c.successKey]!=='string')throw new Invalid(502,'unexpected_signon_response');
-    if(signon[c.successKey].trim().toLowerCase()!==c.successValue.toLowerCase())throw new Invalid(401,'invalid_credentials');
-    const check=objectJSON(await request(c.check),'unexpected_session_response');
-    if(typeof check[c.statusKey]!=='boolean')throw new Invalid(502,'unexpected_session_response');
-    if(check[c.statusKey]!==true || !Object.keys(jar).length)throw new Invalid(502,'invalid_session');
-    return jar;
-  }finally{agent.destroy();}
 }

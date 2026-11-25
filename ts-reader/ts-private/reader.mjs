@@ -318,7 +318,9 @@ export function isXlsx(data) {
     data.includes(Buffer.from('[Content_Types].xml')) && data.includes(Buffer.from('xl/worksheets/')) && data.lastIndexOf(Buffer.from([0x50,0x4b,5,6]))>=0;
 }
 
-async function useBrowser(cfg, jar, execute) {
+export async function useBrowser(cfg,jar,execute,loginOnly=null) {
+  if (createHash('sha256').update(String(cfg.origin)).digest('hex')!==originPin) throw fault(400,'reader_config','配置无效。');
+  let submitted=false;
   const [{chromium}, {default:binary}]=await Promise.all([import('playwright-core'),import('@sparticuz/chromium')]);
   binary.setGraphicsMode=false;
   const executablePath=await binary.executablePath();
@@ -348,8 +350,13 @@ async function useBrowser(cfg, jar, execute) {
     await ctx.route('**/*',async route=>{
       const req=route.request();
       if (!isPermittedUrl(req.url(),cfg.origin) || ['image','media','font'].includes(req.resourceType())) return route.abort().catch(()=>{});
+      if (loginOnly && req.method()==='POST') {
+        if(submitted || !loginOnly.armed || req.url()!==loginOnly.submitUrl) return route.abort().catch(()=>{});
+        submitted=true;
+      }
       try {
         const res=await requestPage(agent,req,cfg.origin);
+        if(loginOnly && req.method()==='POST' && [307,308].includes(res.status)) return route.abort().catch(()=>{});
         if (res.cookies.length) await applySourceCookies(ctx,res.cookies,req.url());
         if (downloadTap.receive && res.status>=200 && res.status<300 &&
             (/spreadsheet|octet-stream/i.test(res.headers['content-type'] || '') || /\.xlsx/i.test(res.headers['content-disposition'] || '')) && isXlsx(res.body)) {
@@ -362,7 +369,7 @@ async function useBrowser(cfg, jar, execute) {
     const page=await ctx.newPage();page.setDefaultTimeout(12000);
     return await Promise.race([execute(page,downloadTap),new Promise((_,reject)=>{timer=setTimeout(()=>reject(fault(504,'query_timeout','原系统查询超时，请重试。')),154000);})]);
   } catch (error) {
-    if (error instanceof ReadError) throw error;
+    if (error instanceof ReadError || loginOnly && loginOnly.recognizes(error)) throw error;
     throw fault(502,'native_query_failed','未能核对原生装船清单。');
   } finally {
     clearTimeout(timer);agent.destroy();

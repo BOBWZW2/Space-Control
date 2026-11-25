@@ -12,3 +12,6 @@
 
 [functions."ts-job-background"]
   external_node_modules = ["@sparticuz/chromium", "playwright-core"]
+
+[functions."ts-login"]
+  external_node_modules = ["@sparticuz/chromium", "playwright-core"]
