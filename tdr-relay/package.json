@@ -2,6 +2,17 @@
   "name": "space-control-allegro-relay",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.19.0" },
-  "scripts": { "start": "node server.mjs", "pretest": "node prepare-netlify.mjs", "test": "node --test *.test.mjs" }
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "pretest": "node prepare-netlify.mjs",
+    "test": "node --test *.test.mjs"
+  },
+  "dependencies": {
+    "@netlify/blobs": "11.1.11",
+    "@sparticuz/chromium": "158.0.0",
+    "playwright-core": "1.65.0"
+  }
 }
